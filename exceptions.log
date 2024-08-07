@@ -1,0 +1,86 @@
+[2024-08-06 19:44:25] [31merror[39m: 	[31muncaughtException: Cannot find module 'utils/helper'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31mError: Cannot find module 'utils/helper'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31m    at Function.Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)[39m
+[31m    at Function.Module._resolveFilename (/Users/anmolnoor/Developer/authWAPI/node_modules/module-alias/index.js:49:29)[39m
+[31m    at Function.Module._load (node:internal/modules/cjs/loader:985:27)[39m
+[31m    at Module.require (node:internal/modules/cjs/loader:1235:19)[39m
+[31m    at require (node:internal/modules/helpers:176:18)[39m
+[31m    at Object.<anonymous> (/Users/anmolnoor/Developer/authWAPI/src/routes/router.ts:1:1)[39m
+[31m    at Module._compile (node:internal/modules/cjs/loader:1376:14)[39m
+[31m    at Module._compile (/Users/anmolnoor/Developer/authWAPI/node_modules/source-map-support/source-map-support.js:568:25)[39m
+[31m    at Module.m._compile (/private/var/folders/kt/4b4tyf19643_fhwj817l6pgm0000gn/T/ts-node-dev-hook-7964025375938355.js:69:33)[39m
+[31m    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)[39m
+[2024-08-06 19:44:47] [31merror[39m: 	[31muncaughtException: Cannot find module 'controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31mError: Cannot find module 'controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31m    at Function.Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)[39m
+[31m    at Function.Module._resolveFilename (/Users/anmolnoor/Developer/authWAPI/node_modules/module-alias/index.js:49:29)[39m
+[31m    at Function.Module._load (node:internal/modules/cjs/loader:985:27)[39m
+[31m    at Module.require (node:internal/modules/cjs/loader:1235:19)[39m
+[31m    at require (node:internal/modules/helpers:176:18)[39m
+[31m    at Object.<anonymous> (/Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts:2:1)[39m
+[31m    at Module._compile (node:internal/modules/cjs/loader:1376:14)[39m
+[31m    at Module._compile (/Users/anmolnoor/Developer/authWAPI/node_modules/source-map-support/source-map-support.js:568:25)[39m
+[31m    at Module.m._compile (/private/var/folders/kt/4b4tyf19643_fhwj817l6pgm0000gn/T/ts-node-dev-hook-7964025375938355.js:69:33)[39m
+[31m    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)[39m
+[2024-08-06 19:45:06] [31merror[39m: 	[31muncaughtException: Cannot find module '@/controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31mError: Cannot find module '@/controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31m    at Function.Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)[39m
+[31m    at Function.Module._resolveFilename (/Users/anmolnoor/Developer/authWAPI/node_modules/module-alias/index.js:49:29)[39m
+[31m    at Function.Module._load (node:internal/modules/cjs/loader:985:27)[39m
+[31m    at Module.require (node:internal/modules/cjs/loader:1235:19)[39m
+[31m    at require (node:internal/modules/helpers:176:18)[39m
+[31m    at Object.<anonymous> (/Users/anmolnoor/Developer/authWAPI/src/routes/auth.router.ts:2:1)[39m
+[31m    at Module._compile (node:internal/modules/cjs/loader:1376:14)[39m
+[31m    at Module._compile (/Users/anmolnoor/Developer/authWAPI/node_modules/source-map-support/source-map-support.js:568:25)[39m
+[31m    at Module.m._compile (/private/var/folders/kt/4b4tyf19643_fhwj817l6pgm0000gn/T/ts-node-dev-hook-7964025375938355.js:69:33)[39m
+[31m    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)[39m
+[2024-08-06 19:45:14] [31merror[39m: 	[31muncaughtException: Cannot find module 'controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/user.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31mError: Cannot find module 'controllers'[39m
+[31mRequire stack:[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/user.router.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/routes/index.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/app.ts[39m
+[31m- /Users/anmolnoor/Developer/authWAPI/src/server.ts[39m
+[31m    at Function.Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)[39m
+[31m    at Function.Module._resolveFilename (/Users/anmolnoor/Developer/authWAPI/node_modules/module-alias/index.js:49:29)[39m
+[31m    at Function.Module._load (node:internal/modules/cjs/loader:985:27)[39m
+[31m    at Module.require (node:internal/modules/cjs/loader:1235:19)[39m
+[31m    at require (node:internal/modules/helpers:176:18)[39m
+[31m    at Object.<anonymous> (/Users/anmolnoor/Developer/authWAPI/src/routes/user.router.ts:2:1)[39m
+[31m    at Module._compile (node:internal/modules/cjs/loader:1376:14)[39m
+[31m    at Module._compile (/Users/anmolnoor/Developer/authWAPI/node_modules/source-map-support/source-map-support.js:568:25)[39m
+[31m    at Module.m._compile (/private/var/folders/kt/4b4tyf19643_fhwj817l6pgm0000gn/T/ts-node-dev-hook-7964025375938355.js:69:33)[39m
+[31m    at Module._extensions..js (node:internal/modules/cjs/loader:1435:10)[39m

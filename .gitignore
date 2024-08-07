@@ -1,0 +1,30 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+node_modules
+dist
+build
+coverage
+.env
+
+# dependencies
+*/node_modules
+/.pnp       # PnP configuration for packages
+.pnp.js     # PnP configuration for packages
+
+# testing
+/coverage   # coverage report
+
+# production
+*/build      # generated files
+*/dist       # generated files
+
+# misc
+.DS_Store                        # OS X
+.env.local                       # dotenv
+.env.development.local           # dotenv
+.env.test.local                  # dotenv
+.env.production.local            # dotenv
+
+npm-debug.log*                   # npm
+yarn-debug.log*                  # yarn
+yarn-error.log*                  # yarn
