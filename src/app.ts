@@ -25,7 +25,7 @@ dotenv.config({ path: './.env' });
 const app: Express = express();
 
 // trust proxy from vercel
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // cors
 app.use(cors());
@@ -52,11 +52,11 @@ const limiter = rateLimit({
   message: 'Too many request from this IP, Please try again in an Hour!',
 });
 
-app.use('/api', limiter);
+app.use('/', limiter);
 
 // Body parser and reading data from the body into req.body
 // { limit: '4096kb' }
-app.use(express.json());
+app.use(express.json({ limit: '4096kb' }));
 
 // cookie parser
 app.use(cookieParser());

@@ -9,7 +9,7 @@ router.post('/login', Auth.login);
 
 router.patch('/reset-password/:token', Auth.resetPassword);
 
-router.post('/forgot-password', Auth.forgotPassword);
+router.post('/forget-password', Auth.forgotPassword);
 
 router.get('/logout', Auth.logout);
 

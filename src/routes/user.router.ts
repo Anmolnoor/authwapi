@@ -5,7 +5,9 @@ import { upload } from '../utils/multerService';
 
 const router = express.Router();
 
-router.get('/:username', User.getPublicProfile);
+router.get('/me', Auth.protect, User.getUserDetails);
+
+router.post('/update-password', Auth.protect, Auth.updatePassword);
 
 router.post(
   '/upload-image',

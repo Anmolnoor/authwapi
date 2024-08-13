@@ -4,3 +4,276 @@
 [2024-08-06 19:48:44] [32minfo[39m: 	[32mDB is Connected!![39m
 [2024-08-06 19:48:44] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
 [2024-08-06 19:49:01] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-10 21:27:54] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-10 21:27:54] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-10 21:31:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-10 21:31:42] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-10 21:31:42] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-10 21:32:14] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-10 21:32:18] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-10 21:32:18] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-10 21:34:42] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-10 21:34:45] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-10 21:34:45] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-10 21:35:03] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 15:38:34] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 15:38:34] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 15:48:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 15:48:36] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 15:48:36] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 15:50:20] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 15:50:26] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 15:50:26] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:41:59] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:42:10] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:42:10] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:42:46] [31merror[39m: 	[31m{[39m
+[31m  status: 400,[39m
+[31m  msg: `Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON`,[39m
+[31m  errstack: `SyntaxError: Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON\n` +[39m
+[31m    '    at JSON.parse (<anonymous>)\n' +[39m
+[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
+[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
+[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
+[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
+[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
+[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
+[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
+[31m  err: SyntaxError: Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON[39m
+[31m      at JSON.parse (<anonymous>)[39m
+[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
+[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
+[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
+[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
+[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
+[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
+[31m      at IncomingMessage.emit (node:events:514:28)[39m
+[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
+[31m    expose: true,[39m
+[31m    statusCode: 400,[39m
+[31m    status: 400,[39m
+[31m    body: '{\n' +[39m
+[31m      '      "email": bzazpr@test.com,\n' +[39m
+[31m      '      "username": c5x14n7mgg,\n' +[39m
+[31m      '      "password": 45vpfabfo,\n' +[39m
+[31m      '      "passwordConfirm": 45vpfabfo,\n' +[39m
+[31m      '      "image": default,\n' +[39m
+[31m      '      "firstName": c5x14n7mgg,\n' +[39m
+[31m      '      "lastName": c5x14n7mgg,\n' +[39m
+[31m      '      "phone": 3647654779\n' +[39m
+[31m      '}',[39m
+[31m    type: 'entity.parse.failed'[39m
+[31m  }[39m
+[31m}[39m
+[2024-08-12 16:43:14] [31merror[39m: 	[31m{[39m
+[31m  status: 400,[39m
+[31m  msg: `Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON`,[39m
+[31m  errstack: `SyntaxError: Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON\n` +[39m
+[31m    '    at JSON.parse (<anonymous>)\n' +[39m
+[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
+[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
+[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
+[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
+[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
+[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
+[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
+[31m  err: SyntaxError: Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON[39m
+[31m      at JSON.parse (<anonymous>)[39m
+[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
+[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
+[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
+[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
+[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
+[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
+[31m      at IncomingMessage.emit (node:events:514:28)[39m
+[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
+[31m    expose: true,[39m
+[31m    statusCode: 400,[39m
+[31m    status: 400,[39m
+[31m    body: '{\n' +[39m
+[31m      '    "email": cb1d95@test.com,\n' +[39m
+[31m      '    "username": 7bk4fi75hzd,\n' +[39m
+[31m      '    "password": gayg9tomd,\n' +[39m
+[31m      '    "passwordConfirm": gayg9tomd,\n' +[39m
+[31m      '    "image": default,\n' +[39m
+[31m      '    "firstName": 7bk4fi75hzd,\n' +[39m
+[31m      '    "lastName": 7bk4fi75hzd,\n' +[39m
+[31m      '    "phone": 2036762009\n' +[39m
+[31m      '}',[39m
+[31m    type: 'entity.parse.failed'[39m
+[31m  }[39m
+[31m}[39m
+[2024-08-12 16:46:55] [31merror[39m: 	[31m{[39m
+[31m  status: 400,[39m
+[31m  msg: "Expected ',' or '}' after property value in JSON at position 23",[39m
+[31m  errstack: "SyntaxError: Expected ',' or '}' after property value in JSON at position 23\n" +[39m
+[31m    '    at JSON.parse (<anonymous>)\n' +[39m
+[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
+[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
+[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
+[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
+[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
+[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
+[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
+[31m  err: SyntaxError: Expected ',' or '}' after property value in JSON at position 23[39m
+[31m      at JSON.parse (<anonymous>)[39m
+[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
+[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
+[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
+[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
+[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
+[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
+[31m      at IncomingMessage.emit (node:events:514:28)[39m
+[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
+[31m    expose: true,[39m
+[31m    statusCode: 400,[39m
+[31m    status: 400,[39m
+[31m    body: '{\n' +[39m
+[31m      '    "email": "hwl2if"@test.com,\n' +[39m
+[31m      '    "username": "2hpurpme70b",\n' +[39m
+[31m      '    "password": "5tgtptwm8q",\n' +[39m
+[31m      '    "passwordConfirm": "5tgtptwm8q",\n' +[39m
+[31m      '    "image": default,\n' +[39m
+[31m      '    "firstName": "2hpurpme70b",\n' +[39m
+[31m      '    "lastName": "2hpurpme70b",\n' +[39m
+[31m      '    "phone": 7639417950\n' +[39m
+[31m      '}',[39m
+[31m    type: 'entity.parse.failed'[39m
+[31m  }[39m
+[31m}[39m
+[2024-08-12 16:47:48] [31merror[39m: 	[31m{[39m
+[31m  status: 400,[39m
+[31m  msg: `Unexpected token 'd', ..." "image": default,\n "... is not valid JSON`,[39m
+[31m  errstack: `SyntaxError: Unexpected token 'd', ..." "image": default,\n` +[39m
+[31m    ' "... is not valid JSON\n' +[39m
+[31m    '    at JSON.parse (<anonymous>)\n' +[39m
+[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
+[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
+[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
+[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
+[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
+[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
+[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
+[31m  err: SyntaxError: Unexpected token 'd', ..." "image": default,[39m
+[31m   "... is not valid JSON[39m
+[31m      at JSON.parse (<anonymous>)[39m
+[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
+[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
+[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
+[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
+[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
+[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
+[31m      at IncomingMessage.emit (node:events:514:28)[39m
+[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
+[31m    expose: true,[39m
+[31m    statusCode: 400,[39m
+[31m    status: 400,[39m
+[31m    body: '{\n' +[39m
+[31m      '    "email": "pnxfu@test.com",\n' +[39m
+[31m      '    "username": "vchgqdgaxfo",\n' +[39m
+[31m      '    "password": "05scthonkc",\n' +[39m
+[31m      '    "passwordConfirm": "05scthonkc",\n' +[39m
+[31m      '    "image": default,\n' +[39m
+[31m      '    "firstName": "vchgqdgaxfo",\n' +[39m
+[31m      '    "lastName": "vchgqdgaxfo",\n' +[39m
+[31m      '    "phone": "2811328517"\n' +[39m
+[31m      '}',[39m
+[31m    type: 'entity.parse.failed'[39m
+[31m  }[39m
+[31m}[39m
+[2024-08-12 16:48:30] [31merror[39m: 	[31m{[39m
+[31m  status: 400,[39m
+[31m  msg: `Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON`,[39m
+[31m  errstack: `SyntaxError: Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON\n` +[39m
+[31m    '    at JSON.parse (<anonymous>)\n' +[39m
+[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
+[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
+[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
+[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
+[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
+[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
+[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
+[31m  err: SyntaxError: Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON[39m
+[31m      at JSON.parse (<anonymous>)[39m
+[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
+[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
+[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
+[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
+[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
+[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
+[31m      at IncomingMessage.emit (node:events:514:28)[39m
+[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
+[31m    expose: true,[39m
+[31m    statusCode: 400,[39m
+[31m    status: 400,[39m
+[31m    body: '{\n' +[39m
+[31m      '    "email": k5f8xd@test.com,\n' +[39m
+[31m      '    "username": c8omnfhuu7k,\n' +[39m
+[31m      '    "password": yp24iaq1a,\n' +[39m
+[31m      '    "passwordConfirm": yp24iaq1a,\n' +[39m
+[31m      '    "image": default,\n' +[39m
+[31m      '    "firstName": c8omnfhuu7k,\n' +[39m
+[31m      '    "lastName": c8omnfhuu7k,\n' +[39m
+[31m      '    "phone": 4017427003\n' +[39m
+[31m      '}',[39m
+[31m    type: 'entity.parse.failed'[39m
+[31m  }[39m
+[31m}[39m
+[2024-08-12 16:49:36] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:49:43] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:49:43] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:52:56] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:53:39] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:53:39] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:54:18] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:54:22] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:54:22] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:54:51] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:54:55] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:54:55] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:55:12] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:55:16] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:55:16] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 16:57:02] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 16:57:06] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 16:57:06] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 17:15:19] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 17:17:41] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 17:17:41] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 17:19:49] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 17:19:53] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 17:19:53] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 17:19:55] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 17:19:59] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 17:19:59] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 17:20:49] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 17:20:54] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 17:20:54] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 17:27:52] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 17:27:56] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 17:27:56] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 18:17:15] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 18:17:19] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 18:17:19] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 18:17:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 18:17:36] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 18:17:36] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 18:21:11] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2024-08-12 18:21:15] [32minfo[39m: 	[32mDB is Connected!![39m
+[2024-08-12 18:21:15] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
+[2024-08-12 18:30:09] [32minfo[39m: 	[32mShutting down gracefully...[39m

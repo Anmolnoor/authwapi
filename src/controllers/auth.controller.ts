@@ -91,6 +91,38 @@ const login = CatchAsync(
   }
 );
 
+const updatePassword = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    // get the user details
+    const { id } = req;
+    const { password, newPassword, newPasswordConfirm } = req.body;
+    const user = await User.findById({ _id: id });
+
+    if (user !== null) {
+      // check if the password is correct
+      const isAuthorized: boolean = await User.schema.methods.correctPassword(
+        user.password,
+        password
+      );
+      if (isAuthorized) {
+        // update the password
+        user.password = newPassword;
+        user.passwordConfirm = newPasswordConfirm;
+        // update the db with new password
+        await user?.save();
+        // get the user log in again by sending the jwt token again
+        // create the token and send to the user
+        createTokenwithCookie(id, res);
+        ResponseGenerator(res, 201, {});
+        return;
+      }
+      next(new Err('Password is incorrect', 400));
+      return;
+    }
+    next(new Err('User does not exist', 400));
+  }
+);
+
 const forgotPassword = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // get the user details
@@ -123,6 +155,9 @@ const forgotPassword = CatchAsync(
     const resetUrl = `${req.protocol}://${process.env.EMAIL_URL}${resetToken}`;
     const msg = `Forgot your password? Submit a PATCH request with your new password and password confirm to :\n${resetUrl}\nIf you didn't forgot your password, please ignore this email`;
     const subject = 'Your password reset token (valid for 10 minutes)';
+
+    console.log(resetToken);
+
     try {
       await sendMail({
         email,
@@ -295,6 +330,7 @@ const Auth = {
   resetPassword,
   currentPasswordChange,
   logout,
+  updatePassword,
 };
 
 export default Auth;

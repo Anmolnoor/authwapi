@@ -28,36 +28,18 @@ const uploadImage = CatchAsync(async (req, res, next) => {
 
 // return user details with social links
 const getUserDetails = CatchAsync(async (req, res, next) => {
-  const user = await User.findById(req.id);
-
+  const user = await User.findById(req.id).select([
+    '-password',
+    '-__v',
+    '-passwordChangedAt',
+    '-passwordResetToken',
+    '-passwordResetExpires',
+    '-active',
+    '-passwordConfirm',
+  ]);
   ResponseGenerator(res, 200, user);
 });
 
-// get public profile of user from the username from the prams of the url
-const getPublicProfile = CatchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
-    const { username } = req.params;
-    // aggregate the user and social links from the user collection
-    const user = await User.aggregate([
-      { $match: { name: username } },
-      {
-        $lookup: {
-          from: 'sociallinks',
-          localField: '_id',
-          foreignField: 'user',
-          as: 'socialLinks',
-        },
-      },
-    ]);
-
-    if (user == null) {
-      next(new Err('User not found', 404));
-      return;
-    }
-    ResponseGenerator(res, 200, { user });
-  }
-);
-
-const UserController = { uploadImage, getUserDetails, getPublicProfile };
+const UserController = { uploadImage, getUserDetails };
 
 export default UserController;
