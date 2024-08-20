@@ -28,3 +28,10 @@ coverage
 npm-debug.log*                   # npm
 yarn-debug.log*                  # yarn
 yarn-error.log*                  # yarn
+
+# logs 
+logs                       # logs   
+logs/*.log                 # logs
+logs/*.log.*               # logs
+logs/*.log-*               # logs
+logs/*.log_*               # logs

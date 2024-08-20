@@ -58,7 +58,7 @@ const startServer = async () => {
       server.close(() => {
         Logger.info('Server closed.');
         mongoose.connection.close(false);
-        Logger.info('MongoDb connection closed.');
+        Logger.info('Db connection closed.');
         process.exit(0); // Exit with a success code
       });
 
@@ -99,4 +99,4 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
   }, 10000).unref(); // 10 seconds timeout
 });
 
-export default server;
+export default startServer;

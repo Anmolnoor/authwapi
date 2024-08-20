@@ -29,13 +29,13 @@ const verifyJWTToken = (
   const decoded = decode(token);
   return { id, Jwt: decoded as JwtPayload };
 };
-
+const maxAge = 30 * 24 * 60 * 60 * 1000;
 const createTokenwithCookie = (id: ID, res: Response): void => {
   const token = createJWTToken(id);
   const cookieOptions = {
-    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    expires: new Date(Date.now() + maxAge),
     httpOnly: true,
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge,
     path: '/',
     sameSite: 'strict' as const,
     secure: process.env.NODE_ENV === 'production',
