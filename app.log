@@ -291,3 +291,300 @@
 [2024-08-22 00:49:07] [32minfo[39m: 	[32mDB is Connected!![39m
 [2024-08-22 00:49:08] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
 [2024-08-22 01:03:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 15:11:20] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 15:11:20] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 15:34:19] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1//auth/me on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1//auth/me on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1//auth/me on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:34:31] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1//auth/me on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1//auth/me on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1//auth/me on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:34:43] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/auth/me on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/auth/me on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/auth/me on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:35:40] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/auth/me on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/auth/me on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/auth/me on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:36:01] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'You are not logged in! Please log in to get access.',[39m
+[31m  errstack: 'Error: You are not logged in! Please log in to get access.\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: You are not logged in! Please log in to get access.[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 401,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:39:27] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 15:39:31] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 15:39:31] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 15:40:20] [31merror[39m: 	[31m{[39m
+[31m  status: 'error',[39m
+[31m  msg: 'There was an error while sending the email. Try again later!',[39m
+[31m  errstack: 'Error: There was an error while sending the email. Try again later!\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:178:9\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at fulfilled (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:5:58)\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:105:5)',[39m
+[31m  err: CustomErrorHandler: There was an error while sending the email. Try again later![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:178:9[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at fulfilled (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:5:58)[39m
+[31m      at processTicksAndRejections (node:internal/process/task_queues:105:5) {[39m
+[31m    statusCode: 500,[39m
+[31m    status: 'error',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:51:48] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 15:51:51] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 15:51:51] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 15:55:45] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'You are not logged in! Please log in to get access.',[39m
+[31m  errstack: 'Error: You are not logged in! Please log in to get access.\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: You are not logged in! Please log in to get access.[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 401,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:57:59] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/user/upload-image on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/user/upload-image on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/user/upload-image on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 15:59:45] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/user/upload-image on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/user/upload-image on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/user/upload-image on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-01-14 16:00:21] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:00:44] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:00:44] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:01:07] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:01:08] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:01:08] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:04:57] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:04:57] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:04:57] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:05:54] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:06:26] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:06:26] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:07:08] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:07:09] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:07:09] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:08:48] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:08:49] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:08:49] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:10:07] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:10:07] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:10:07] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:11:13] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:11:23] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:11:23] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:12:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:12:33] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:12:33] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:13:23] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-01-14 16:13:24] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-01-14 16:13:24] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-01-14 16:50:22] [32minfo[39m: 	[32mShutting down gracefully...[39m
