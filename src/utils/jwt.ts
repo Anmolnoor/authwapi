@@ -1,9 +1,9 @@
 import { Response } from 'express';
-import { decode, JwtPayload, sign, verify } from 'jsonwebtoken';
-import { ID } from 'types/model.type';
+import { decode, JwtPayload, sign, SignOptions, verify } from 'jsonwebtoken';
+import { ID } from '@/types';
 const secret = process.env.JWT_SECRET ?? 'this_is_my_Strong_secret';
-const options = {
-  expiresIn: process.env.JWT_EXPIRES_IN ?? '30d',
+const options: SignOptions = {
+  expiresIn: (process.env.JWT_EXPIRES_IN ?? 30) as number,
 };
 
 interface Payload {

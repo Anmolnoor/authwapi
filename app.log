@@ -1,0 +1,144 @@
+[2025-08-03 01:32:37] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:32:59] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:39:56] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:41:27] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-03 01:41:27] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-03 01:41:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:04:08] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:04:08] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:04:26] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:10:39] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:10:39] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:10:40] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:17:56] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:17:56] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:18:07] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-04 03:18:07] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /favicon.ico on this server!!!",[39m
+[31m  errstack: "Error: Can't found /favicon.ico on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found /favicon.ico on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-04 03:19:28] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-04 03:19:30] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-04 03:19:36] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:19:42] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:19:42] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:20:16] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:20:17] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:20:17] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:20:26] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:27:07] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:27:07] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:27:50] [32minfo[39m: 	[32mShutting down gracefully...[39m

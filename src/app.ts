@@ -76,6 +76,14 @@ const totalRequests = new prometheus.Counter({
 });
 
 // --- Routers ---
+// --- API ---
+app.use('/', (req, res) => {
+  res.json({
+    status: 'up',
+    timestamp: new Date(),
+    uptime: process.uptime(),
+  });
+});
 
 // Metrics endpoint
 app.get('/metrics', async (req, res) => {

@@ -84,7 +84,7 @@ const login = CatchAsync(
       if (isAuthorized) {
         // create the token and send to the user
         createTokenwithCookie(user._id, res);
-        return ResponseGenerator(res, 201, user);
+        return ResponseGenerator(res, 201, { user });
       }
     }
     return loginFailed(res);
