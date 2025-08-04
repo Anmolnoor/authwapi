@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import xss from 'xss-clean';
 import cors from 'cors';
+import prometheus from 'prom-client';
 
 // ---- module alias ----
 import 'module-alias/register';
@@ -61,7 +62,44 @@ app.use(express.json({ limit: '4096kb' }));
 // cookie parser
 app.use(cookieParser());
 
+// Create metrics
+const httpRequestDurationMicroseconds = new prometheus.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+});
+
+const totalRequests = new prometheus.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'],
+});
+
 // --- Routers ---
+// --- API ---
+app.use('/', (req, res) => {
+  res.json({
+    status: 'up',
+    timestamp: new Date(),
+    uptime: process.uptime(),
+  });
+});
+
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', prometheus.register.contentType);
+  res.end(await prometheus.register.metrics());
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'up',
+    timestamp: new Date(),
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage(),
+  });
+});
 // -- API-v1.0.0 --
 app.use('/api/test', route);
 app.use('/api/v1/auth', auth);

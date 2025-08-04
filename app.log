@@ -1,303 +1,22 @@
-[2024-08-06 19:45:27] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-06 19:45:27] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-06 19:48:40] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-06 19:48:44] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-06 19:48:44] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-06 19:49:01] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-10 21:27:54] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-10 21:27:54] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-10 21:31:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-10 21:31:42] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-10 21:31:42] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-10 21:32:14] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-10 21:32:18] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-10 21:32:18] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-10 21:34:42] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-10 21:34:45] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-10 21:34:45] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-10 21:35:03] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 15:38:34] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 15:38:34] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 15:48:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 15:48:36] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 15:48:36] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 15:50:20] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 15:50:26] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 15:50:26] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:41:59] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:42:10] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:42:10] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:42:46] [31merror[39m: 	[31m{[39m
-[31m  status: 400,[39m
-[31m  msg: `Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON`,[39m
-[31m  errstack: `SyntaxError: Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON\n` +[39m
-[31m    '    at JSON.parse (<anonymous>)\n' +[39m
-[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
-[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
-[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
-[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
-[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
-[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
-[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
-[31m  err: SyntaxError: Unexpected token 'b', ..." "email": bzazpr@tes"... is not valid JSON[39m
-[31m      at JSON.parse (<anonymous>)[39m
-[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
-[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
-[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
-[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
-[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
-[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
-[31m      at IncomingMessage.emit (node:events:514:28)[39m
-[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
-[31m    expose: true,[39m
-[31m    statusCode: 400,[39m
-[31m    status: 400,[39m
-[31m    body: '{\n' +[39m
-[31m      '      "email": bzazpr@test.com,\n' +[39m
-[31m      '      "username": c5x14n7mgg,\n' +[39m
-[31m      '      "password": 45vpfabfo,\n' +[39m
-[31m      '      "passwordConfirm": 45vpfabfo,\n' +[39m
-[31m      '      "image": default,\n' +[39m
-[31m      '      "firstName": c5x14n7mgg,\n' +[39m
-[31m      '      "lastName": c5x14n7mgg,\n' +[39m
-[31m      '      "phone": 3647654779\n' +[39m
-[31m      '}',[39m
-[31m    type: 'entity.parse.failed'[39m
-[31m  }[39m
-[31m}[39m
-[2024-08-12 16:43:14] [31merror[39m: 	[31m{[39m
-[31m  status: 400,[39m
-[31m  msg: `Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON`,[39m
-[31m  errstack: `SyntaxError: Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON\n` +[39m
-[31m    '    at JSON.parse (<anonymous>)\n' +[39m
-[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
-[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
-[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
-[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
-[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
-[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
-[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
-[31m  err: SyntaxError: Unexpected token 'c', ..." "email": cb1d95@tes"... is not valid JSON[39m
-[31m      at JSON.parse (<anonymous>)[39m
-[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
-[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
-[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
-[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
-[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
-[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
-[31m      at IncomingMessage.emit (node:events:514:28)[39m
-[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
-[31m    expose: true,[39m
-[31m    statusCode: 400,[39m
-[31m    status: 400,[39m
-[31m    body: '{\n' +[39m
-[31m      '    "email": cb1d95@test.com,\n' +[39m
-[31m      '    "username": 7bk4fi75hzd,\n' +[39m
-[31m      '    "password": gayg9tomd,\n' +[39m
-[31m      '    "passwordConfirm": gayg9tomd,\n' +[39m
-[31m      '    "image": default,\n' +[39m
-[31m      '    "firstName": 7bk4fi75hzd,\n' +[39m
-[31m      '    "lastName": 7bk4fi75hzd,\n' +[39m
-[31m      '    "phone": 2036762009\n' +[39m
-[31m      '}',[39m
-[31m    type: 'entity.parse.failed'[39m
-[31m  }[39m
-[31m}[39m
-[2024-08-12 16:46:55] [31merror[39m: 	[31m{[39m
-[31m  status: 400,[39m
-[31m  msg: "Expected ',' or '}' after property value in JSON at position 23",[39m
-[31m  errstack: "SyntaxError: Expected ',' or '}' after property value in JSON at position 23\n" +[39m
-[31m    '    at JSON.parse (<anonymous>)\n' +[39m
-[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
-[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
-[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
-[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
-[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
-[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
-[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
-[31m  err: SyntaxError: Expected ',' or '}' after property value in JSON at position 23[39m
-[31m      at JSON.parse (<anonymous>)[39m
-[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
-[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
-[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
-[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
-[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
-[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
-[31m      at IncomingMessage.emit (node:events:514:28)[39m
-[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
-[31m    expose: true,[39m
-[31m    statusCode: 400,[39m
-[31m    status: 400,[39m
-[31m    body: '{\n' +[39m
-[31m      '    "email": "hwl2if"@test.com,\n' +[39m
-[31m      '    "username": "2hpurpme70b",\n' +[39m
-[31m      '    "password": "5tgtptwm8q",\n' +[39m
-[31m      '    "passwordConfirm": "5tgtptwm8q",\n' +[39m
-[31m      '    "image": default,\n' +[39m
-[31m      '    "firstName": "2hpurpme70b",\n' +[39m
-[31m      '    "lastName": "2hpurpme70b",\n' +[39m
-[31m      '    "phone": 7639417950\n' +[39m
-[31m      '}',[39m
-[31m    type: 'entity.parse.failed'[39m
-[31m  }[39m
-[31m}[39m
-[2024-08-12 16:47:48] [31merror[39m: 	[31m{[39m
-[31m  status: 400,[39m
-[31m  msg: `Unexpected token 'd', ..." "image": default,\n "... is not valid JSON`,[39m
-[31m  errstack: `SyntaxError: Unexpected token 'd', ..." "image": default,\n` +[39m
-[31m    ' "... is not valid JSON\n' +[39m
-[31m    '    at JSON.parse (<anonymous>)\n' +[39m
-[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
-[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
-[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
-[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
-[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
-[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
-[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
-[31m  err: SyntaxError: Unexpected token 'd', ..." "image": default,[39m
-[31m   "... is not valid JSON[39m
-[31m      at JSON.parse (<anonymous>)[39m
-[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
-[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
-[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
-[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
-[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
-[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
-[31m      at IncomingMessage.emit (node:events:514:28)[39m
-[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
-[31m    expose: true,[39m
-[31m    statusCode: 400,[39m
-[31m    status: 400,[39m
-[31m    body: '{\n' +[39m
-[31m      '    "email": "pnxfu@test.com",\n' +[39m
-[31m      '    "username": "vchgqdgaxfo",\n' +[39m
-[31m      '    "password": "05scthonkc",\n' +[39m
-[31m      '    "passwordConfirm": "05scthonkc",\n' +[39m
-[31m      '    "image": default,\n' +[39m
-[31m      '    "firstName": "vchgqdgaxfo",\n' +[39m
-[31m      '    "lastName": "vchgqdgaxfo",\n' +[39m
-[31m      '    "phone": "2811328517"\n' +[39m
-[31m      '}',[39m
-[31m    type: 'entity.parse.failed'[39m
-[31m  }[39m
-[31m}[39m
-[2024-08-12 16:48:30] [31merror[39m: 	[31m{[39m
-[31m  status: 400,[39m
-[31m  msg: `Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON`,[39m
-[31m  errstack: `SyntaxError: Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON\n` +[39m
-[31m    '    at JSON.parse (<anonymous>)\n' +[39m
-[31m    '    at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18\n' +[39m
-[31m    '    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n' +[39m
-[31m    '    at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)\n' +[39m
-[31m    '    at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)\n' +[39m
-[31m    '    at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)\n' +[39m
-[31m    '    at IncomingMessage.emit (node:events:514:28)\n' +[39m
-[31m    '    at endReadableNT (node:internal/streams/readable:1589:12)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:82:21)',[39m
-[31m  err: SyntaxError: Unexpected token 'k', ..." "email": k5f8xd@tes"... is not valid JSON[39m
-[31m      at JSON.parse (<anonymous>)[39m
-[31m      at parse (/Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/types/json.js:92:19)[39m
-[31m      at /Users/anmolnoor/Developer/authWAPI/node_modules/body-parser/lib/read.js:128:18[39m
-[31m      at AsyncResource.runInAsyncScope (node:async_hooks:206:9)[39m
-[31m      at invokeCallback (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:238:16)[39m
-[31m      at done (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:227:7)[39m
-[31m      at IncomingMessage.onEnd (/Users/anmolnoor/Developer/authWAPI/node_modules/raw-body/index.js:287:7)[39m
-[31m      at IncomingMessage.emit (node:events:514:28)[39m
-[31m      at endReadableNT (node:internal/streams/readable:1589:12)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:82:21) {[39m
-[31m    expose: true,[39m
-[31m    statusCode: 400,[39m
-[31m    status: 400,[39m
-[31m    body: '{\n' +[39m
-[31m      '    "email": k5f8xd@test.com,\n' +[39m
-[31m      '    "username": c8omnfhuu7k,\n' +[39m
-[31m      '    "password": yp24iaq1a,\n' +[39m
-[31m      '    "passwordConfirm": yp24iaq1a,\n' +[39m
-[31m      '    "image": default,\n' +[39m
-[31m      '    "firstName": c8omnfhuu7k,\n' +[39m
-[31m      '    "lastName": c8omnfhuu7k,\n' +[39m
-[31m      '    "phone": 4017427003\n' +[39m
-[31m      '}',[39m
-[31m    type: 'entity.parse.failed'[39m
-[31m  }[39m
-[31m}[39m
-[2024-08-12 16:49:36] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:49:43] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:49:43] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:52:56] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:53:39] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:53:39] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:54:18] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:54:22] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:54:22] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:54:51] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:54:55] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:54:55] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:55:12] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:55:16] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:55:16] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 16:57:02] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 16:57:06] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 16:57:06] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 17:15:19] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 17:17:41] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 17:17:41] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 17:19:49] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 17:19:53] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 17:19:53] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 17:19:55] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 17:19:59] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 17:19:59] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 17:20:49] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 17:20:54] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 17:20:54] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 17:27:52] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 17:27:56] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 17:27:56] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 18:17:15] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 18:17:19] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 18:17:19] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 18:17:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 18:17:36] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 18:17:36] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 18:21:11] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-12 18:21:15] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-12 18:21:15] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-12 18:30:09] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-19 17:29:08] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-19 17:29:08] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-19 17:38:51] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-19 17:38:54] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-19 17:38:54] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-19 17:48:21] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-19 17:48:25] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-19 17:48:25] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-19 17:48:31] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2024-08-19 17:48:37] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-19 17:48:37] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-22 00:49:07] [32minfo[39m: 	[32mDB is Connected!![39m
-[2024-08-22 00:49:08] [32minfo[39m: 	[32mApp is running in production mode | Server is running on Port : 5555 [39m
-[2024-08-22 01:03:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 15:11:20] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 15:11:20] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 15:34:19] [31merror[39m: 	[31m{[39m
+[2025-08-03 01:32:37] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:32:59] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:39:56] [31merror[39m: 	[31mFailed to start the server: querySrv ENOTFOUND _mongodb._tcp.cluster0.porsa.mongodb.net[39m
+[2025-08-03 01:41:27] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-03 01:41:27] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-03 01:41:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:04:08] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:04:08] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:04:26] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:10:39] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:10:39] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:10:40] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:17:56] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:17:56] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:18:07] [31merror[39m: 	[31m{[39m
 [31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1//auth/me on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1//auth/me on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
 [31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
 [31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
@@ -307,8 +26,8 @@
 [31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
 [31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1//auth/me on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
 [31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
 [31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
 [31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
@@ -323,11 +42,11 @@
 [31m    isOperational: true[39m
 [31m  }[39m
 [31m}[39m
-[2025-01-14 15:34:31] [31merror[39m: 	[31m{[39m
+[2025-08-04 03:18:07] [31merror[39m: 	[31m{[39m
 [31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1//auth/me on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1//auth/me on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m  msg: "Can't found /favicon.ico on this server!!!",[39m
+[31m  errstack: "Error: Can't found /favicon.ico on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
 [31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
 [31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
@@ -337,8 +56,8 @@
 [31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
 [31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1//auth/me on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m  err: CustomErrorHandler: Can't found /favicon.ico on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
 [31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
 [31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
 [31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
@@ -353,11 +72,11 @@
 [31m    isOperational: true[39m
 [31m  }[39m
 [31m}[39m
-[2025-01-14 15:34:43] [31merror[39m: 	[31m{[39m
+[2025-08-04 03:19:28] [31merror[39m: 	[31m{[39m
 [31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1/auth/me on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1/auth/me on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
 [31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
 [31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
@@ -365,10 +84,10 @@
 [31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
 [31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
 [31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1/auth/me on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
 [31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
 [31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
 [31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
@@ -376,18 +95,18 @@
 [31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
 [31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
 [31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
 [31m    statusCode: 404,[39m
 [31m    status: 'fail',[39m
 [31m    isOperational: true[39m
 [31m  }[39m
 [31m}[39m
-[2025-01-14 15:35:40] [31merror[39m: 	[31m{[39m
+[2025-08-04 03:19:30] [31merror[39m: 	[31m{[39m
 [31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1/auth/me on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1/auth/me on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
+[31m  msg: "Can't found / on this server!!!",[39m
+[31m  errstack: "Error: Can't found / on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10\n' +[39m
 [31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
 [31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
 [31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
@@ -395,10 +114,10 @@
 [31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
 [31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
 [31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1/auth/me on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
+[31m    '    at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)',[39m
+[31m  err: CustomErrorHandler: Can't found / on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/build/app.js:95:10[39m
 [31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
 [31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
 [31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
@@ -406,185 +125,20 @@
 [31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
 [31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
 [31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m      at cookieParser (/Users/anmolnoor/Developer/authwapi/node_modules/cookie-parser/index.js:57:14)[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5) {[39m
 [31m    statusCode: 404,[39m
 [31m    status: 'fail',[39m
 [31m    isOperational: true[39m
 [31m  }[39m
 [31m}[39m
-[2025-01-14 15:36:01] [31merror[39m: 	[31m{[39m
-[31m  status: 'fail',[39m
-[31m  msg: 'You are not logged in! Please log in to get access.',[39m
-[31m  errstack: 'Error: You are not logged in! Please log in to get access.\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12\n' +[39m
-[31m    '    at Generator.next (<anonymous>)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
-[31m    '    at new Promise (<anonymous>)\n' +[39m
-[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
-[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
-[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
-[31m  err: CustomErrorHandler: You are not logged in! Please log in to get access.[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12[39m
-[31m      at Generator.next (<anonymous>)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
-[31m      at new Promise (<anonymous>)[39m
-[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
-[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
-[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
-[31m    statusCode: 401,[39m
-[31m    status: 'fail',[39m
-[31m    isOperational: true[39m
-[31m  }[39m
-[31m}[39m
-[2025-01-14 15:39:27] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 15:39:31] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 15:39:31] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 15:40:20] [31merror[39m: 	[31m{[39m
-[31m  status: 'error',[39m
-[31m  msg: 'There was an error while sending the email. Try again later!',[39m
-[31m  errstack: 'Error: There was an error while sending the email. Try again later!\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:178:9\n' +[39m
-[31m    '    at Generator.next (<anonymous>)\n' +[39m
-[31m    '    at fulfilled (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:5:58)\n' +[39m
-[31m    '    at processTicksAndRejections (node:internal/process/task_queues:105:5)',[39m
-[31m  err: CustomErrorHandler: There was an error while sending the email. Try again later![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:178:9[39m
-[31m      at Generator.next (<anonymous>)[39m
-[31m      at fulfilled (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:5:58)[39m
-[31m      at processTicksAndRejections (node:internal/process/task_queues:105:5) {[39m
-[31m    statusCode: 500,[39m
-[31m    status: 'error',[39m
-[31m    isOperational: true[39m
-[31m  }[39m
-[31m}[39m
-[2025-01-14 15:51:48] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 15:51:51] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 15:51:51] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 15:55:45] [31merror[39m: 	[31m{[39m
-[31m  status: 'fail',[39m
-[31m  msg: 'You are not logged in! Please log in to get access.',[39m
-[31m  errstack: 'Error: You are not logged in! Please log in to get access.\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12\n' +[39m
-[31m    '    at Generator.next (<anonymous>)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
-[31m    '    at new Promise (<anonymous>)\n' +[39m
-[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
-[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
-[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
-[31m  err: CustomErrorHandler: You are not logged in! Please log in to get access.[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:272:12[39m
-[31m      at Generator.next (<anonymous>)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
-[31m      at new Promise (<anonymous>)[39m
-[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:263:61[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
-[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
-[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
-[31m    statusCode: 401,[39m
-[31m    status: 'fail',[39m
-[31m    isOperational: true[39m
-[31m  }[39m
-[31m}[39m
-[2025-01-14 15:57:59] [31merror[39m: 	[31m{[39m
-[31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1/user/upload-image on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1/user/upload-image on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
-[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
-[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
-[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
-[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
-[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1/user/upload-image on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
-[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
-[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
-[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
-[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
-[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
-[31m    statusCode: 404,[39m
-[31m    status: 'fail',[39m
-[31m    isOperational: true[39m
-[31m  }[39m
-[31m}[39m
-[2025-01-14 15:59:45] [31merror[39m: 	[31m{[39m
-[31m  status: 'fail',[39m
-[31m  msg: "Can't found /api/v1/user/upload-image on this server!!!",[39m
-[31m  errstack: "Error: Can't found /api/v1/user/upload-image on this server!!!\n" +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8\n' +[39m
-[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
-[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
-[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
-[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
-[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
-[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
-[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
-[31m  err: CustomErrorHandler: Can't found /api/v1/user/upload-image on this server!!![39m
-[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:72:8[39m
-[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
-[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
-[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
-[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
-[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
-[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
-[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
-[31m    statusCode: 404,[39m
-[31m    status: 'fail',[39m
-[31m    isOperational: true[39m
-[31m  }[39m
-[31m}[39m
-[2025-01-14 16:00:21] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:00:44] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:00:44] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:01:07] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:01:08] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:01:08] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:04:57] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:04:57] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:04:57] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:05:54] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:06:26] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:06:26] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:07:08] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:07:09] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:07:09] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:08:48] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:08:49] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:08:49] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:10:07] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:10:07] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:10:07] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:11:13] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:11:23] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:11:23] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:12:32] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:12:33] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:12:33] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:13:23] [32minfo[39m: 	[32mShutting down gracefully...[39m
-[2025-01-14 16:13:24] [32minfo[39m: 	[32mDB is Connected!![39m
-[2025-01-14 16:13:24] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
-[2025-01-14 16:50:22] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:19:36] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:19:42] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:19:42] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:20:16] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:20:17] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:20:17] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:20:26] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-04 03:27:07] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-04 03:27:07] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-04 03:27:50] [32minfo[39m: 	[32mShutting down gracefully...[39m
