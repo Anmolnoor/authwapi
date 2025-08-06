@@ -13,4 +13,11 @@ router.post('/forget-password', Auth.forgotPassword);
 
 router.get('/logout', Auth.logout);
 
+// New endpoints for service-to-service auth
+router.post('/validate-token', Auth.validateToken);
+
+router.post('/service-login', Auth.serviceLogin);
+
+router.get('/user-info', Auth.protect, Auth.getUserInfo);
+
 export default router;

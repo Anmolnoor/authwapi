@@ -259,6 +259,127 @@ const logout = CatchAsync(
   }
 );
 
+// New method for token validation (for other services)
+const validateToken = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { token, service } = req.body;
+
+    if (!token) {
+      next(new Err('Token is required', 400));
+      return;
+    }
+
+    try {
+      const { id, service: tokenService, permissions } = verifyJWTToken(token);
+      const user = await User.findById({ _id: id });
+
+      if (!user) {
+        next(new Err('User not found', 404));
+        return;
+      }
+
+      // Check if password was changed after token was issued
+      const isPasswordUpdated: boolean =
+        await User.schema.methods.changedPasswordAfter(
+          verifyJWTToken(token).Jwt.iat,
+          user.passwordChangedAT
+        );
+
+      if (isPasswordUpdated) {
+        next(new Err('Token is invalid - password changed', 401));
+        return;
+      }
+
+      // Optional service validation
+      if (service && tokenService && service !== tokenService) {
+        next(new Err('Token not valid for this service', 403));
+        return;
+      }
+
+      ResponseGenerator(res, 200, {
+        valid: true,
+        user: {
+          id: user._id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          service: tokenService,
+          permissions,
+        },
+      });
+    } catch (error) {
+      ResponseGenerator(res, 401, {
+        valid: false,
+        message: 'Invalid token',
+      });
+    }
+  }
+);
+
+// New method for service-specific login
+const serviceLogin = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { username, password, service, permissions } = req.body;
+
+    if (!username || !password || !service) {
+      next(new Err('Username, password, and service are required', 400));
+      return;
+    }
+
+    const user = await User.findOne({
+      $or: [{ email: username }, { username }],
+    });
+
+    if (!user) {
+      return loginFailed(res);
+    }
+
+    const isAuthorized: boolean = await User.schema.methods.correctPassword(
+      user.password,
+      password
+    );
+
+    if (!isAuthorized) {
+      return loginFailed(res);
+    }
+
+    // Create service-specific token
+    createTokenwithCookie(user._id, res, service, permissions);
+
+    ResponseGenerator(res, 200, {
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        service,
+        permissions,
+      },
+    });
+  }
+);
+
+// New method to get user info
+const getUserInfo = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { user } = req;
+
+    ResponseGenerator(res, 200, {
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        image: user.image,
+      },
+    });
+  }
+);
+
 const protect = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     let token;
@@ -329,6 +450,9 @@ const Auth = {
   currentPasswordChange,
   logout,
   updatePassword,
+  validateToken,
+  serviceLogin,
+  getUserInfo,
 };
 
 export default Auth;
