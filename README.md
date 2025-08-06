@@ -19,10 +19,12 @@ npm run build
 ### 2. Install in Your Apps
 
 ```bash
-# Install auth client in your other applications
-npm run install-client /path/to/your/app1
-npm run install-client /path/to/your/app2
-npm run install-client /path/to/your/app3
+# Install TypeScript version (recommended)
+npm run install-client-ts /path/to/your/app1
+npm run install-client-ts /path/to/your/app2
+
+# Or install JavaScript version
+npm run install-client-js /path/to/your/app3
 ```
 
 ### 3. Use in Your Apps
@@ -81,7 +83,11 @@ AUTH_SERVICE_URL=https://your-auth-service.com
 1. **Install the auth client:**
 
    ```bash
-   npm run install-client /path/to/your/app
+   # TypeScript version (recommended)
+   npm run install-client-ts /path/to/your/app
+
+   # JavaScript version
+   npm run install-client-js /path/to/your/app
    ```
 
 2. **Install dependencies:**

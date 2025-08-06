@@ -2,11 +2,25 @@
 
 ## Quick Installation
 
-### NPM Script Installation (Recommended)
+### TypeScript Version (Default)
 
 ```bash
 # From your authwapi project directory
-npm run install-client /path/to/your/app
+npm run install-client-ts /path/to/your/app
+```
+
+### JavaScript Version
+
+```bash
+# From your authwapi project directory
+npm run install-client-js /path/to/your/app
+```
+
+### Remove Client
+
+```bash
+# Remove auth client from an app
+npm run remove-client /path/to/your/app
 ```
 
 ## What Gets Installed
@@ -16,9 +30,21 @@ The installer creates these files in your target app:
 ```
 your-app/
 ├── utils/
-│   └── authClient.js          # The auth client
-├── auth-example.js            # Example usage
+│   └── authClient.ts          # TypeScript version (or .js for JS)
+├── auth-example.ts            # TypeScript example (or .js for JS)
 └── .env.example              # Environment template
+```
+
+## What Gets Removed
+
+The remover removes these files:
+
+```
+your-app/
+├── utils/authClient.ts        # Removed
+├── auth-example.ts            # Removed
+├── .env.example              # Removed
+└── utils/                    # Removed if empty
 ```
 
 ## Setup Steps
@@ -39,6 +65,24 @@ cp .env.example .env
 
 ### 3. Use in Your App
 
+#### TypeScript
+
+```typescript
+import { AuthClient } from './utils/authClient';
+
+const authClient = new AuthClient({
+  jwtSecret: process.env.JWT_SECRET,
+  serviceName: process.env.AUTH_SERVICE_NAME,
+});
+
+// Protected route
+app.get('/protected', authClient.createAuthMiddleware(), (req, res) => {
+  res.json({ user: req.user });
+});
+```
+
+#### JavaScript
+
 ```javascript
 const { AuthClient } = require('./utils/authClient');
 
@@ -58,6 +102,10 @@ app.get('/protected', authClient.createAuthMiddleware(), (req, res) => {
 ### 1. Start the example
 
 ```bash
+# TypeScript
+npx ts-node auth-example.ts
+
+# JavaScript
 node auth-example.js
 ```
 
@@ -92,14 +140,24 @@ AUTH_SERVICE_URL=https://your-auth-service.com
 - ✅ **Service-specific tokens** - Restrict tokens to specific services
 - ✅ **Permission support** - Include permissions in tokens
 - ✅ **Cross-app validation** - Same JWT_SECRET works across all apps
+- ✅ **TypeScript support** - Both JS and TS versions available
+- ✅ **Modern TypeScript** - Uses latest TypeScript features
 
 ## Installation Examples
 
 ```bash
-# Install in multiple apps
-npm run install-client /path/to/app1
-npm run install-client /path/to/app2
-npm run install-client /path/to/app3
+# Install TypeScript version in multiple apps
+npm run install-client-ts /path/to/app1
+npm run install-client-ts /path/to/app2
+npm run install-client-ts /path/to/app3
+
+# Install JavaScript version in multiple apps
+npm run install-client-js /path/to/app1
+npm run install-client-js /path/to/app2
+
+# Remove from apps
+npm run remove-client /path/to/app1
+npm run remove-client /path/to/app2
 ```
 
 ## Troubleshooting
@@ -110,6 +168,7 @@ npm run install-client /path/to/app3
    project
 2. **Invalid token**: Check that JWT_SECRET is identical across all apps
 3. **Service validation fails**: Ensure service names match
+4. **TypeScript errors**: Install ts-node: `npm install -D ts-node`
 
 ### Debug Mode
 

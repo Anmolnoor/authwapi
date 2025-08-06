@@ -14,7 +14,10 @@
     "lint": "eslint . --ext .ts",
     "test": "jest",
     "deploy": "deploy.sh",
-    "install-client": "node scripts/install.js"
+    "install-client": "node scripts/install.js",
+    "install-client-ts": "node scripts/install.js",
+    "install-client-js": "node scripts/install.js --js",
+    "remove-client": "node scripts/remove.js"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

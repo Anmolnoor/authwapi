@@ -21,8 +21,18 @@ interface TokenValidationResponse {
   message?: string;
 }
 
+interface JwtPayloadWithUser extends JwtPayload {
+  id: string;
+  email?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  service?: string;
+  permissions?: string[];
+}
+
 class AuthClient {
-  private config: AuthConfig;
+  private readonly config: AuthConfig;
 
   constructor(config: AuthConfig) {
     this.config = config;
@@ -33,7 +43,10 @@ class AuthClient {
    */
   validateToken(token: string): TokenValidationResponse {
     try {
-      const verified = verify(token, this.config.jwtSecret) as any;
+      const verified = verify(
+        token,
+        this.config.jwtSecret
+      ) as JwtPayloadWithUser;
       const decoded = decode(token) as JwtPayload;
 
       // Check if token is expired
@@ -76,20 +89,22 @@ class AuthClient {
    * Middleware for Express.js applications
    */
   createAuthMiddleware() {
-    return (req: any, res: any, next: any) => {
+    return (req: any, res: any, next: any): void => {
       const token =
         req.headers.authorization?.split(' ')[1] || req.cookies?.jwt;
 
       if (!token) {
-        return res.status(401).json({ message: 'No token provided' });
+        res.status(401).json({ message: 'No token provided' });
+        return;
       }
 
       const validation = this.validateToken(token);
 
       if (!validation.valid) {
-        return res
+        res
           .status(401)
           .json({ message: validation.message || 'Invalid token' });
+        return;
       }
 
       req.user = validation.user;
@@ -122,4 +137,5 @@ export {
   type AuthConfig,
   type UserInfo,
   type TokenValidationResponse,
+  type JwtPayloadWithUser,
 };
