@@ -1,8 +1,11 @@
+require('dotenv').config();
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const { AuthClient } = require('./build/utils/authClient');
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 
 // Initialize auth client (local validation only)
 const authClient = new AuthClient({

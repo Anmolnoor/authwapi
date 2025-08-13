@@ -3,7 +3,12 @@ import { ResponseGenerator, CatchAsync } from '../utils/helper';
 import User from '../models/user.model';
 import { createTokenwithCookie, verifyJWTToken } from '../utils/jwt';
 import Err from '../utils/errorHandler';
-import { ID, IUser } from '../types/model.type';
+import {
+  ID,
+  IUser,
+  permissions as permissionsEnum,
+  service as services,
+} from '../types/model.type';
 import {
   encryptToken,
   randomString,
@@ -41,9 +46,35 @@ const register = CatchAsync(
       firstName,
       lastName,
       phone,
+      service,
     } = req.body;
 
     // TODO: validate the user data and throw an error if the data is not valid
+    if (!service) {
+      next(new Err('Service is required', 400));
+      return;
+    }
+
+    if (!Object.values(services).includes(service)) {
+      next(new Err('Service is not valid', 400));
+      return;
+    }
+    // create the permissions for the user for the service
+    const permissionsForService = {
+      [service]: [
+        permissionsEnum.create,
+        permissionsEnum.read,
+        permissionsEnum.update,
+        permissionsEnum.delete,
+        permissionsEnum.export,
+        permissionsEnum.import,
+        permissionsEnum.print,
+        permissionsEnum.download,
+        permissionsEnum.upload,
+        permissionsEnum.share,
+        permissionsEnum.view,
+      ],
+    };
 
     // create a new user
     const user = await User.create({
@@ -55,19 +86,26 @@ const register = CatchAsync(
       firstName,
       lastName,
       phone,
+      service: [service],
+      permissions: permissionsForService,
     });
 
     // extra fetures that we wanna add to the user
     // create the token and send to the user
-    createTokenwithCookie(user.id, res);
-    ResponseGenerator(res, 201, { user });
+    const token = createTokenwithCookie(
+      user.id,
+      res,
+      service,
+      user.permissions[service]
+    );
+    ResponseGenerator(res, 201, { user, token });
   }
 );
 
 const login = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // get the user details from the req
-    const { username, password } = req.body;
+    const { username, password, service } = req.body;
     //TODO: validate and parse the details from the user data
 
     // find the user based on the email or the username
@@ -82,9 +120,26 @@ const login = CatchAsync(
         password
       );
       if (isAuthorized) {
+        // choose active service for token
+        const userServices = Array.isArray(user.service)
+          ? user.service
+          : [user.service];
+        const requestedService = service as string | undefined;
+        const activeService =
+          requestedService && userServices.includes(requestedService)
+            ? requestedService
+            : userServices[0];
         // create the token and send to the user
-        createTokenwithCookie(user._id, res);
-        return ResponseGenerator(res, 201, { user });
+        const token = createTokenwithCookie(
+          user._id,
+          res,
+          activeService,
+          user.permissions[activeService]
+        );
+        return ResponseGenerator(res, 201, {
+          user,
+          token,
+        });
       }
     }
     return loginFailed(res);
@@ -112,8 +167,8 @@ const updatePassword = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
-        ResponseGenerator(res, 201, {});
+        const token = createTokenwithCookie(id, res);
+        ResponseGenerator(res, 201, { token });
         return;
       }
       next(new Err('Password is incorrect', 400));
@@ -209,8 +264,17 @@ const resetPassword = CatchAsync(
         await user.save();
         // log the user in and send the jwt token to the user
         // create the token and send to the user
-        createTokenwithCookie(user.id, res);
-        ResponseGenerator(res, 201, { user });
+        const userServices = Array.isArray(user.service)
+          ? user.service
+          : [user.service];
+        const activeService = userServices[0];
+        const token = createTokenwithCookie(
+          user.id,
+          res,
+          activeService,
+          user.permissions[activeService]
+        );
+        ResponseGenerator(res, 201, { user, token });
         return;
       }
     }
@@ -238,8 +302,13 @@ const currentPasswordChange = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
-        ResponseGenerator(res, 201, {});
+        const token = createTokenwithCookie(
+          id,
+          res,
+          user.service,
+          user.permissions[user.service]
+        );
+        ResponseGenerator(res, 201, { token });
         return;
       }
       next(new Err('Password is incorrect', 400));
@@ -282,7 +351,7 @@ const validateToken = CatchAsync(
       const isPasswordUpdated: boolean =
         await User.schema.methods.changedPasswordAfter(
           verifyJWTToken(token).Jwt.iat,
-          user.passwordChangedAT
+          user.passwordChangedAt
         );
 
       if (isPasswordUpdated) {
@@ -345,7 +414,7 @@ const serviceLogin = CatchAsync(
     }
 
     // Create service-specific token
-    createTokenwithCookie(user._id, res, service, permissions);
+    const token = createTokenwithCookie(user._id, res, service, permissions);
 
     ResponseGenerator(res, 200, {
       user: {
@@ -357,6 +426,7 @@ const serviceLogin = CatchAsync(
         service,
         permissions,
       },
+      token,
     });
   }
 );
@@ -375,6 +445,8 @@ const getUserInfo = CatchAsync(
         lastName: user.lastName,
         phone: user.phone,
         image: user.image,
+        service: user.service,
+        permissions: user.permissions,
       },
     });
   }
@@ -406,7 +478,7 @@ const protect = CatchAsync(
     const isPasswordUpdated: boolean =
       await User.schema.methods.changedPasswordAfter(
         Jwt.iat,
-        user.passwordChangedAT
+        user.passwordChangedAt
       );
 
     if (isPasswordUpdated) {

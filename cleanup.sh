@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Exit on any error
-set -e
+# Strict mode
+set -euo pipefail
 
 # Function to display script usage
 usage() {
@@ -25,8 +25,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Function to check if containers are running
+compose() {
+  if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    docker compose "$@"
+  else
+    docker-compose "$@"
+  fi
+}
+
 check_running_containers() {
-    if [ "$(docker-compose ps -q)" ]; then
+    if [ "$(compose ps -q)" ]; then
         return 0
     else
         return 1
@@ -39,27 +47,27 @@ cleanup() {
 
     # Stop and remove containers
     echo "📥 Stopping and removing containers..."
-    docker-compose down -v
+    compose down -v --remove-orphans
 
     # Remove unused images
     echo "🗑️ Removing unused Docker images..."
-    docker image prune -f
+    docker image prune -f >/dev/null 2>&1 || true
 
     # Remove unused volumes
     echo "📦 Removing unused volumes..."
-    docker volume prune -f
+    docker volume prune -f >/dev/null 2>&1 || true
 
     # Remove unused networks
     echo "🌐 Removing unused networks..."
-    docker network prune -f
+    docker network prune -f >/dev/null 2>&1 || true
 
     # Remove logs
     echo "📝 Cleaning up log files..."
-    rm -f *.log
+    rm -f *.log || true
 
     # Remove monitoring data
     echo "📊 Cleaning up monitoring data..."
-    rm -rf prometheus_data grafana_data elasticsearch_data
+    rm -rf prometheus_data grafana_data elasticsearch_data || true
 
     echo "✅ Cleanup completed successfully!"
 }

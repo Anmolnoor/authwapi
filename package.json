@@ -13,6 +13,10 @@
     "build": "tsc",
     "lint": "eslint . --ext .ts",
     "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:e2e": "jest __tests__/auth.e2e.test.ts",
+    "test:ci": "jest --runInBand --coverage",
     "deploy": "deploy.sh",
     "install-client": "node scripts/install.js",
     "install-client-ts": "node scripts/install.js",
@@ -34,6 +38,8 @@
     "@typescript-eslint/parser": "^8.0.1",
     "eslint": "^9.8.0",
     "jest": "^29.7.0",
+    "supertest": "^7.0.0",
+    "mongodb-memory-server": "^10.1.4",
     "nodemon": "^3.1.4",
     "ts-jest": "^29.2.4",
     "ts-node": "^10.9.2",
@@ -64,13 +70,13 @@
     "xss-clean": "^0.1.4"
   },
   "_moduleAliases": {
-    "@models": "dist/models",
-    "@controllers": "dist/controllers",
-    "@middlewares": "dist/middlewares",
-    "@services": "dist/services",
-    "@utils": "dist/utils",
-    "@types": "dist/types",
-    "@routes": "dist/routes",
-    "@/*": "dist"
+    "@models": "build/models",
+    "@controllers": "build/controllers",
+    "@middlewares": "build/middlewares",
+    "@services": "build/services",
+    "@utils": "build/utils",
+    "@types": "build/types",
+    "@routes": "build/routes",
+    "@/*": "build"
   }
 }

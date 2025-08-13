@@ -88,11 +88,14 @@ if (installJs) {
 // Create example based on version
 if (installJs) {
   // JavaScript example
-  const exampleCode = `const express = require('express');
+  const exampleCode = `require('dotenv').config();
+const express = require('express');
+const cookieParser = require('cookie-parser');
 const { AuthClient } = require('./utils/authClient');
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 
 // Initialize auth client
 const authClient = new AuthClient({
@@ -126,11 +129,14 @@ app.listen(PORT, () => {
   console.log('✅ Created auth-example.js');
 } else {
   // TypeScript example
-  const tsExampleCode = `import express from 'express';
+  const tsExampleCode = `import 'dotenv/config';
+import express from 'express';
+import cookieParser from 'cookie-parser';
 import { AuthClient } from './utils/authClient';
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 
 // Initialize auth client
 const authClient = new AuthClient({
@@ -182,7 +188,7 @@ const packageJsonPath = path.join(targetDir, 'package.json');
 if (fs.existsSync(packageJsonPath)) {
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
-  const requiredDeps = ['jsonwebtoken', 'express'];
+  const requiredDeps = ['jsonwebtoken', 'express', 'cookie-parser', 'dotenv'];
   const missingDeps = requiredDeps.filter(
     (dep) => !packageJson.dependencies?.[dep]
   );
@@ -202,7 +208,14 @@ if (fs.existsSync(packageJsonPath)) {
 
   // Add TypeScript dependencies if installing TypeScript version
   if (!installJs) {
-    const tsDeps = ['typescript', 'ts-node', '@types/node'];
+    const tsDeps = [
+      'typescript',
+      'ts-node',
+      '@types/node',
+      '@types/express',
+      '@types/jsonwebtoken',
+      '@types/cookie-parser',
+    ];
     const missingTsDeps = tsDeps.filter(
       (dep) =>
         !packageJson.dependencies?.[dep] && !packageJson.devDependencies?.[dep]

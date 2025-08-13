@@ -53,7 +53,7 @@ your-app/
 
 ```bash
 cd /path/to/your/app
-npm install jsonwebtoken express
+npm install jsonwebtoken express cookie-parser dotenv
 ```
 
 ### 2. Configure Environment
@@ -131,6 +131,8 @@ AUTH_SERVICE_NAME=your-app-name
 
 # Optional (for user management)
 AUTH_SERVICE_URL=https://your-auth-service.com
+# Optional (JWT expiry for tokens issued by auth service)
+JWT_EXPIRES_IN=30d
 ```
 
 ## Features

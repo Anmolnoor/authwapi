@@ -76,17 +76,24 @@ const packageJsonPath = path.join(targetDir, 'package.json');
 if (fs.existsSync(packageJsonPath)) {
   try {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const authDeps = ['jsonwebtoken'];
+    const authDeps = ['jsonwebtoken', 'cookie-parser', 'dotenv'];
     const hasAuthDeps = authDeps.some((dep) => packageJson.dependencies?.[dep]);
 
     if (hasAuthDeps) {
       console.log('\n📦 Note: You may want to remove auth dependencies:');
-      console.log('   npm uninstall jsonwebtoken');
+      console.log('   npm uninstall jsonwebtoken cookie-parser dotenv');
     }
 
     // Check for TypeScript dependencies if TypeScript version was installed
     if (hasTs) {
-      const tsDeps = ['typescript', 'ts-node', '@types/node'];
+      const tsDeps = [
+        'typescript',
+        'ts-node',
+        '@types/node',
+        '@types/express',
+        '@types/jsonwebtoken',
+        '@types/cookie-parser',
+      ];
       const hasTsDeps = tsDeps.some(
         (dep) =>
           packageJson.dependencies?.[dep] || packageJson.devDependencies?.[dep]
@@ -96,7 +103,9 @@ if (fs.existsSync(packageJsonPath)) {
         console.log(
           '\n📦 Note: You may want to remove TypeScript dependencies:'
         );
-        console.log('   npm uninstall -D typescript ts-node @types/node');
+        console.log(
+          '   npm uninstall -D typescript ts-node @types/node @types/express @types/jsonwebtoken @types/cookie-parser'
+        );
       }
     }
   } catch (error) {

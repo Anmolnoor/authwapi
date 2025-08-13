@@ -1,11 +1,21 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Exit on any error
-set -e
+# Strict mode
+set -euo pipefail
+
+# Use docker compose v2 if available, fallback to docker-compose
+compose() {
+  if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    docker compose "$@"
+  else
+    docker-compose "$@"
+  fi
+}
 
 # Load environment variables if .env exists
 if [ -f .env ]; then
-    export $(cat .env | grep -v '#' | awk '/=/ {print $1}')
+  # shellcheck disable=SC2046
+  export $(grep -v '^#' .env | xargs -0 || true)
 fi
 
 # Function to validate required environment variables
@@ -14,10 +24,6 @@ check_required_vars() {
         "DATABASE_URL"
         "JWT_SECRET"
         "PORT"
-        "AWS_ACCESS_KEY_ID"
-        "AWS_SERECT_ACCESS_KEY"
-        "AWS_REGION"
-        "AWS_BUCKET_NAME"
     )
 
     for var in "${required_vars[@]}"; do
@@ -38,7 +44,7 @@ fi
 check_required_vars
 
 # Build and deploy
-echo "🚀 Deploying AuthAPI..."
+echo "🚀 Deploying AuthWAPI..."
 
 # Pull latest changes if in git repository
 # if [ -d .git ]; then
@@ -48,12 +54,12 @@ echo "🚀 Deploying AuthAPI..."
 
 # Build and start containers
 echo "🏗️ Building and starting containers..."
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+compose down --remove-orphans
+compose build --no-cache
+compose up -d
 
 # Get container ID
-CONTAINER_ID=$(docker-compose ps -q auth-api)
+CONTAINER_ID=$(compose ps -q auth-api)
 
 # Get container IP
 CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $CONTAINER_ID)
@@ -68,25 +74,25 @@ if [ "$(docker inspect -f {{.State.Running}} $CONTAINER_ID)" = "true" ]; then
     echo "Status: Running"
 else
     echo "❌ Deployment failed!"
-    docker-compose logs auth-api
+    compose logs auth-api
     exit 1
 fi
 
 # Show logs
 echo "📝 Recent logs:"
-docker-compose logs --tail=50 auth-api 
+compose logs --tail=50 auth-api 
 
 # Monitor deployment health
 monitor_health() {
     local retry_count=0
-    local max_retries=5
+    local max_retries=10
 
     while [ $retry_count -lt $max_retries ]; do
-        if curl -s "http://localhost:${PORT}/health" > /dev/null; then
+        if curl -sf "http://localhost:${PORT}/health" > /dev/null; then
             echo "✅ Service is healthy"
             return 0
         fi
-        echo "Waiting for service to become healthy..."
+        echo "Waiting for service to become healthy... (${retry_count}/${max_retries})"
         sleep 5
         retry_count=$((retry_count + 1))
     done

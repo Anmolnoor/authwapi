@@ -77,7 +77,7 @@ const totalRequests = new prometheus.Counter({
 
 // --- Routers ---
 // --- API ---
-app.use('/', (req, res) => {
+app.get('/', (req, res) => {
   res.json({
     status: 'up',
     timestamp: new Date(),

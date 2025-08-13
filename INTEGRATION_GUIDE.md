@@ -27,7 +27,9 @@ local validation to work.
 ### 2. Install Dependencies
 
 ```bash
-npm install axios jsonwebtoken
+npm install jsonwebtoken express cookie-parser dotenv
+# Optional (HTTP fallback examples)
+npm install axios
 ```
 
 ### 3. Install Auth Client
@@ -43,13 +45,12 @@ npm run install-client /path/to/your/app
 const { AuthClient } = require('./utils/authClient');
 
 const authClient = new AuthClient({
-  authServiceUrl: process.env.AUTH_SERVICE_URL,
   serviceName: process.env.AUTH_SERVICE_NAME,
   jwtSecret: process.env.JWT_SECRET,
 });
 
 // Validate token locally (no HTTP call)
-const validation = await authClient.validateTokenLocally(token);
+const validation = authClient.validateToken(token);
 if (validation.valid) {
   console.log('User:', validation.user);
 }
@@ -63,7 +64,7 @@ Use local validation to avoid HTTP calls:
 
 ```javascript
 // Fast and secure - no network calls
-const validation = await authClient.validateTokenLocally(token);
+const validation = authClient.validateToken(token);
 ```
 
 **Benefits:**
@@ -91,13 +92,15 @@ const token = authClient.createToken(userId, 'service-name', ['read', 'write']);
 
 ### Authentication Endpoints
 
-| Endpoint                      | Method | Description              |
-| ----------------------------- | ------ | ------------------------ |
-| `/api/v1/auth/login`          | POST   | User login               |
-| `/api/v1/auth/register`       | POST   | User registration        |
-| `/api/v1/auth/validate-token` | POST   | Validate JWT token       |
-| `/api/v1/auth/service-login`  | POST   | Service-to-service login |
-| `/api/v1/auth/user-info`      | GET    | Get user information     |
+| Endpoint                             | Method | Description              |
+| ------------------------------------ | ------ | ------------------------ |
+| `/api/v1/auth/login`                 | POST   | User login               |
+| `/api/v1/auth/register`              | POST   | User registration        |
+| `/api/v1/auth/validate-token`        | POST   | Validate JWT token       |
+| `/api/v1/auth/service-login`         | POST   | Service-to-service login |
+| `/api/v1/auth/user-info`             | GET    | Get user information     |
+| `/api/v1/auth/forget-password`       | POST   | Send password reset mail |
+| `/api/v1/auth/reset-password/:token` | PATCH  | Reset password           |
 
 ### Request Examples
 
@@ -144,35 +147,55 @@ Content-Type: application/json
 }
 ```
 
+#### Login (returns token)
+
+```javascript
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "user@example.com",
+  "password": "password",
+  "service": "your-service-name" // optional; if omitted, first user service is used
+}
+
+// Response
+{
+  "user": { /* user fields */ },
+  "token": "<JWT>"
+}
+```
+
 ## Express.js Middleware
 
 ### Local Validation (Recommended)
 
 ```javascript
+require('dotenv').config();
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const { AuthClient } = require('./utils/authClient');
 
 const app = express();
+app.use(express.json());
+app.use(cookieParser());
+
 const authClient = new AuthClient({
-  authServiceUrl: process.env.AUTH_SERVICE_URL,
   serviceName: process.env.AUTH_SERVICE_NAME,
   jwtSecret: process.env.JWT_SECRET,
 });
 
 // Protected route with local validation
-app.get('/protected', authClient.createAuthMiddleware(true), (req, res) => {
+app.get('/protected', authClient.createAuthMiddleware(), (req, res) => {
   res.json({ user: req.user });
 });
 ```
 
 ### HTTP Validation (Fallback)
 
-```javascript
-// Use HTTP validation if needed
-app.get('/protected', authClient.createAuthMiddleware(false), (req, res) => {
-  res.json({ user: req.user });
-});
-```
+Local validation is recommended and supported by the client. If you must use an
+HTTP fallback, call your auth service endpoint directly from your app using
+`axios`.
 
 ## Error Handling
 
@@ -217,6 +240,7 @@ The auth service returns standard HTTP status codes:
 3. **User not found**: User may have been deleted
 4. **Password changed**: User needs to login again
 5. **Local validation fails**: Ensure JWT_SECRET is identical
+6. **Tests**: See `TESTING.md` to run the E2E tests locally
 
 ### Debug Mode
 

@@ -1,5 +1,5 @@
 import value from 'xss-clean';
-import { IUser } from 'types/model.type';
+import { IUser, service } from '@/types/model.type';
 import {
   passwordEncryptor,
   passwordValidator,
@@ -67,6 +67,20 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
       select: false,
+    },
+    service: {
+      type: [String],
+      required: [true, 'Please provide a service'],
+      enum: Object.values(service),
+    },
+    permissions: {
+      type: Object,
+      required: [true, 'Please provide a permissions'],
+      default: {
+        [service.Amend]: [],
+        [service.notes]: [],
+        [service.food]: [],
+      },
     },
     resetToken: { type: String },
     resetTokenTimer: { type: Date },

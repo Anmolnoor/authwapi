@@ -2,8 +2,12 @@ import { Response } from 'express';
 import { decode, JwtPayload, sign, SignOptions, verify } from 'jsonwebtoken';
 import { ID } from '@/types';
 const secret = process.env.JWT_SECRET ?? 'this_is_my_Strong_secret';
+const expiresInEnv = process.env.JWT_EXPIRES_IN;
 const options: SignOptions = {
-  expiresIn: (process.env.JWT_EXPIRES_IN ?? 30) as number,
+  expiresIn:
+    (expiresInEnv && !Number.isNaN(Number(expiresInEnv))
+      ? Number(expiresInEnv)
+      : (expiresInEnv as unknown as SignOptions['expiresIn'])) || '30d',
 };
 
 interface Payload {
@@ -66,7 +70,7 @@ const createTokenwithCookie = (
   res: Response,
   service?: string,
   permissions?: string[]
-): void => {
+): string => {
   const token = createJWTToken(id, service, permissions);
   const cookieOptions = {
     expires: new Date(Date.now() + maxAge),
@@ -79,6 +83,7 @@ const createTokenwithCookie = (
   if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
 
   res.cookie('jwt', token, cookieOptions);
+  return token;
 };
 
 export {

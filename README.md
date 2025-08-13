@@ -1,4 +1,4 @@
-# AuthWAPI
+git # AuthWAPI
 
 Simplified authentication, maximized development.
 
@@ -74,6 +74,8 @@ AUTH_SERVICE_NAME=your-app-name
 
 # Optional (for user management)
 AUTH_SERVICE_URL=https://your-auth-service.com
+# Optional (JWT expiry for tokens issued by auth service)
+JWT_EXPIRES_IN=30d
 ```
 
 ## Installation
@@ -94,7 +96,7 @@ AUTH_SERVICE_URL=https://your-auth-service.com
 
    ```bash
    cd /path/to/your/app
-   npm install jsonwebtoken express
+   npm install jsonwebtoken express cookie-parser dotenv
    ```
 
 3. **Configure environment:**
@@ -140,10 +142,25 @@ curl -X POST http://localhost:3000/create-token \
   -d '{"userId": "user123", "service": "example-app"}'
 ```
 
+### Run the Test Suite
+
+See `TESTING.md` for full details. Quick start:
+
+```bash
+npm test
+```
+
 ## Documentation
 
 - [Integration Guide](INTEGRATION_GUIDE.md) - Detailed integration instructions
 - [Usage Guide](USAGE_GUIDE.md) - Installation and usage guide
+
+## API Notes
+
+- Login/Register/Password-reset endpoints now include a `token` in the JSON
+  response in addition to setting the `jwt` cookie. Use this `token` in your
+  other services via `Authorization: Bearer <token>` and validate locally with
+  the same `JWT_SECRET`.
 
 ## Security Benefits
 
