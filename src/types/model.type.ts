@@ -31,6 +31,7 @@ export type IServicePermissions = {
 // user type
 export interface IUser {
   _id: ID;
+  handle: string;
   firstName: string;
   lastName: string;
   username: string;

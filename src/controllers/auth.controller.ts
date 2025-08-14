@@ -40,6 +40,7 @@ const register = CatchAsync(
     const {
       email,
       username,
+      handle,
       password,
       passwordConfirm,
       image,
@@ -77,9 +78,14 @@ const register = CatchAsync(
     };
 
     // create a new user
+    const normalizedHandle =
+      typeof handle === 'string'
+        ? handle.toLowerCase().trim().replace(/\s+/g, '')
+        : undefined;
     const user = await User.create({
       email,
       username,
+      handle: normalizedHandle,
       password,
       passwordConfirm,
       image,
@@ -371,6 +377,7 @@ const validateToken = CatchAsync(
           id: user._id,
           email: user.email,
           username: user.username,
+          handle: user.handle,
           firstName: user.firstName,
           lastName: user.lastName,
           service: tokenService,
@@ -421,6 +428,7 @@ const serviceLogin = CatchAsync(
         id: user._id,
         email: user.email,
         username: user.username,
+        handle: user.handle,
         firstName: user.firstName,
         lastName: user.lastName,
         service,
@@ -441,6 +449,7 @@ const getUserInfo = CatchAsync(
         id: user._id,
         email: user.email,
         username: user.username,
+        handle: user.handle,
         firstName: user.firstName,
         lastName: user.lastName,
         phone: user.phone,
@@ -481,7 +490,9 @@ const validateAndCheckHandle = async (
     return next(new Err('This handle is reserved and cannot be used', 403));
   }
 
-  const user = await User.findOne({ username: normalizedHandle });
+  const user = await User.findOne({
+    $or: [{ username: normalizedHandle }, { handle: normalizedHandle }],
+  });
   if (user !== null) {
     return next(new Err('Handle is already taken by a user', 409));
   }

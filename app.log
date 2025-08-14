@@ -458,3 +458,66 @@
 [2025-08-13 17:08:37] [32minfo[39m: 	[32mDB is Connected!![39m
 [2025-08-13 17:08:37] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
 [2025-08-13 18:36:31] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:18:14] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:18:14] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:18:38] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/user/check-handle on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/user/check-handle on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/user/check-handle on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 19:22:51] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:22:53] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:22:53] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:31:13] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:31:15] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:31:15] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:42:11] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:42:13] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:42:13] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:42:14] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:42:16] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:42:16] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:43:40] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:43:42] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:43:42] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:43:46] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:43:48] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:43:48] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:45:29] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:45:32] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:45:32] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:45:33] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:45:35] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:45:35] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:46:12] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:46:14] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:46:14] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:57:44] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 19:57:47] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 19:57:47] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 19:57:55] [32minfo[39m: 	[32mShutting down gracefully...[39m

@@ -12,6 +12,18 @@ const TOKEN_EXPIRATION_TIME_MS = 10 * 60 * 1000;
 
 const userSchema = new Schema<IUser>(
   {
+    handle: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      minlength: 3,
+      maxlength: 30,
+      match: [
+        /^[a-z0-9_-]+$/,
+        'Handle can only contain letters, numbers, underscores, and hyphens',
+      ],
+    },
     firstName: {
       type: String,
       required: [true, 'Please provide a first name'],

@@ -162,12 +162,12 @@ npm test
   other services via `Authorization: Bearer <token>` and validate locally with
   the same `JWT_SECRET`.
 
-### Handle Availability
+### Handle Availability and Registration
 
 - Check if a username/handle is available. Valid handles: 3–30 chars, `a-z`,
   `0-9`, `_`, `-`. Reserved: `admin`, `moderator`, `support`, `help`.
 
-POST:
+POST (check availability):
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/auth/check-handle \
@@ -175,7 +175,25 @@ curl -X POST http://localhost:3000/api/v1/auth/check-handle \
   -d '{"handle":"my_new-handle"}'
 ```
 
-GET (path or query):
+GET (path or query): Registration accepts optional `handle` which must be 3–30
+chars, lowercase `a-z`, `0-9`, `_`, `-`. If omitted, you can rely on `username`
+or set later.
+
+Example registration payload:
+
+```json
+{
+  "email": "user@example.com",
+  "username": "user1",
+  "handle": "user1",
+  "password": "Password123!",
+  "passwordConfirm": "Password123!",
+  "firstName": "Test",
+  "lastName": "User",
+  "phone": 1234567890,
+  "service": "Amend"
+}
+```
 
 ```bash
 curl http://localhost:3000/api/v1/auth/check-handle/my_new-handle

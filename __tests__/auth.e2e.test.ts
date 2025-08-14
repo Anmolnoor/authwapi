@@ -27,6 +27,7 @@ describe('AuthWAPI E2E', () => {
       .send({
         email: 'user@example.com',
         username: 'user1',
+        handle: 'user1',
         password: 'Password123!',
         passwordConfirm: 'Password123!',
         firstName: 'Test',
@@ -88,6 +89,7 @@ describe('AuthWAPI E2E', () => {
       .send({
         email: 'conflict@example.com',
         username: 'taken_name',
+        handle: 'taken_name',
         password: 'Password123!',
         passwordConfirm: 'Password123!',
         firstName: 'Taken',

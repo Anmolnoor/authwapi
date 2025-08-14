@@ -124,7 +124,7 @@ curl -X GET http://localhost:3000/protected \
 
 ## Server API Helpers
 
-### Check handle availability (Auth service)
+### Check handle availability and use handle during registration (Auth service)
 
 POST:
 
@@ -134,7 +134,24 @@ curl -X POST http://localhost:3000/api/v1/auth/check-handle \
   -d '{"handle":"your-handle"}'
 ```
 
-GET (path or query):
+GET (path or query): Registration supports an optional `handle` field (3–30
+chars, lowercase `a-z`, `0-9`, `_`, `-`). Include it when creating a user:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"user@example.com",
+    "username":"user1",
+    "handle":"user1",
+    "password":"Password123!",
+    "passwordConfirm":"Password123!",
+    "firstName":"Test",
+    "lastName":"User",
+    "phone":1234567890,
+    "service":"Amend"
+  }'
+```
 
 ```bash
 curl http://localhost:3000/api/v1/auth/check-handle/your-handle
