@@ -54,6 +54,55 @@ describe('AuthWAPI E2E', () => {
     expect(typeof res.body?.data?.token).toBe('string');
   });
 
+  it('checks handle availability (POST, available)', async () => {
+    await request(app)
+      .post('/api/v1/auth/check-handle')
+      .send({ handle: 'unique_handle_123' })
+      .expect(200);
+  });
+
+  it('checks handle availability (GET path, available)', async () => {
+    await request(app)
+      .get('/api/v1/auth/check-handle/another_unique_handle_456')
+      .expect(200);
+  });
+
+  it('rejects invalid handle formats', async () => {
+    await request(app)
+      .post('/api/v1/auth/check-handle')
+      .send({ handle: '!!' })
+      .expect(400);
+  });
+
+  it('rejects reserved handles', async () => {
+    await request(app)
+      .post('/api/v1/auth/check-handle')
+      .send({ handle: 'admin' })
+      .expect(403);
+  });
+
+  it('returns conflict for existing username', async () => {
+    // create a user that uses the target username
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: 'conflict@example.com',
+        username: 'taken_name',
+        password: 'Password123!',
+        passwordConfirm: 'Password123!',
+        firstName: 'Taken',
+        lastName: 'Name',
+        phone: 1234567899,
+        service: 'Amend',
+      })
+      .expect(201);
+
+    await request(app)
+      .post('/api/v1/auth/check-handle')
+      .send({ handle: 'taken_name' })
+      .expect(409);
+  });
+
   it('gets user info with bearer token', async () => {
     const login = await request(app)
       .post('/api/v1/auth/login')

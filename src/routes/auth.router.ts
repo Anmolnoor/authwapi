@@ -20,4 +20,8 @@ router.post('/service-login', Auth.serviceLogin);
 
 router.get('/user-info', Auth.protect, Auth.getUserInfo);
 
+// Handle availability under auth
+router.post('/check-handle', Auth.getHandle);
+router.get('/check-handle/:handle?', Auth.getHandleGet);
+
 export default router;

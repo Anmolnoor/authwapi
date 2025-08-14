@@ -162,6 +162,26 @@ npm test
   other services via `Authorization: Bearer <token>` and validate locally with
   the same `JWT_SECRET`.
 
+### Handle Availability
+
+- Check if a username/handle is available. Valid handles: 3–30 chars, `a-z`,
+  `0-9`, `_`, `-`. Reserved: `admin`, `moderator`, `support`, `help`.
+
+POST:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/check-handle \
+  -H "Content-Type: application/json" \
+  -d '{"handle":"my_new-handle"}'
+```
+
+GET (path or query):
+
+```bash
+curl http://localhost:3000/api/v1/auth/check-handle/my_new-handle
+curl "http://localhost:3000/api/v1/auth/check-handle?handle=my_new-handle"
+```
+
 ## Security Benefits
 
 - ✅ **No secrets over HTTP** - Local validation only

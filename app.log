@@ -145,3 +145,316 @@
 [2025-08-06 04:27:07] [32minfo[39m: 	[32mDB is Connected!![39m
 [2025-08-06 04:27:07] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
 [2025-08-06 04:33:24] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:34:36] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:34:36] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:34:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:34:44] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:34:44] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:37:12] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'Service is required',[39m
+[31m  errstack: 'Error: Service is required\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: Service is required[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 400,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:37:32] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'Service is required',[39m
+[31m  errstack: 'Error: Service is required\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: Service is required[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 400,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:37:57] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:37:59] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:37:59] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:38:06] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'Service is required',[39m
+[31m  errstack: 'Error: Service is required\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: Service is required[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 400,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:40:04] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:40:05] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:40:05] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:40:06] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'Service is required',[39m
+[31m  errstack: 'Error: Service is required\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: Service is required[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:54:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 400,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:40:30] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:40:32] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:40:32] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:40:35] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: 'Service is required',[39m
+[31m  errstack: 'Error: Service is required\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:58:12\n' +[39m
+[31m    '    at Generator.next (<anonymous>)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71\n' +[39m
+[31m    '    at new Promise (<anonymous>)\n' +[39m
+[31m    '    at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)\n' +[39m
+[31m    '    at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3)',[39m
+[31m  err: CustomErrorHandler: Service is required[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:58:12[39m
+[31m      at Generator.next (<anonymous>)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:8:71[39m
+[31m      at new Promise (<anonymous>)[39m
+[31m      at __awaiter (/Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:4:12)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/controllers/auth.controller.ts:38:61[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/utils/helper.ts:8:5[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:149:13)[39m
+[31m      at Route.dispatch (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/route.js:119:3) {[39m
+[31m    statusCode: 400,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:40:49] [31merror[39m: 	[31m{[39m
+[31m  status: 'error',[39m
+[31m  msg: 'User validation failed: firstName: Please provide a first name, lastName: Please provide a last name',[39m
+[31m  errstack: 'ValidationError: User validation failed: firstName: Please provide a first name, lastName: Please provide a last name\n' +[39m
+[31m    '    at model.Document.invalidate (/Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/document.js:3358:32)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/document.js:3119:17\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/schemaType.js:1410:9\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:85:11)',[39m
+[31m  err: Error: User validation failed: firstName: Please provide a first name, lastName: Please provide a last name[39m
+[31m      at ValidationError.inspect (/Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/error/validation.js:52:26)[39m
+[31m      at formatValue (node:internal/util/inspect:848:19)[39m
+[31m      at formatProperty (node:internal/util/inspect:1991:11)[39m
+[31m      at formatRaw (node:internal/util/inspect:1102:9)[39m
+[31m      at formatValue (node:internal/util/inspect:883:10)[39m
+[31m      at Object.inspect (node:internal/util/inspect:386:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:121:19[39m
+[31m      at Array.map (<anonymous>)[39m
+[31m      at Function.applyStyle (/Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:116:18)[39m
+[31m      at Object.builder (/Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:87:23) {[39m
+[31m    errors: { firstName: [ValidatorError], lastName: [ValidatorError] },[39m
+[31m    _message: 'User validation failed',[39m
+[31m    statusCode: 500,[39m
+[31m    status: 'error'[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:41:35] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:41:37] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:41:37] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:41:39] [32minfo[39m: 	[32mShutting down gracefully...[39m
+[2025-08-13 02:41:40] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 02:41:40] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 02:41:48] [31merror[39m: 	[31m{[39m
+[31m  status: 'error',[39m
+[31m  msg: 'User validation failed: firstName: Please provide a first name, lastName: Please provide a last name',[39m
+[31m  errstack: 'ValidationError: User validation failed: firstName: Please provide a first name, lastName: Please provide a last name\n' +[39m
+[31m    '    at model.Document.invalidate (/Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/document.js:3358:32)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/document.js:3119:17\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/schemaType.js:1410:9\n' +[39m
+[31m    '    at processTicksAndRejections (node:internal/process/task_queues:85:11)',[39m
+[31m  err: Error: User validation failed: firstName: Please provide a first name, lastName: Please provide a last name[39m
+[31m      at ValidationError.inspect (/Users/anmolnoor/Developer/authwapi/node_modules/mongoose/lib/error/validation.js:52:26)[39m
+[31m      at formatValue (node:internal/util/inspect:848:19)[39m
+[31m      at formatProperty (node:internal/util/inspect:1991:11)[39m
+[31m      at formatRaw (node:internal/util/inspect:1102:9)[39m
+[31m      at formatValue (node:internal/util/inspect:883:10)[39m
+[31m      at Object.inspect (node:internal/util/inspect:386:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:121:19[39m
+[31m      at Array.map (<anonymous>)[39m
+[31m      at Function.applyStyle (/Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:116:18)[39m
+[31m      at Object.builder (/Users/anmolnoor/Developer/authwapi/node_modules/@colors/colors/lib/colors.js:87:23) {[39m
+[31m    errors: { firstName: [ValidatorError], lastName: [ValidatorError] },[39m
+[31m    _message: 'User validation failed',[39m
+[31m    statusCode: 500,[39m
+[31m    status: 'error'[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:46:32] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/auth/me on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/auth/me on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/auth/me on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:48:13] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/auth/check-handle on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/auth/check-handle on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/auth/check-handle on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 02:48:22] [31merror[39m: 	[31m{[39m
+[31m  status: 'fail',[39m
+[31m  msg: "Can't found /api/v1/user/check-handle on this server!!!",[39m
+[31m  errstack: "Error: Can't found /api/v1/user/check-handle on this server!!!\n" +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8\n' +[39m
+[31m    '    at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)\n' +[39m
+[31m    '    at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)\n' +[39m
+[31m    '    at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)\n' +[39m
+[31m    '    at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)\n' +[39m
+[31m    '    at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15\n' +[39m
+[31m    '    at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14)',[39m
+[31m  err: CustomErrorHandler: Can't found /api/v1/user/check-handle on this server!!![39m
+[31m      at /Users/anmolnoor/Developer/authwapi/src/app.ts:110:8[39m
+[31m      at Layer.handle [as handle_request] (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/layer.js:95:5)[39m
+[31m      at trim_prefix (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:328:13)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:286:9[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:365:14)[39m
+[31m      at param (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:376:14)[39m
+[31m      at Function.process_params (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:421:3)[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:280:10)[39m
+[31m      at /Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:646:15[39m
+[31m      at next (/Users/anmolnoor/Developer/authwapi/node_modules/express/lib/router/index.js:265:14) {[39m
+[31m    statusCode: 404,[39m
+[31m    status: 'fail',[39m
+[31m    isOperational: true[39m
+[31m  }[39m
+[31m}[39m
+[2025-08-13 17:08:37] [32minfo[39m: 	[32mDB is Connected!![39m
+[2025-08-13 17:08:37] [32minfo[39m: 	[32mApp is running in development mode | Server is running on Port : 8000 [39m
+[2025-08-13 18:36:31] [32minfo[39m: 	[32mShutting down gracefully...[39m

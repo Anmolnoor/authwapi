@@ -41,6 +41,9 @@ What happens:
   returns `200` and user profile
 - Validate token: `POST /api/v1/auth/validate-token` returns
   `{ valid: true, user }`
+- Handle availability: `POST /api/v1/auth/check-handle` and
+  `GET /api/v1/auth/check-handle/:handle?` return `200` when available, `409`
+  when taken, `400/403` on invalid/reserved
 
 ## Run a single test file
 

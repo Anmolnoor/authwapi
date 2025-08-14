@@ -452,6 +452,81 @@ const getUserInfo = CatchAsync(
   }
 );
 
+// ---- Handle availability checks (moved from user controller) ----
+const validateAndCheckHandle = async (
+  rawHandle: unknown,
+  next: NextFunction
+) => {
+  if (!rawHandle || typeof rawHandle !== 'string') {
+    return next(new Err('Invalid handle provided', 400));
+  }
+
+  const normalizedHandle = rawHandle.toLowerCase().trim().replace(/\s+/g, '');
+
+  if (normalizedHandle.length < 3 || normalizedHandle.length > 30) {
+    return next(new Err('Handle must be between 3 and 30 characters', 400));
+  }
+
+  if (!/^[a-z0-9_-]+$/.test(normalizedHandle)) {
+    return next(
+      new Err(
+        'Handle can only contain letters, numbers, underscores, and hyphens',
+        400
+      )
+    );
+  }
+
+  const reservedHandles = ['admin', 'moderator', 'support', 'help'];
+  if (reservedHandles.includes(normalizedHandle)) {
+    return next(new Err('This handle is reserved and cannot be used', 403));
+  }
+
+  const user = await User.findOne({ username: normalizedHandle });
+  if (user !== null) {
+    return next(new Err('Handle is already taken by a user', 409));
+  }
+
+  return normalizedHandle;
+};
+
+// POST /check-handle { handle }
+const getHandle = CatchAsync(async (req: Request, res: Response, next) => {
+  try {
+    const normalizedHandle = (await validateAndCheckHandle(
+      req.body.handle,
+      next
+    )) as string | undefined;
+    if (!normalizedHandle) return;
+
+    ResponseGenerator(res, 200, {
+      msg: 'Handle is available',
+      handle: normalizedHandle,
+    });
+  } catch (error) {
+    return next(new Err('Error checking handle availability', 500));
+  }
+});
+
+// GET /check-handle/:handle? or /check-handle?handle=
+const getHandleGet = CatchAsync(async (req: Request, res: Response, next) => {
+  try {
+    const handleFromReq = (req.params.handle ||
+      (req.query.handle as string)) as string | undefined;
+    const normalizedHandle = (await validateAndCheckHandle(
+      handleFromReq,
+      next
+    )) as string | undefined;
+    if (!normalizedHandle) return;
+
+    ResponseGenerator(res, 200, {
+      msg: 'Handle is available',
+      handle: normalizedHandle,
+    });
+  } catch (error) {
+    return next(new Err('Error checking handle availability', 500));
+  }
+});
+
 const protect = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     let token;
@@ -525,6 +600,8 @@ const Auth = {
   validateToken,
   serviceLogin,
   getUserInfo,
+  getHandle,
+  getHandleGet,
 };
 
 export default Auth;

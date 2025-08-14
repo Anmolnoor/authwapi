@@ -6,8 +6,8 @@ export type ID = Types.ObjectId;
 // ---- service type ----
 export enum service {
   Amend = 'Amend',
-  notes = 'notes',
-  food = 'food',
+  notes = 'Notes',
+  food = 'Food',
 }
 
 export enum permissions {

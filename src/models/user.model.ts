@@ -1,5 +1,5 @@
 import value from 'xss-clean';
-import { IUser, service } from '@/types/model.type';
+import { IUser, service } from '../types/model.type';
 import {
   passwordEncryptor,
   passwordValidator,

@@ -122,6 +122,25 @@ curl -X GET http://localhost:3000/protected \
   -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
 
+## Server API Helpers
+
+### Check handle availability (Auth service)
+
+POST:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/check-handle \
+  -H "Content-Type: application/json" \
+  -d '{"handle":"your-handle"}'
+```
+
+GET (path or query):
+
+```bash
+curl http://localhost:3000/api/v1/auth/check-handle/your-handle
+curl "http://localhost:3000/api/v1/auth/check-handle?handle=your-handle"
+```
+
 ## Environment Variables
 
 ```env
