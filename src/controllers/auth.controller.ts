@@ -3,7 +3,12 @@ import { ResponseGenerator, CatchAsync } from '../utils/helper';
 import User from '../models/user.model';
 import { createTokenwithCookie, verifyJWTToken } from '../utils/jwt';
 import Err from '../utils/errorHandler';
-import { ID, IUser } from '../types/model.type';
+import {
+  ID,
+  IUser,
+  permissions as permissionsEnum,
+  service as services,
+} from '../types/model.type';
 import {
   encryptToken,
   randomString,
@@ -35,39 +40,78 @@ const register = CatchAsync(
     const {
       email,
       username,
+      handle,
       password,
       passwordConfirm,
       image,
       firstName,
       lastName,
       phone,
+      service,
     } = req.body;
 
     // TODO: validate the user data and throw an error if the data is not valid
+    if (!service) {
+      next(new Err('Service is required', 400));
+      return;
+    }
+
+    if (!Object.values(services).includes(service)) {
+      next(new Err('Service is not valid', 400));
+      return;
+    }
+    // create the permissions for the user for the service
+    const permissionsForService = {
+      [service]: [
+        permissionsEnum.create,
+        permissionsEnum.read,
+        permissionsEnum.update,
+        permissionsEnum.delete,
+        permissionsEnum.export,
+        permissionsEnum.import,
+        permissionsEnum.print,
+        permissionsEnum.download,
+        permissionsEnum.upload,
+        permissionsEnum.share,
+        permissionsEnum.view,
+      ],
+    };
 
     // create a new user
+    const normalizedHandle =
+      typeof handle === 'string'
+        ? handle.toLowerCase().trim().replace(/\s+/g, '')
+        : undefined;
     const user = await User.create({
       email,
       username,
+      handle: normalizedHandle,
       password,
       passwordConfirm,
       image,
       firstName,
       lastName,
       phone,
+      service: [service],
+      permissions: permissionsForService,
     });
 
     // extra fetures that we wanna add to the user
     // create the token and send to the user
-    createTokenwithCookie(user.id, res);
-    ResponseGenerator(res, 201, { user });
+    const token = createTokenwithCookie(
+      user.id,
+      res,
+      service,
+      user.permissions[service]
+    );
+    ResponseGenerator(res, 201, { user, token });
   }
 );
 
 const login = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // get the user details from the req
-    const { username, password } = req.body;
+    const { username, password, service } = req.body;
     //TODO: validate and parse the details from the user data
 
     // find the user based on the email or the username
@@ -82,9 +126,26 @@ const login = CatchAsync(
         password
       );
       if (isAuthorized) {
+        // choose active service for token
+        const userServices = Array.isArray(user.service)
+          ? user.service
+          : [user.service];
+        const requestedService = service as string | undefined;
+        const activeService =
+          requestedService && userServices.includes(requestedService)
+            ? requestedService
+            : userServices[0];
         // create the token and send to the user
-        createTokenwithCookie(user._id, res);
-        return ResponseGenerator(res, 201, user);
+        const token = createTokenwithCookie(
+          user._id,
+          res,
+          activeService,
+          user.permissions[activeService]
+        );
+        return ResponseGenerator(res, 201, {
+          user,
+          token,
+        });
       }
     }
     return loginFailed(res);
@@ -112,8 +173,8 @@ const updatePassword = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
-        ResponseGenerator(res, 201, {});
+        const token = createTokenwithCookie(id, res);
+        ResponseGenerator(res, 201, { token });
         return;
       }
       next(new Err('Password is incorrect', 400));
@@ -209,8 +270,17 @@ const resetPassword = CatchAsync(
         await user.save();
         // log the user in and send the jwt token to the user
         // create the token and send to the user
-        createTokenwithCookie(user.id, res);
-        ResponseGenerator(res, 201, { user });
+        const userServices = Array.isArray(user.service)
+          ? user.service
+          : [user.service];
+        const activeService = userServices[0];
+        const token = createTokenwithCookie(
+          user.id,
+          res,
+          activeService,
+          user.permissions[activeService]
+        );
+        ResponseGenerator(res, 201, { user, token });
         return;
       }
     }
@@ -238,8 +308,13 @@ const currentPasswordChange = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
-        ResponseGenerator(res, 201, {});
+        const token = createTokenwithCookie(
+          id,
+          res,
+          user.service,
+          user.permissions[user.service]
+        );
+        ResponseGenerator(res, 201, { token });
         return;
       }
       next(new Err('Password is incorrect', 400));
@@ -258,6 +333,210 @@ const logout = CatchAsync(
     ResponseGenerator(res, 200, {});
   }
 );
+
+// New method for token validation (for other services)
+const validateToken = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { token, service } = req.body;
+
+    if (!token) {
+      next(new Err('Token is required', 400));
+      return;
+    }
+
+    try {
+      const { id, service: tokenService, permissions } = verifyJWTToken(token);
+      const user = await User.findById({ _id: id });
+
+      if (!user) {
+        next(new Err('User not found', 404));
+        return;
+      }
+
+      // Check if password was changed after token was issued
+      const isPasswordUpdated: boolean =
+        await User.schema.methods.changedPasswordAfter(
+          verifyJWTToken(token).Jwt.iat,
+          user.passwordChangedAt
+        );
+
+      if (isPasswordUpdated) {
+        next(new Err('Token is invalid - password changed', 401));
+        return;
+      }
+
+      // Optional service validation
+      if (service && tokenService && service !== tokenService) {
+        next(new Err('Token not valid for this service', 403));
+        return;
+      }
+
+      ResponseGenerator(res, 200, {
+        valid: true,
+        user: {
+          id: user._id,
+          email: user.email,
+          username: user.username,
+          handle: user.handle,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          service: tokenService,
+          permissions,
+        },
+      });
+    } catch (error) {
+      ResponseGenerator(res, 401, {
+        valid: false,
+        message: 'Invalid token',
+      });
+    }
+  }
+);
+
+// New method for service-specific login
+const serviceLogin = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { username, password, service, permissions } = req.body;
+
+    if (!username || !password || !service) {
+      next(new Err('Username, password, and service are required', 400));
+      return;
+    }
+
+    const user = await User.findOne({
+      $or: [{ email: username }, { username }],
+    });
+
+    if (!user) {
+      return loginFailed(res);
+    }
+
+    const isAuthorized: boolean = await User.schema.methods.correctPassword(
+      user.password,
+      password
+    );
+
+    if (!isAuthorized) {
+      return loginFailed(res);
+    }
+
+    // Create service-specific token
+    const token = createTokenwithCookie(user._id, res, service, permissions);
+
+    ResponseGenerator(res, 200, {
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        handle: user.handle,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        service,
+        permissions,
+      },
+      token,
+    });
+  }
+);
+
+// New method to get user info
+const getUserInfo = CatchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { user } = req;
+
+    ResponseGenerator(res, 200, {
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        handle: user.handle,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        image: user.image,
+        service: user.service,
+        permissions: user.permissions,
+      },
+    });
+  }
+);
+
+// ---- Handle availability checks (moved from user controller) ----
+const validateAndCheckHandle = async (
+  rawHandle: unknown,
+  next: NextFunction
+) => {
+  if (!rawHandle || typeof rawHandle !== 'string') {
+    return next(new Err('Invalid handle provided', 400));
+  }
+
+  const normalizedHandle = rawHandle.toLowerCase().trim().replace(/\s+/g, '');
+
+  if (normalizedHandle.length < 3 || normalizedHandle.length > 30) {
+    return next(new Err('Handle must be between 3 and 30 characters', 400));
+  }
+
+  if (!/^[a-z0-9_-]+$/.test(normalizedHandle)) {
+    return next(
+      new Err(
+        'Handle can only contain letters, numbers, underscores, and hyphens',
+        400
+      )
+    );
+  }
+
+  const reservedHandles = ['admin', 'moderator', 'support', 'help'];
+  if (reservedHandles.includes(normalizedHandle)) {
+    return next(new Err('This handle is reserved and cannot be used', 403));
+  }
+
+  const user = await User.findOne({
+    $or: [{ username: normalizedHandle }, { handle: normalizedHandle }],
+  });
+  if (user !== null) {
+    return next(new Err('Handle is already taken by a user', 409));
+  }
+
+  return normalizedHandle;
+};
+
+// POST /check-handle { handle }
+const getHandle = CatchAsync(async (req: Request, res: Response, next) => {
+  try {
+    const normalizedHandle = (await validateAndCheckHandle(
+      req.body.handle,
+      next
+    )) as string | undefined;
+    if (!normalizedHandle) return;
+
+    ResponseGenerator(res, 200, {
+      msg: 'Handle is available',
+      handle: normalizedHandle,
+    });
+  } catch (error) {
+    return next(new Err('Error checking handle availability', 500));
+  }
+});
+
+// GET /check-handle/:handle? or /check-handle?handle=
+const getHandleGet = CatchAsync(async (req: Request, res: Response, next) => {
+  try {
+    const handleFromReq = (req.params.handle ||
+      (req.query.handle as string)) as string | undefined;
+    const normalizedHandle = (await validateAndCheckHandle(
+      handleFromReq,
+      next
+    )) as string | undefined;
+    if (!normalizedHandle) return;
+
+    ResponseGenerator(res, 200, {
+      msg: 'Handle is available',
+      handle: normalizedHandle,
+    });
+  } catch (error) {
+    return next(new Err('Error checking handle availability', 500));
+  }
+});
 
 const protect = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -285,7 +564,7 @@ const protect = CatchAsync(
     const isPasswordUpdated: boolean =
       await User.schema.methods.changedPasswordAfter(
         Jwt.iat,
-        user.passwordChangedAT
+        user.passwordChangedAt
       );
 
     if (isPasswordUpdated) {
@@ -329,6 +608,11 @@ const Auth = {
   currentPasswordChange,
   logout,
   updatePassword,
+  validateToken,
+  serviceLogin,
+  getUserInfo,
+  getHandle,
+  getHandleGet,
 };
 
 export default Auth;

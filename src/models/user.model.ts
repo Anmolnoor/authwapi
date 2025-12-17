@@ -1,5 +1,5 @@
 import value from 'xss-clean';
-import { IUser } from 'types/model.type';
+import { IUser, service } from '../types/model.type';
 import {
   passwordEncryptor,
   passwordValidator,
@@ -12,6 +12,18 @@ const TOKEN_EXPIRATION_TIME_MS = 10 * 60 * 1000;
 
 const userSchema = new Schema<IUser>(
   {
+    handle: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      minlength: 3,
+      maxlength: 30,
+      match: [
+        /^[a-z0-9_-]+$/,
+        'Handle can only contain letters, numbers, underscores, and hyphens',
+      ],
+    },
     firstName: {
       type: String,
       required: [true, 'Please provide a first name'],
@@ -67,6 +79,20 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
       select: false,
+    },
+    service: {
+      type: [String],
+      required: [true, 'Please provide a service'],
+      enum: Object.values(service),
+    },
+    permissions: {
+      type: Object,
+      required: [true, 'Please provide a permissions'],
+      default: {
+        [service.Amend]: [],
+        [service.notes]: [],
+        [service.food]: [],
+      },
     },
     resetToken: { type: String },
     resetTokenTimer: { type: Date },

@@ -1,0 +1,34 @@
+groups:
+- name: auth-api
+  rules:
+  - alert: HighCPUUsage
+    expr: container_cpu_usage_seconds_total{container_name="auth-api"} > 0.8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      description: "Container CPU usage is above 80%"
+
+  - alert: HighMemoryUsage
+    expr: container_memory_usage_bytes{container_name="auth-api"} > 900000000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      description: "Container Memory usage is above 900MB"
+
+  - alert: HighErrorRate
+    expr: rate(http_requests_total{status_code=~"5.."}[5m]) > 1
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      description: "High error rate detected"
+
+  - alert: ServiceDown
+    expr: up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      description: "Service is down" 

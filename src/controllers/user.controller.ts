@@ -38,7 +38,7 @@ const uploadImage = CatchAsync(async (req, res, next) => {
 
     if (fileType === 'image/heif') {
       // Convert HEIF to PNG
-      sharpInstance.png({
+      sharpInstance.toFormat('png', {
         quality: 80,
         compressionLevel: 9,
       });
@@ -51,7 +51,7 @@ const uploadImage = CatchAsync(async (req, res, next) => {
       });
     } else if (fileType === 'image/png') {
       // Compress PNG
-      sharpInstance.png({
+      sharpInstance.toFormat('png', {
         quality: 80,
         compressionLevel: 9,
       });

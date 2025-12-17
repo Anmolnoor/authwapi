@@ -21,12 +21,12 @@ import { s3Delete, s3UploadSingle } from '../utils/s3services';
 
 const uploadSingleImageInAWSS3Middleware = CatchAsync(
   async (req, res, next) => {
-    if (req.files !== undefined) {
-      next(new Err('SomeThing went wrong!! try again', 500));
+    if (req.files === undefined || !req.files.image?.[0]) {
+      return next(new Err('No image file provided', 400));
     }
 
     // handle Images
-    const imageName = FileNameGenerator(req.files?.image[0]);
+    const imageName = FileNameGenerator(req.files.image[0]);
 
     const t = await s3UploadSingle(req.files.image[0], imageName);
     req.imageName = imageName;
@@ -38,8 +38,8 @@ const uploadSingleImageInAWSS3Middleware = CatchAsync(
 );
 
 const uploadSingleImageInAWSS3 = CatchAsync(async (req, res, next) => {
-  if (req.file !== undefined) {
-    next(new Err('SomeThing went wrong!! try again', 500));
+  if (req.file === undefined) {
+    return next(new Err('No file provided', 400));
   }
 
   // handle Images
