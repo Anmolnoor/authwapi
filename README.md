@@ -212,10 +212,11 @@ commit it.
 
 ### 3. Create your `.env`
 
-`dotenv` is configured to read `./.env` from the project root. Create it:
+`dotenv` is configured to read `./.env` from the project root. Copy the
+committed template:
 
 ```bash
-touch .env
+cp .env.example .env
 ```
 
 Then populate it — every variable the codebase reads:
@@ -244,14 +245,14 @@ EMAIL_URL=localhost:8000/api/v1/auth/reset-password/
 AWS_REGION=ap-south-1
 AWS_BUCKET_NAME=your-bucket-name
 AWS_ACCESS_KEY_ID=AKIA...
-AWS_SERECT_ACCESS_KEY=your-secret-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
 ```
 
 > ⚠️ **Two things that will bite you:**
 >
-> 1. `AWS_SERECT_ACCESS_KEY` is spelled exactly like that in
->    `src/utils/s3services.ts` (`SERECT`, not `SECRET`). Use the codebase
->    spelling or S3 uploads will silently authenticate as an empty string.
+> 1. `JWT_SECRET` is **required** — `src/utils/jwt.ts` throws
+>    `JWT_SECRET environment variable is required` at import time if it is
+>    unset, so the process will not boot without it.
 > 2. `EMAIL_URL` is **host + path without a scheme and with a trailing slash**.
 >    The reset link is built as
 >    `` `${req.protocol}://${process.env.EMAIL_URL}${resetToken}` ``, so
@@ -862,9 +863,9 @@ for batch operations — neither is wired to a route yet.
 
 ### Hardening checklist before you go to production
 
-- [ ] **Set `JWT_SECRET`.** It falls back to the hardcoded literal
-      `this_is_my_Strong_secret` if unset — anyone reading this repo can forge
-      tokens against a default-configured deployment.
+- [ ] **Set `JWT_SECRET` to a long random string.** There is no fallback — the
+      app refuses to start without it — but a weak or shared secret is still
+      forgeable.
 - [ ] **Restrict CORS.** `cors()` with no options allows every origin. Pass an
       explicit `origin` allow-list, and `credentials: true` if you rely on the
       cookie.
@@ -907,7 +908,7 @@ Every variable read anywhere in the codebase:
 | `PORT` | ❌ | `8000` | `src/server.ts` | HTTP listen port |
 | `NODE_ENV` | ➖ | *(logged as "{Not Defined environment}")* | `app.ts`, `jwt.ts`, `error.controller.ts` | `development` \| `production`. Controls Morgan format, cookie `secure` flag, and error verbosity |
 | `LOG_LEVEL` | ❌ | `info` | `src/utils/logger.ts` | Winston level: `error`, `warn`, `info`, `verbose`, `debug`, `silly` |
-| `JWT_SECRET` | ⚠️ | `this_is_my_Strong_secret` | `src/utils/jwt.ts` | HMAC signing key. **Always override in any real deployment** |
+| `JWT_SECRET` | ✅ | — (import of `jwt.ts` **throws** without it) | `src/utils/jwt.ts` | HMAC signing key. Use a long random string |
 | `JWT_EXPIRES_IN` | ❌ | `30d` | `src/utils/jwt.ts` | Token lifetime (`zeit/ms` format). The cookie `maxAge` is fixed at 30 days |
 | `EMAIL_HOST` | 📧 | — | `src/utils/email.ts` | SMTP hostname |
 | `EMAIL_PORT` | 📧 | — | `src/utils/email.ts` | SMTP port (coerced with `Number()`) |
@@ -917,15 +918,15 @@ Every variable read anywhere in the codebase:
 | `AWS_REGION` | 🖼️ | — | `src/utils/s3services.ts` | S3 bucket region |
 | `AWS_BUCKET_NAME` | 🖼️ | — | `src/utils/s3services.ts` | Target bucket. Objects land under `uploads/` |
 | `AWS_ACCESS_KEY_ID` | 🖼️ | `''` | `src/utils/s3services.ts` | IAM access key ID |
-| `AWS_SERECT_ACCESS_KEY` | 🖼️ | `''` | `src/utils/s3services.ts` | IAM secret access key. **Note the `SERECT` spelling** — that is the literal name the code reads |
+| `AWS_SECRET_ACCESS_KEY` | 🖼️ | `''` | `src/utils/s3services.ts` | IAM secret access key |
 
-**Legend** — ✅ required to boot · ⚠️ has an insecure fallback, override it ·
-📧 required only for the forgot-password flow · 🖼️ required only for image
-uploads · ➖ optional but strongly recommended · ❌ optional
+**Legend** — ✅ required to boot · 📧 required only for the forgot-password
+flow · 🖼️ required only for image uploads · ➖ optional but strongly
+recommended · ❌ optional
 
 > `.env` is git-ignored (along with `.env.*`), and `.dockerignore` excludes it
-> from the image build context. There is no `.env.example` committed — the block
-> in [Installation & Setup](#3-create-your-env) is the canonical template.
+> from the image build context. `.env.example` is explicitly un-ignored and
+> committed as the canonical template — copy it to `.env` and fill it in.
 
 ---
 
