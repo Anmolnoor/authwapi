@@ -7,28 +7,20 @@ import {
 } from '@aws-sdk/client-s3';
 import { UploadedFile, UploadedFiles } from 'types/model.type';
 
-// // details for the s3 client to connect with the S3 bucket
-// const s3client = new S3Client({
-//   region: process.env.AWS_REGION,
-//   credentials: {
-//     accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-//     secretAccessKey: process.env.AWS_SERECT_ACCESS_KEY ?? '',
-//   },
-// });
+// details for the s3 client to connect with the S3 bucket
+// one shared client, reused by every operation below
+const s3client = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+  },
+});
 
 export const s3UploadMultipleFiles = async (
   files: UploadedFiles,
   names: string[]
 ): Promise<PutObjectCommandOutput[]> => {
-  // details for the s3 client to connect with the S3 bucket
-  const s3client = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-      secretAccessKey: process.env.AWS_SERECT_ACCESS_KEY ?? '',
-    },
-  });
-
   // get the files from the req and create a workable formate
   const params = files.map((file: any, i: number) => {
     return {
@@ -50,15 +42,6 @@ export const s3UploadSingle = async (
   file: UploadedFile,
   name: string
 ): Promise<PutObjectCommandOutput> => {
-  // details for the s3 client to connect with the S3 bucket
-  const s3client = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-      secretAccessKey: process.env.AWS_SERECT_ACCESS_KEY ?? '',
-    },
-  });
-
   // get the file from the req and create a workable formate
   const param = {
     Bucket: process.env.AWS_BUCKET_NAME,
@@ -75,15 +58,6 @@ export const s3UploadSingle = async (
 export const s3Delete = async (
   files: string[]
 ): Promise<DeleteObjectCommandOutput[]> => {
-  // details for the s3 client to connect with the S3 bucket
-  const s3client = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-      secretAccessKey: process.env.AWS_SERECT_ACCESS_KEY ?? '',
-    },
-  });
-
   const params = files.map((item) => {
     return {
       Bucket: process.env.AWS_BUCKET_NAME,

@@ -1,7 +1,10 @@
 import { Response } from 'express';
 import { decode, JwtPayload, sign, verify } from 'jsonwebtoken';
 import { ID } from 'types/model.type';
-const secret = process.env.JWT_SECRET ?? 'this_is_my_Strong_secret';
+const secret = process.env.JWT_SECRET;
+if (!secret) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 const options = {
   expiresIn: process.env.JWT_EXPIRES_IN ?? '30d',
 };
