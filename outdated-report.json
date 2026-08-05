@@ -1,0 +1,102 @@
+{
+  "@aws-sdk/client-s3": {
+    "wanted": "3.1104.0",
+    "latest": "3.1104.0",
+    "dependent": "***"
+  },
+  "@types/sharp": {
+    "wanted": "0.32.0",
+    "latest": "0.31.1",
+    "dependent": "***"
+  },
+  "axios": {
+    "wanted": "1.19.0",
+    "latest": "1.19.0",
+    "dependent": "***"
+  },
+  "bcryptjs": {
+    "wanted": "2.4.3",
+    "latest": "3.0.3",
+    "dependent": "***"
+  },
+  "body-parser": {
+    "wanted": "1.20.6",
+    "latest": "2.3.0",
+    "dependent": "***"
+  },
+  "cookie-parser": {
+    "wanted": "1.4.7",
+    "latest": "1.4.7",
+    "dependent": "***"
+  },
+  "cors": {
+    "wanted": "2.8.6",
+    "latest": "2.8.6",
+    "dependent": "***"
+  },
+  "dotenv": {
+    "wanted": "16.6.1",
+    "latest": "17.4.2",
+    "dependent": "***"
+  },
+  "express": {
+    "wanted": "4.22.2",
+    "latest": "5.2.1",
+    "dependent": "***"
+  },
+  "express-rate-limit": {
+    "wanted": "7.5.1",
+    "latest": "8.6.2",
+    "dependent": "***"
+  },
+  "helmet": {
+    "wanted": "7.2.0",
+    "latest": "8.3.0",
+    "dependent": "***"
+  },
+  "jsonwebtoken": {
+    "wanted": "9.0.3",
+    "latest": "9.0.3",
+    "dependent": "***"
+  },
+  "module-alias": {
+    "wanted": "2.3.4",
+    "latest": "2.3.4",
+    "dependent": "***"
+  },
+  "mongoose": {
+    "wanted": "8.24.2",
+    "latest": "9.9.1",
+    "dependent": "***"
+  },
+  "morgan": {
+    "wanted": "1.11.0",
+    "latest": "1.11.0",
+    "dependent": "***"
+  },
+  "multer": {
+    "wanted": "1.4.5-lts.2",
+    "latest": "2.2.0",
+    "dependent": "***"
+  },
+  "nodemailer": {
+    "wanted": "6.10.1",
+    "latest": "9.0.4",
+    "dependent": "***"
+  },
+  "sharp": {
+    "wanted": "0.33.5",
+    "latest": "0.35.3",
+    "dependent": "***"
+  },
+  "winston": {
+    "wanted": "3.19.0",
+    "latest": "3.19.0",
+    "dependent": "***"
+  },
+  "xss-clean": {
+    "wanted": "0.1.4",
+    "latest": "0.1.4",
+    "dependent": "***"
+  }
+}
