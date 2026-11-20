@@ -8,12 +8,15 @@
 #
 #   scripts/saml-idp-check.sh
 #
-# Needs podman, curl, python3, and `npm ci` done in this checkout (the MCP client and better-sqlite3 run on the host).
+# Needs podman, curl and python3 on the host; no host Node. The MCP client runs in a node:26-slim container on the host
+# network (its node_modules from this checkout's lockfile, installed per run), and the database is read inside AuthWAPI's
+# own container.
 # Temp folders go under $TMPDIR (default /tmp), never $HOME. Free ports on 127.0.0.1, picked per run.
 set -uo pipefail
 
 # kenchan0130/simplesamlphp 1.19.9 (SimpleSAMLphp 1.19.9), multi-arch index, pinned by digest.
 IDP_IMAGE="docker.io/kenchan0130/simplesamlphp@sha256:3c6ed4b8c6bdc86bb131c802ddc35f6311cb91df7f8412f50b8f159c4c19fab0"
+NODE_IMAGE="docker.io/library/node:26-slim"
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
 PORT=$(free_port)
 IDP_PORT=$(free_port)
@@ -21,8 +24,8 @@ BASE_URL="http://localhost:$PORT"
 IDP_URL="http://localhost:$IDP_PORT"
 # Containers publish on 127.0.0.1 only; pin curl there so "localhost" can't reach something on ::1 instead.
 CURL=(curl -sS --resolve "localhost:$PORT:127.0.0.1" --resolve "localhost:$IDP_PORT:127.0.0.1")
-RUN_ID="samlcheck-$$"
-IMG="localhost/authwapi-samlcheck:$$"
+RUN_ID="samlcheck-$$-$RANDOM"
+IMG="localhost/authwapi-samlcheck:$$-$RANDOM"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/authwapi-samlcheck.XXXXXX")"
 FAILS=0
@@ -106,7 +109,7 @@ pass build "image built"
 
 say "-- identity provider ($IDP_IMAGE)"
 name idp; IDP_C=$C
-podman run -d --name "$IDP_C" -p "127.0.0.1:$IDP_PORT:8080" \
+timeout 120 podman run -d --name "$IDP_C" -p "127.0.0.1:$IDP_PORT:8080" \
   -e SIMPLESAMLPHP_SP_ENTITY_ID="$SP_ENTITY" -e SIMPLESAMLPHP_SP_ASSERTION_CONSUMER_SERVICE="$ACS" \
   -v "$T/idp/authsources.php:/var/www/simplesamlphp/config/authsources.php:ro,Z" \
   -v "$T/idp/saml20-sp-remote.php:/var/www/simplesamlphp/metadata/saml20-sp-remote.php:ro,Z" \
@@ -118,14 +121,24 @@ grep -q 'SingleSignOnService' "$T/idp-metadata.xml" && pass idp "metadata has an
 
 say "-- AuthWAPI (rootless, keep-id), IdP origin trusted (loopback http test IdP)"
 name sp; SP_C=$C
-podman run -d --name "$SP_C" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" \
+timeout 120 podman run -d --name "$SP_C" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" \
   -e ALLOWED_HOSTS="localhost:$IDP_PORT" -v "$T/data:/data:Z" "$IMG" >/dev/null || { fail sp "container did not start"; exit 1; }
 if wait_up "$SP_C" "$BASE_URL/health"; then pass sp "/health ok"; else fail sp "never up: $(podman logs "$SP_C" 2>&1 | tail -5)"; exit 1; fi
 
 # --- an agent registers the IdP over MCP ---------------------------------------------------------------
 say "-- register $PROVIDER over the admin MCP"
-if (cd "$ROOT_DIR" && BASE_URL="$BASE_URL" KEY_FILE="$T/data/bootstrap-admin-key" METADATA="$T/idp-metadata.xml" SLUG="$SLUG" \
-  node --input-type=module -e "
+# The MCP client (a devDependency) at the lockfile's versions; install scripts skipped (better-sqlite3 isn't used here).
+mkdir -p "$T/mcp"; cp "$ROOT_DIR/package.json" "$ROOT_DIR/package-lock.json" "$T/idp-metadata.xml" "$T/mcp/"
+name npm
+if timeout 300 podman run --name "$C" -v "$T/mcp:/work:Z" -w /work "$NODE_IMAGE" npm ci --ignore-scripts --no-audit --no-fund >"$T/npm.log" 2>&1; then
+  pass register "MCP client installed from the lockfile"
+else
+  fail register "npm ci: $(tail -5 "$T/npm.log")"; exit 1
+fi
+# Host network so the client reaches BASE_URL (127.0.0.1); the bootstrap key goes on stdin, never into argv or env.
+name mcp
+if timeout 120 podman run -i --name "$C" --network=host -v "$T/mcp:/work:Z" -w /work -e BASE_URL="$BASE_URL" -e SLUG="$SLUG" \
+  "$NODE_IMAGE" node --input-type=module -e "
 import { readFileSync } from 'node:fs';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const connect = async (key) => {
@@ -139,16 +152,16 @@ const call = async (c, name, args) => {
   if (r.isError) throw new Error(name + ': ' + JSON.stringify(data));
   return data;
 };
-const boot = await connect(readFileSync(process.env.KEY_FILE, 'utf8').trim());
+const boot = await connect(readFileSync(0, 'utf8').trim());
 const write = await connect((await call(boot, 'mint_agent_key', { scope: 'write' })).key);
 const owner = await call(write, 'create_user', { email: 'owner@check.test', name: 'Owner', password: 'correct horse battery', emailVerified: true });
 const org = await call(write, 'create_org', { name: 'Check', slug: 'check', ownerUserId: owner.user.id });
 const { provider } = await call(write, 'register_sso_provider', {
-  protocol: 'saml', organizationId: org.organization.id, slug: process.env.SLUG, domain: 'example.com', idpMetadata: readFileSync(process.env.METADATA, 'utf8'),
+  protocol: 'saml', organizationId: org.organization.id, slug: process.env.SLUG, domain: 'example.com', idpMetadata: readFileSync('idp-metadata.xml', 'utf8'),
 });
 console.log(JSON.stringify(provider));
 process.exit(0);
-" >"$T/provider.json" 2>"$T/register.err"); then
+" <"$T/data/bootstrap-admin-key" >"$T/provider.json" 2>"$T/register.err"; then
   pass register "$(cat "$T/provider.json")"
 else
   fail register "$(tail -5 "$T/register.err")"; exit 1
@@ -192,13 +205,13 @@ python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); assert s and s["use
   && pass browser "session for $EMAIL" || fail browser "session: $(head -c 300 "$T/session.json")"
 
 # --- what AuthWAPI stored, and a replay -----------------------------------------------------------------
-STORED=$(cd "$ROOT_DIR" && node -e "
+STORED=$(podman exec "$SP_C" node -e "
 const db = new (require('better-sqlite3'))(process.argv[1], { readonly: true });
 const u = db.prepare('select id, emailVerified from user where email = ?').get(process.argv[2]);
 const a = u && db.prepare('select providerId, accountId from account where userId = ?').get(u.id);
 const m = u && db.prepare('select role from member where userId = ?').get(u.id);
 console.log(u ? [u.emailVerified, a?.providerId, a?.accountId, m?.role].join(' ') : 'none');
-db.close();" "$T/data/authwapi.db" "$EMAIL" 2>&1)
+db.close();" /data/authwapi.db "$EMAIL" 2>&1)
 [ "$STORED" = "0 $PROVIDER $NAMEID member" ] && pass stored "unverified email, bound to ($PROVIDER, $NAMEID), org member" || fail stored "got '$STORED'"
 REPLAY=$(post_acs "$T/replay.jar" "$T/replay.out" "$REQUEST_COOKIE")
 case "$REPLAY" in "302 "*error=*) pass replay "the same response again is refused (${REPLAY#302 })";; *) fail replay "replay answered '$REPLAY'";; esac
