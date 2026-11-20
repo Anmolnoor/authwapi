@@ -6,7 +6,8 @@
 sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub sign-in, TOTP
 two-factor authentication with backup codes, passkeys, password reset, sessions, apps signing users in through
 AuthWAPI (OAuth 2.1 / OpenID Connect), the admin MCP server for AI agents, the data folder with export/import,
-migrations and Docker. **Not built yet:** the no-human agent test. Don't put real users on it yet.
+migrations and Docker. **No-human agent test:** host run passed; container run pending. Don't put real users on
+it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -43,8 +44,8 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
-| `logs/audit.jsonl` | One line per admin MCP call: time, key id, its scope, tool, outcome. Never contains a key or arguments. |
-| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
+| `logs/audit.jsonl` | One line per admin MCP tool call (a write whose commit fails adds a second, `rolled_back` line) and per operator `bootstrap-key` reissue (`who: operator-cli`, `scope: operator`): `time`, `who` (the key id), `scope`, `tool`, `outcome`, plus `target` (the user or key it changed), `minted` (a new key's id) or `reason` (why it was refused or rolled back) when they apply. A request with an invalid key gets 401 and isn't written. Never contains a key or the arguments. |
+| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600, ending with a newline. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
 **To move it**, see [Moving the data folder](#moving-the-data-folder).
@@ -220,7 +221,8 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 
 1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
    24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
-   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`.
+   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`. The file ends with a newline: `$(…)`
+   drops it, but trim it if you read the file in code.
 2. **Mint a write key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (the
    bootstrap key mints only write keys). The result `{"keyId", "scope", "key"}` is the only place the key ever
    appears: store it now. The bootstrap key is now spent: its file stays, but the key in it no longer works.
