@@ -50,9 +50,6 @@ from a version tag, and [UPGRADING.md](https://github.com/Anmolnoor/authwapi/blo
 upgrade notes. No release tag (`vX.Y.Z`) has been pushed yet, so there is no published image: build it from source
 as the quick start shows.
 
-Two live checks from M1's exit checklist are still open: a click-through of every hosted page and email link in a
-browser, and a real email sent through Resend.
-
 ## The earlier version
 
 Before M1, AuthWAPI was a learning project: an Express + MongoDB API with JWT cookies and S3 avatar upload. It is
