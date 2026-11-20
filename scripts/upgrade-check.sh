@@ -18,12 +18,9 @@ trap cleanup EXIT
 latest=(migrations/[0-9][0-9][0-9][0-9]_*.sql)
 case $# in
   0)
-    if git show-ref --verify --quiet refs/tags/v0.2.0; then
-      from=v0.2.0
-    else
-      migration_commit=$(git log -1 --diff-filter=A --format=%H -- "${latest[-1]}")
-      from=${migration_commit:?latest migration must be tracked}^
-    fi
+    # Default: the commit before the newest migration was added, so there is always a pending migration to apply.
+    migration_commit=$(git log -1 --diff-filter=A --format=%H -- "${latest[-1]}")
+    from=${migration_commit:?latest migration must be tracked}^
     ;;
   2) [[ $1 == --from ]] || check_fail 'usage: scripts/upgrade-check.sh [--from <git-ref>]'; from=$2 ;;
   *) check_fail 'usage: scripts/upgrade-check.sh [--from <git-ref>]' ;;
