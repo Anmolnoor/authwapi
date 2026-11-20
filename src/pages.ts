@@ -15,7 +15,7 @@ import type { AuthCall } from './app.ts';
 import { memoryRateLimit, SESSION_FRESH_AGE_SECONDS } from './auth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
-import { SELECT_ORG_PAGE } from './oauth.ts';
+import { SELECT_ORG_PAGE, withConsentOrg } from './oauth.ts';
 import { ACCEPT_INVITATION_PAGE } from './orgs.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
 
@@ -577,7 +577,9 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     if (accept && scopes.includes('organization') && (orgPick(await currentSession(c))?.id ?? '') !== f('org_id')) {
       return consentPage(c, query, 'The organization for this request changed in another tab. Check it and allow again.', 409);
     }
-    const r = await ba(c, 'POST', '/oauth2/consent', { accept, oauth_query: query });
+    // ...and the grant binds exactly the organization checked here, even if the session's pick changes meanwhile.
+    const consent = () => ba(c, 'POST', '/oauth2/consent', { accept, oauth_query: query });
+    const r = scopes.includes('organization') ? await withConsentOrg(f('org_id'), consent) : await consent();
     const next = (r.data as { url?: string } | null)?.url;
     if (r.status !== 200 || !next) return render(c, 'Allow access?', alert(errorText('/oauth2/consent', r)), 400);
     return c.redirect(next, 303);

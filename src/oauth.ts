@@ -7,7 +7,7 @@
 // - (M3) org claims (org_id, roles) come with the organization scope, in access tokens and userinfo only, for the
 //   organization picked at sign-in (SELECT_ORG_PAGE), bound to the grant and re-checked whenever tokens are issued.
 import { randomUUID } from 'node:crypto';
-import { defineRequestState } from '@better-auth/core/context';
+import { defineRequestState, runWithRequestState } from '@better-auth/core/context';
 import { getOAuthProviderApi, oauthProvider } from '@better-auth/oauth-provider';
 import { getCurrentAdapter, type AuthContext, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
@@ -27,6 +27,20 @@ const DEFAULT_SCOPE = 'openid email offline_access';
 
 /** The provider's postLogin page: the user picks the organization an app's organization scope is for. */
 export const SELECT_ORG_PAGE = '/select-org';
+
+/** The organization a consent POST approved: the one its page showed, checked by src/pages.ts. */
+const consentOrg = defineRequestState<string | undefined>(() => undefined);
+
+/**
+ * Runs `call` (the hosted consent page's call to /oauth2/consent) so the grant binds `orgId`, the organization the
+ * page showed and the user approved, not whatever the session holds by the time the provider reads it. Better Auth
+ * runs a call inside an existing request state; an HTTP request always starts with a fresh one, so only this sets it.
+ */
+export const withConsentOrg = <T>(orgId: string, call: () => Promise<T>): Promise<T> =>
+  runWithRequestState(new WeakMap(), async (): Promise<T> => {
+    await consentOrg.set(orgId);
+    return call();
+  }) as Promise<T>;
 
 /**
  * Better Auth's client and resource admin endpoints require a signed-in session. The CLI has none, so calls it
@@ -388,12 +402,14 @@ export function oauthPlugins(deps: AuthDeps): Plugin[] {
       // The provider's shared authorization step: /oauth2/authorize, /oauth2/consent (before it writes consent) and
       // /oauth2/continue all call this before a consent write or an authorization code. Its value becomes the grant's
       // referenceId (consent, code, refresh tokens); the session's active organization is never read.
-      consentReferenceId: ({ user, session, scopes }) => {
+      // On the consent POST it binds the organization that page approved (withConsentOrg), else the session's pick.
+      consentReferenceId: async ({ user, session, scopes }) => {
         if (session.impersonatedBy) {
           throw new APIError('FORBIDDEN', { error: 'access_denied', error_description: "An impersonated session can't authorize apps." });
         }
-        const picked = session.oauthOrgId;
-        return scopes.includes('organization') && typeof picked === 'string' && rolesIn(user.id, picked) ? picked : undefined;
+        if (!scopes.includes('organization')) return undefined;
+        const picked = (await consentOrg.get()) ?? session.oauthOrgId;
+        return typeof picked === 'string' && picked && rolesIn(user.id, picked) ? picked : undefined;
       },
     },
     allowDynamicClientRegistration: false,

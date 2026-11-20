@@ -1,15 +1,17 @@
 // M3 organizations and admin (plan flow.md, M3 in "Rev 8 execution"): Better Auth's organization and admin plugins,
 // and the policy around them. Org claims and the OAuth side of the ban live in src/oauth.ts; MCP tools in src/admin.ts.
 // - banUser: the one ban operation, for HTTP (/admin/ban-user, /admin/update-user) and MCP (ban_user).
-// - /admin/revoke-user-session(s), /admin/set-user-password and /admin/remove-user also revoke OAuth tokens.
+// - /admin/revoke-user-session(s) and /admin/set-user-password also revoke OAuth tokens and unused authorization codes
+//   (/admin/remove-user: the user's tokens go with the user).
 // - Impersonation: 10 minutes (never refreshed), audited, never an admin or an organization owner/admin; no credential
 //   or consent changes, no linked-provider tokens. It also gets no authorization code (consentReferenceId in
 //   src/oauth.ts), and signing it out revokes nothing of the target's (src/oauth.ts).
 // - Invitations are emailed with a link to the hosted accept page (src/pages.ts).
 import path from 'node:path';
-import { defineRequestState, getCurrentAdapter, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
+import { defineRequestState, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import type Database from 'better-sqlite3';
 import { admin, organization } from 'better-auth/plugins';
 import { appendAudit } from './admin.ts';
 import type { AuthDeps } from './auth.ts';
@@ -27,11 +29,25 @@ export const ACCEPT_INVITATION_PAGE = '/accept-invitation';
 const roleList = (role: unknown) => (typeof role === 'string' ? role.split(',').map((r) => r.trim()) : []);
 
 /**
+ * Deletes the user's unused authorization codes: the provider stores each as a verification row whose JSON value
+ * names its type and user (redirectWithAuthorizationCode). Matched exactly; other verification values aren't all JSON.
+ * Better Auth's Kysely transactions run on this same connection, so inside one this statement is part of it.
+ */
+export function deletePendingCodes(context: Pick<AuthContext, 'options'>, userId: string): void {
+  (context.options.database as Database.Database)
+    .prepare(
+      `DELETE FROM verification WHERE CASE WHEN json_valid(value)
+         THEN json_extract(value, '$.type') = 'authorization_code' AND json_extract(value, '$.userId') = ? ELSE 0 END`
+    )
+    .run(userId);
+}
+
+/**
  * The one ban operation, in one transaction: the ban, the end of the user's sessions, the revocation of their OAuth
  * tokens and the deletion of their unused authorization codes. The ban is written first: a token issued at the same
  * time is either revoked here, or written after it and revoked by /oauth2/token's own re-check (src/oauth.ts).
- * Idempotent, so the HTTP routes run it again after Better Auth has written their ban (keeping its banExpires);
- * MCP's ban_user passes banExpires: null, an indefinite ban.
+ * Idempotent: the HTTP routes run it inside Better Auth's own handler's transaction, after the handler wrote their ban
+ * (keeping its banExpires; inBanTransaction). MCP's ban_user passes banExpires: null, an indefinite ban.
  */
 export async function banUser(
   context: Pick<AuthContext, 'adapter' | 'internalAdapter'>,
@@ -42,15 +58,28 @@ export async function banUser(
     await context.internalAdapter.updateUser(userId, { banned: true, ...fields });
     await context.internalAdapter.deleteUserSessions(userId);
     await revokeUserTokens(context, userId);
-    // The provider stores a code as a verification row whose JSON value names its type and user.
-    await (await getCurrentAdapter(context.adapter)).deleteMany({
-      model: 'verification',
-      where: [
-        { field: 'value', operator: 'contains', value: '"type":"authorization_code"' },
-        { field: 'value', operator: 'contains', value: `"userId":${JSON.stringify(userId)}` },
-      ],
-    });
+    deletePendingCodes(context as unknown as Pick<AuthContext, 'options'>, userId);
   });
+}
+
+type Endpoint = ((ctx: object) => Promise<unknown>) & { path: string; options: { use?: unknown } & Record<string, unknown> };
+
+/**
+ * Better Auth's /admin/ban-user or /admin/update-user, made atomic with the ban operation: its handler (permission
+ * checks, the ban write, the session deletion) and then banUser's cleanup run in one transaction, so a failed cleanup
+ * leaves no ban and no deleted sessions. The handler runs as a plain call with its own middleware (`use`); hooks run
+ * once, around this endpoint, and the response is the handler's.
+ */
+function inBanTransaction(endpoint: Endpoint): Endpoint {
+  const { use: _middleware, ...options } = endpoint.options;
+  return createAuthEndpoint(endpoint.path, options as never, async (ctx) =>
+    runWithTransaction(ctx.context.adapter, async () => {
+      const response = await endpoint({ ...ctx, asResponse: false, returnHeaders: false, returnStatus: false });
+      const userId = (ctx.body as { userId?: unknown }).userId;
+      if (typeof userId === 'string' && isBanned(await ctx.context.internalAdapter.findUserById(userId))) await banUser(ctx.context, userId);
+      return ctx.json(response as Record<string, unknown> | null);
+    })
+  ) as unknown as Endpoint;
 }
 
 /** The user a server-side Better Auth call (no HTTP request) acts as: MCP has no session. See asUser. */
@@ -116,7 +145,10 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
               before: async (session, ctx) => {
                 const by = (session as { impersonatedBy?: string | null }).impersonatedBy;
                 if (ctx?.path === '/admin/stop-impersonating' && by) audit('stop_impersonating', by, session.userId);
-                if (ctx?.path === '/admin/revoke-user-session') await revokeUserTokens(ctx.context, session.userId);
+                if (ctx?.path === '/admin/revoke-user-session') {
+                  await revokeUserTokens(ctx.context, session.userId);
+                  deletePendingCodes(ctx.context, session.userId);
+                }
               },
             },
           },
@@ -150,18 +182,11 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
       ],
       after: [
         {
-          // Better Auth's own ban (it ends sessions, not OAuth tokens): finish it with the one ban operation.
-          matcher: (ctx) => ctx.path === '/admin/ban-user' || ctx.path === '/admin/update-user',
-          handler: createAuthMiddleware(async (ctx: HookContext) => {
-            const userId = ctx.body?.userId;
-            if (isAPIError(ctx.context.returned) || typeof userId !== 'string') return;
-            if (isBanned(await ctx.context.internalAdapter.findUserById(userId))) await banUser(ctx.context, userId);
-          }),
-        },
-        {
           matcher: (ctx) => ctx.path !== undefined && REVOKES_TOKENS.has(ctx.path),
           handler: createAuthMiddleware(async (ctx: HookContext) => {
-            if (!isAPIError(ctx.context.returned) && typeof ctx.body?.userId === 'string') await revokeUserTokens(ctx.context, ctx.body.userId);
+            if (isAPIError(ctx.context.returned) || typeof ctx.body?.userId !== 'string') return;
+            await revokeUserTokens(ctx.context, ctx.body.userId);
+            deletePendingCodes(ctx.context, ctx.body.userId); // a code issued just before could otherwise still be exchanged
           }),
         },
       ],
@@ -188,7 +213,16 @@ export function orgAdminPlugins({ config }: AuthDeps, deliver: Deliver): Plugin[
             `email address and open:\n\n${config.baseUrl.origin}${ACCEPT_INVITATION_PAGE}?id=${id}\n\nIf you don't know them, ignore this email.`,
         })),
     }),
-    admin({ impersonationSessionDuration: IMPERSONATION_SECONDS }),
+    adminPlugin(),
     orgAdminGlue(dataPaths(path.resolve(config.dataDir)).audit),
   ];
+}
+
+/** Better Auth's admin plugin, with its two ban routes made atomic with the ban operation (inBanTransaction). */
+function adminPlugin(): Plugin {
+  const plugin = admin({ impersonationSessionDuration: IMPERSONATION_SECONDS });
+  const endpoints = plugin.endpoints as unknown as Record<string, Endpoint>;
+  endpoints.banUser = inBanTransaction(endpoints.banUser);
+  endpoints.adminUpdateUser = inBanTransaction(endpoints.adminUpdateUser);
+  return plugin;
 }

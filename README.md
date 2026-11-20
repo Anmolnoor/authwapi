@@ -207,7 +207,9 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   authorization codes are refused, and introspection and userinfo report their tokens inactive at once. An API that
   only checks JWT signatures (JWKS) still accepts an access token issued before the ban until it expires (at most
   15 minutes). `/admin/revoke-user-session(s)`, `/admin/set-user-password` and `/admin/remove-user` revoke the
-  user's refresh tokens too. A revocation that lands while tokens are being issued revokes them as well.
+  user's refresh tokens (and the first two their unused authorization codes) too. A revocation that lands while
+  tokens are being issued revokes them as well. An HTTP ban commits only as a whole: if any step fails, the user
+  isn't banned.
 - **Impersonation** (`/admin/impersonate-user`) lasts 10 minutes, never extended, and writes `impersonate_user` and
   `stop_impersonating` lines to `logs/audit.jsonl`. It can't target an admin or an organization owner or admin. An
   impersonated session can't change the password, email, linked accounts, 2FA or passkeys, delete the account, read

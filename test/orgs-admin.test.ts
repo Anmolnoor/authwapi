@@ -302,8 +302,16 @@ test('the HTTP ban (/admin/ban-user and /admin/update-user ban fields) revokes r
     const u = await user(`${how}@example.com`);
     const { tokens } = await tokensFor(u.jar, client);
     const body = how === 'ban-user' ? { userId: u.id } : { userId: u.id, data: { banned: true, banReason: 'abuse' } };
+    // Better Auth's own checks still apply: no session → 401, a non-admin → 403, banning yourself → 400.
+    assert.equal((await send(s, new Jar(), 'POST', `/api/auth/admin/${how}`, { json: body })).status, 401, how);
+    assert.equal((await send(s, u.jar, 'POST', `/api/auth/admin/${how}`, { json: body })).status, 403, how);
+    assert.equal((await send(s, admin.jar, 'POST', '/api/auth/admin/ban-user', { json: { userId: admin.id } })).status, 400);
     const r = await send(s, admin.jar, 'POST', `/api/auth/admin/${how}`, { json: body });
     assert.equal(r.status, 200, r.body);
+    // ...and so does its response: { user } from ban-user, the user itself from update-user.
+    const banned = how === 'ban-user' ? r.json().user : r.json();
+    assert.equal(banned.id, u.id, how);
+    assert.equal(banned.banned, true, how);
     assert.equal(unrevokedRefreshTokens(u.id), 0, how);
     assert.equal((await refresh(client, tokens.refresh_token!)).status, 400, how);
     assert.equal(await introspect(client, tokens.access_token), false, how);
@@ -384,16 +392,18 @@ for (const [route, body] of [
   ['set-user-password', (id) => ({ userId: id, newPassword: 'another horse' })],
   ['remove-user', (id) => ({ userId: id })],
 ] as [string, (id: string) => object][]) {
-  test(`/admin/${route} also revokes the user's refresh tokens`, async () => {
+  test(`/admin/${route} also revokes the user's refresh tokens and unused authorization codes`, async () => {
     const { write } = await agents();
     const admin = await adminUser(write);
     const client = await oauthClient(API);
     const u = await user('target@example.com');
     const { tokens } = await tokensFor(u.jar, client, { resource: API });
+    const pending = await authorizeAs(u.jar, client); // issued just before the admin's action, not yet exchanged
     const r = await send(s, admin.jar, 'POST', `/api/auth/admin/${route}`, { json: body(u.id) });
     assert.equal(r.status, 200, r.body);
     assert.equal((await refresh(client, tokens.refresh_token!, API)).status, 400);
     assert.equal(await introspect(client, tokens.access_token), false);
+    assert.equal((await exchange(client, pending.code, pending.verifier)).status, 400);
     await write.close();
   });
 }
@@ -731,4 +741,73 @@ test('invite_member emails only once its audited transaction has committed', asy
   assert.equal(s.outbox().filter((m) => m.to === 'bob@example.com').length, 0, 'an invitation that was rolled back was emailed');
   assert.equal(db(s).prepare('SELECT count(*) FROM invitation').pluck().get(), 0);
   await write.close();
+});
+
+// ── Review round 2 ──
+
+test('consent binds the submitted organization even if the session pick changes after the page checked it', async () => {
+  const { alice, acme, globex } = await orgs();
+  const client = await oauthClient(API);
+  const tab = await toConsent(alice.jar, client, { scope: 'openid offline_access organization', resource: API, org: acme });
+  const d = db(s);
+  const sessionId = d.prepare('SELECT id FROM session WHERE userId = ? AND oauthOrgId = ?').pluck().get(alice.id, acme) as string;
+  // POST /consent's own session check refreshes the session (its expiry is past updateAge), and this trigger swaps the
+  // pick right then: the check still sees Acme (Better Auth reads the row back with RETURNING), the database has Globex.
+  d.prepare('UPDATE session SET expiresAt = ? WHERE id = ?').run(new Date(Date.now() + 5 * 86_400_000).toISOString(), sessionId);
+  d.exec(`CREATE TRIGGER swap_pick AFTER UPDATE OF expiresAt ON session WHEN NEW.id = '${sessionId}'
+    BEGIN UPDATE session SET oauthOrgId = '${globex}' WHERE id = NEW.id; END`);
+  d.close();
+  const allow = await send(s, alice.jar, 'POST', '/consent', { form: { ...consentForm(tab.consentPage), accept: 'yes' } });
+  assert.equal(allow.status, 303, allow.body);
+  assert.equal(db(s).prepare('SELECT oauthOrgId FROM session WHERE id = ?').pluck().get(sessionId), globex, 'the trigger did not fire');
+  const res = await exchange(client, codeFrom(allow.location), tab.verifier, API);
+  assert.equal(decodeJwt(((await res.json()) as Tokens).access_token).org_id, acme);
+});
+
+test('an HTTP ban is atomic: if its cleanup fails, no ban is committed and the sessions stay', async () => {
+  const { write } = await agents();
+  const admin = await adminUser(write);
+  const u = await user('atomic@example.com');
+  const d = db(s);
+  d.exec(`CREATE TRIGGER fail_revoke BEFORE UPDATE OF tokensRevokedAt ON "user" BEGIN SELECT RAISE(ABORT, 'injected'); END`);
+  for (const [route, body] of [
+    ['ban-user', { userId: u.id }],
+    ['update-user', { userId: u.id, data: { banned: true } }],
+  ] as const) {
+    const r = await send(s, admin.jar, 'POST', `/api/auth/admin/${route}`, { json: body });
+    assert.notEqual(r.status, 200, `${route}: ${r.body}`);
+    assert.equal(d.prepare('SELECT banned FROM "user" WHERE id = ?').pluck().get(u.id), 0, `${route} committed the ban`);
+    assert.ok((d.prepare('SELECT count(*) FROM session WHERE userId = ?').pluck().get(u.id) as number) > 0, `${route} ended the sessions`);
+  }
+  d.close();
+  await write.close();
+});
+
+test("the ban's code sweep matches the code's type and user exactly, not by pattern", async () => {
+  const { write } = await agents();
+  const u = await mcpUser(write, 'sweep@example.com');
+  const lookalike = u.replace(/[a-z]/, (ch) => ch.toUpperCase()) === u ? u.replace(/[A-Z]/, (ch) => ch.toLowerCase()) : u.replace(/[a-z]/, (ch) => ch.toUpperCase());
+  assert.notEqual(lookalike, u);
+  const d = db(s);
+  const now = new Date().toISOString();
+  d.prepare('INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run(
+    'other-users-code',
+    'x',
+    JSON.stringify({ type: 'authorization_code', query: {}, userId: lookalike }),
+    new Date(Date.now() + 600_000).toISOString(),
+    now,
+    now
+  );
+  await ok(call(write, 'ban_user', { userId: u }));
+  assert.equal(d.prepare('SELECT count(*) FROM verification WHERE id = ?').pluck().get('other-users-code'), 1);
+  d.close();
+  await write.close();
+});
+
+test('an organization owner can still invite over HTTP, and the invitation is emailed', async () => {
+  const { alice, acme } = await orgs();
+  const r = await send(s, alice.jar, 'POST', '/api/auth/organization/invite-member', { json: { organizationId: acme, email: 'carol@example.com', role: 'member' } });
+  assert.equal(r.status, 200, r.body);
+  const mail = await s.mail('carol@example.com', 'You are invited to join an organization on AuthWAPI');
+  assert.match(mail.text, /\/accept-invitation\?id=/);
 });
