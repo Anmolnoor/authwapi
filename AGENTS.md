@@ -31,10 +31,11 @@ container, use `ALLOWED_HOSTS` (below). Podman, SELinux, other user IDs and Dock
 ## Agent in another container
 
 If your shell runs in its own container, `localhost` is that container and you have no `docker`. Instead of
-"Start it", the host runs the server and your container on one user-defined network, with unique names and a data
+the `docker run` in "Start it", the host builds the image and runs the server and your container on one user-defined network, with unique names and a data
 folder of their own (others may share the machine) and a network alias so the server's name stays `authwapi`:
 
 ```bash
+git clone https://github.com/Anmolnoor/authwapi && cd authwapi && docker build -t authwapi .   # the image, as in "Start it"
 ID=$(openssl rand -hex 3)
 docker network create "authwapi-net-$ID"
 docker run -d --name "authwapi-$ID" --network "authwapi-net-$ID" --network-alias authwapi \
@@ -66,7 +67,8 @@ Full flow: [Agent in another container](site/src/content/docs/docs/for-ai-agents
 On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder (`/data` in the container), mode 0600,
 ending with a newline: trim it. It works for 24 hours, only with `mint_agent_key`, and only once. Use it to mint
 a write key, then work with that. If it's lost or spent and no write key is left, the operator runs
-`docker exec -u 1000 authwapi node src/cli.ts bootstrap-key`; for an agent in a container, pipe it in as above.
+`docker exec -u 1000 authwapi node src/cli.ts bootstrap-key` (in the container setup the server is `authwapi-$ID`);
+for an agent in a container, pipe it in as above.
 
 ## Runbooks
 

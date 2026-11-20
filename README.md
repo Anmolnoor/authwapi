@@ -291,7 +291,8 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 3. **Reconnect with the agent key** and administer. For example, in Claude Code, from the folder holding
    `agent-key.json`:
    `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $(node -p 'require("./agent-key.json").key')"`.
-   From an agent in another container, use `http://authwapi:4000/mcp`
+   This one command does put the key on `claude`'s command line and in Claude Code's config, unlike the
+   `admin.mjs` runbooks; run it on a machine only you use. From an agent in another container, use `http://authwapi:4000/mcp`
    ([Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container)).
 
 | Tool | Scope | What |
