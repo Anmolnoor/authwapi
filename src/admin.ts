@@ -12,7 +12,7 @@
 //   them must see fields, not sentences that could pass for instructions.
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { runWithTransaction } from '@better-auth/core/context';
+import { runWithEndpointContext, runWithTransaction, type AuthEndpointContext } from '@better-auth/core/context';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createMcpHandler, ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
 import type { AuthContext, BetterAuthPlugin } from 'better-auth';
@@ -281,13 +281,16 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
         const address = email.toLowerCase();
         const passwordHash = await ctx.password.hash(password); // slow, so outside the transaction
         // User and credential account commit together, or neither does.
-        const user = await runWithTransaction(ctx.adapter, async () => {
+        // createUser runs the configured user.validateUserInfo hook, which Better Auth only allows inside an endpoint
+        // context; this tool call isn't an HTTP endpoint, so give it the auth context as one (source method 'admin').
+        const endpoint = { context: ctx } as unknown as AuthEndpointContext;
+        const user = await runWithEndpointContext(endpoint, () => runWithTransaction(ctx.adapter, async () => {
           if (await ctx.internalAdapter.findUserByEmail(address)) throw new ToolError('email_taken');
           const created = await ctx.internalAdapter.createUser({ email: address, name, emailVerified }, { method: 'admin' });
           await ctx.internalAdapter.linkAccount({ userId: created.id, providerId: 'credential', accountId: created.id, password: passwordHash });
           ok({ target: created.id });
           return created;
-        });
+        }));
         // After the commit. The user exists either way, so a failure here is reported in the result, not as an error.
         // 'queued': delivery is asynchronous (so timing can't reveal accounts); failures go to app.jsonl.
         let verificationEmail: 'queued' | 'failed' | 'not needed' = 'not needed';

@@ -1,6 +1,7 @@
-// Hosted pages (sign-in, sign-up, reset, magic link, OAuth consent) and the Risk 8 fix (plan flow.md).
+// Hosted pages (sign-in, sign-up, reset, magic link, OAuth consent, 2FA, passkeys) and the Risk 8 fix (plan flow.md).
 // Server-rendered with hono/html, which escapes every interpolated value. Forms post back to these routes, which
 // call Better Auth through callAuth (client IP set from the TCP peer, so Better Auth's rate limits apply).
+import { verifyOAuthQueryParams } from '@better-auth/oauth-provider';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type Database from 'better-sqlite3';
 import { Hono, type Context } from 'hono';
@@ -8,10 +9,12 @@ import { html } from 'hono/html';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { errors, jwtVerify } from 'jose';
 import { createHash, scrypt, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { AuthCall } from './app.ts';
-import { memoryRateLimit } from './auth.ts';
+import { memoryRateLimit, SESSION_FRESH_AGE_SECONDS } from './auth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
+import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
 
 export interface PageDeps {
   callAuth: AuthCall;
@@ -24,7 +27,7 @@ export interface PageDeps {
 
 type Html = ReturnType<typeof html>;
 
-const layout = (title: string, body: Html) => html`<!doctype html>
+const layout = (title: string, body: Html, passkeyScript: boolean) => html`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -43,6 +46,7 @@ hr{margin:2rem 0;border:0;border-top:1px solid #ddd}
 @media (prefers-color-scheme:dark){body{background:#121212;color:#eee}input{background:#1e1e1e;color:#eee}
 button.secondary{background:#333;color:#eee}[role=alert]{background:#3a1d22}.ok{background:#1d3324}}
 </style>
+${passkeyScript ? html`<script src="/passkey.js" defer></script>` : ''}
 </head>
 <body><main>
 <h1>${title}</h1>
@@ -51,6 +55,19 @@ ${body}
 </html>`;
 
 const alert = (message: string | undefined) => (message ? html`<p role="alert">${message}</p>` : html``);
+
+/** The browser half of passkeys (WebAuthn needs page script): served from our origin, the only one CSP allows. */
+const PASSKEY_JS = readFileSync(new URL('./passkey-client.js', import.meta.url), 'utf8');
+
+const PROVIDER_NAMES: Record<string, string> = { google: 'Google', github: 'GitHub' };
+
+/** Why a Google/GitHub sign-in came back with ?error=. */
+const socialError = (code: string) =>
+  code === 'account_not_linked'
+    ? "An account with this email already exists but its address isn't verified, so it can't be joined to that sign-in yet. Use 'Email me a link' below: it verifies the address, then that sign-in works too."
+    : code === 'email_not_verified'
+      ? "That provider didn't confirm your email address is verified. Verify it there, or sign in another way."
+      : `That sign-in didn't work (${code}). Try again or sign in another way.`;
 
 /** Plain-words descriptions for the consent page. Unknown scopes are shown by name. */
 const SCOPE_WORDS: Record<string, string> = {
@@ -106,6 +123,11 @@ const PAGE_PATHS = [
   '/consent',
   '/api/auth/verify-email',
   '/api/auth/magic-link/verify',
+  TWO_FACTOR_PAGE,
+  '/two-factor/setup',
+  '/two-factor/setup/confirm',
+  '/passkeys',
+  OAUTH_RESUME_PAGE,
 ];
 
 /**
@@ -120,7 +142,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   for (const path of PAGE_PATHS) {
     app.use(path, async (c, next) => {
       await next();
-      c.res.headers.set('content-security-policy', "frame-ancestors 'none'");
+      // Scripts only from our own origin (/passkey.js): no inline script, nothing injected runs.
+      c.res.headers.set('content-security-policy', "frame-ancestors 'none'; script-src 'self'; base-uri 'none'");
       c.res.headers.set('x-frame-options', 'DENY');
       c.res.headers.set('cache-control', 'no-store');
     });
@@ -181,17 +204,32 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const body = await c.req.parseBody();
     return (name: string) => (typeof body[name] === 'string' ? (body[name] as string) : '');
   };
-  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200) =>
-    c.html(layout(title, body), status);
-  /** The OAuth provider's signed query (the loginPage/consentPage is opened with it), or '' if there is none. */
+  /** `passkeyScript`: the page has passkey buttons, so it loads /passkey.js. */
+  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200, passkeyScript = false) =>
+    c.html(layout(title, body, passkeyScript), status);
+  /**
+   * The OAuth provider's signed query (the loginPage/consentPage is opened with it), or '' if there is none. A social
+   * sign-in that failed comes back with ?error= added, which isn't part of the signed request.
+   */
   const oauthQuery = (c: Context) => {
-    const q = new URL(c.req.url).search.slice(1);
-    return new URLSearchParams(q).has('sig') ? q : '';
+    const params = new URLSearchParams(new URL(c.req.url).search);
+    params.delete('error');
+    params.delete('error_description');
+    return params.has('sig') ? params.toString() : '';
+  };
+  /** Where a sign-in that can't carry the request in its body (magic link, social) lands once it has a session. */
+  const resumeUrl = (query: string) => (query ? `${OAUTH_RESUME_PAGE}?${query}` : '/');
+  type SessionData = { session: { createdAt: string }; user: { email: string; twoFactorEnabled?: boolean } } | null;
+  /** The signed-in session, or null, also when the lookup fails (rate limited, say): pages then act signed out. */
+  const currentSession = async (c: Context) => {
+    const r = await ba(c, 'GET', '/get-session');
+    return r.status === 200 ? (r.data as SessionData) : null;
   };
 
+  app.get('/passkey.js', (c) => c.body(PASSKEY_JS, 200, { 'content-type': 'text/javascript; charset=utf-8' }));
+
   app.get('/', async (c) => {
-    const { data } = await ba(c, 'GET', '/get-session');
-    const email = (data as { user?: { email?: string } } | null)?.user?.email;
+    const email = (await currentSession(c))?.user.email;
     const error = c.req.query('error');
     return render(
       c,
@@ -199,6 +237,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       html`${alert(error && `That link didn't work (${error}). Ask for a new one from the sign-in page.`)}
         ${email
           ? html`<p>Signed in as <strong>${email}</strong>.</p>
+              <p><a href="/two-factor/setup">Two-factor authentication</a> · <a href="/passkeys">Passkeys</a></p>
               <form method="post" action="/sign-out"><button>Sign out</button></form>`
           : html`<p><a href="/sign-in">Sign in</a> or <a href="/sign-up">create an account</a>.</p>`}`
     );
@@ -218,32 +257,67 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
           <button>Sign in</button>
         </form>
         <p><a href="/forgot-password">Forgot password?</a> · <a href="/sign-up">Create an account</a></p>
-        ${query
-          ? '' // ponytail: no magic link during an OAuth request yet; the emailed link would need to resume it
-          : html`<hr>
-              <form method="post" action="/sign-in">
-                <input type="hidden" name="method" value="magic-link">
-                <label for="ml-email">Or get a sign-in link by email</label>
-                <input id="ml-email" name="email" type="email" autocomplete="email" required>
-                <button class="secondary">Email me a link</button>
-              </form>`}`,
-      status
+        <hr>
+        <button type="button" class="secondary" data-passkey="sign-in" data-oauth-query="${query}" data-status="passkey-status">Sign in with a passkey</button>
+        <p id="passkey-status" role="status"></p>
+        ${Object.keys(config.social).map(
+          (provider) => html`<form method="post" action="/sign-in">
+            <input type="hidden" name="method" value="social">
+            <input type="hidden" name="provider" value="${provider}">
+            <input type="hidden" name="oauth_query" value="${query}">
+            <button class="secondary">Continue with ${PROVIDER_NAMES[provider]}</button>
+          </form>`
+        )}
+        <hr>
+        <form method="post" action="/sign-in">
+          <input type="hidden" name="method" value="magic-link">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <label for="ml-email">Or get a sign-in link by email</label>
+          <input id="ml-email" name="email" type="email" autocomplete="email" required>
+          <button class="secondary">Email me a link</button>
+        </form>`,
+      status,
+      true
     );
-  app.get('/sign-in', (c) => signInPage(c, oauthQuery(c)));
+  app.get('/sign-in', (c) => {
+    const error = c.req.query('error');
+    return signInPage(c, oauthQuery(c), error && socialError(error));
+  });
   app.post('/sign-in', async (c) => {
     const f = await form(c);
-    if (f('method') === 'magic-link') {
-      const r = await ba(c, 'POST', '/sign-in/magic-link', { email: f('email'), callbackURL: '/' });
-      if (r.status !== 200) return signInPage(c, '', errorText('/sign-in/magic-link', r), undefined, 400);
-      return signInPage(c, '', undefined, 'If that address has an account, a sign-in link is on its way. It works once, for 5 minutes.');
-    }
     const query = f('oauth_query');
+    if (f('method') === 'magic-link') {
+      // During an OAuth request the link brings the browser back to it (resumeUrl), or to the 2FA page first.
+      // A link that fails (used, expired) comes back to this page with the error and the request, never to resumeUrl.
+      const r = await ba(c, 'POST', '/sign-in/magic-link', {
+        email: f('email'),
+        callbackURL: resumeUrl(query),
+        ...(query ? { errorCallbackURL: `/sign-in?${query}` } : {}),
+      });
+      if (r.status !== 200) return signInPage(c, query, errorText('/sign-in/magic-link', r), undefined, 400);
+      return signInPage(c, query, undefined, 'If that address has an account, a sign-in link is on its way. It works once, for 5 minutes.');
+    }
+    if (f('method') === 'social') {
+      // With oauth_query the provider resumes the app's request right after the callback (or the 2FA page does).
+      const r = await ba(c, 'POST', '/sign-in/social', {
+        provider: f('provider'),
+        callbackURL: resumeUrl(query),
+        errorCallbackURL: query ? `/sign-in?${query}` : '/sign-in',
+        ...(query ? { oauth_query: query } : {}),
+      });
+      const url = (r.data as { url?: string } | null)?.url;
+      if (r.status !== 200 || !url) return signInPage(c, query, errorText('/sign-in/social', r), undefined, 400);
+      return c.redirect(url, 303);
+    }
     const r = await ba(c, 'POST', '/sign-in/email', {
       email: f('email'),
       password: f('password'),
       ...(query ? { oauth_query: query } : {}),
     });
     if (r.status !== 200) return signInPage(c, query, errorText('/sign-in/email', r), undefined, r.status === 429 ? 429 : 400);
+    if ((r.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+      return c.redirect(query ? `${TWO_FACTOR_PAGE}?${query}` : TWO_FACTOR_PAGE, 303);
+    }
     // During an OAuth request the provider's after-hook answers with where to go next (consent or the app).
     const next = (r.data as { redirect?: boolean; url?: string } | null)?.url;
     if (query && !next) throw new Error('sign-in during an OAuth request returned no redirect');
@@ -402,11 +476,15 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── Magic link: GET asks, POST signs in (Risk 7; also stops mail scanners from using up the link) ──
-  app.get('/api/auth/magic-link/verify', (c) => {
+  app.get('/api/auth/magic-link/verify', async (c) => {
     const token = c.req.query('token') ?? '';
     const row = pendingMagicLink.get(magicLinkIdentifier(token)) as { email: string; expiresAt: string } | undefined;
     if (row === undefined || new Date(row.expiresAt).getTime() <= Date.now()) {
-      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<p><a href="/sign-in">Get a new link</a></p>`, 400);
+      // A link asked for during an app's sign-in carries its signed request in callbackURL: keep it for the retry.
+      const back = URL.parse(c.req.query('callbackURL') ?? '/', config.baseUrl);
+      const query = back?.pathname === OAUTH_RESUME_PAGE ? back.search.slice(1) : '';
+      const retry = query && (await verifyOAuthQueryParams(query, secret)) ? `/sign-in?${query}` : '/sign-in';
+      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<p><a href="${retry}">Get a new link</a></p>`, 400);
     }
     return render(
       c,
@@ -459,6 +537,155 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const next = (r.data as { url?: string } | null)?.url;
     if (r.status !== 200 || !next) return render(c, 'Allow access?', alert(errorText('/oauth2/consent', r)), 400);
     return c.redirect(next, 303);
+  });
+
+  // ── Back to the app after a sign-in that couldn't carry its request in the body (magic link) ──
+  // The provider resumes a request itself when a sign-in POST carries oauth_query (password, 2FA, passkey, social).
+  // A magic link is a GET, so its callbackURL brings the browser here with the signed request: checked, then sent back
+  // to /authorize. Only a session created after the app asked counts as the fresh sign-in prompt=login or max_age want.
+  app.get(OAUTH_RESUME_PAGE, async (c) => {
+    const query = oauthQuery(c);
+    if (c.req.query('error')) return c.redirect(`/sign-in?${new URL(c.req.url).search.slice(1)}`, 303); // a failed sign-in
+    if (!query || !(await verifyOAuthQueryParams(query, secret))) {
+      return render(c, 'Sign in', alert('This sign-in request expired or was changed. Start again from the app.'), 400);
+    }
+    const session = await currentSession(c);
+    if (!session) return c.redirect(`/sign-in?${query}`, 303);
+    const params = new URLSearchParams(query);
+    const issuedAt = Number(params.get('ba_iat'));
+    for (const p of ['sig', 'exp', 'ba_iat', 'ba_pl', 'ba_param']) params.delete(p); // the provider's signing fields
+    if (new Date(session.session.createdAt).getTime() >= issuedAt) {
+      const prompts = (params.get('prompt') ?? '').split(' ').filter((p) => p && p !== 'login');
+      if (prompts.length > 0) params.set('prompt', prompts.join(' '));
+      else params.delete('prompt');
+      params.delete('max_age');
+    }
+    return c.redirect(`/api/auth/oauth2/authorize?${params}`, 303);
+  });
+
+  // ── 2FA challenge (after any first factor on a 2FA account; src/signin.ts) ──
+  const twoFactorPage = (c: Context, query: string, error?: string, status: ContentfulStatusCode = 200) =>
+    render(
+      c,
+      'Two-factor authentication',
+      html`${alert(error)}
+        <form method="post" action="${TWO_FACTOR_PAGE}">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <label for="code">Code from your authenticator app</label>
+          <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+          <button>Continue</button>
+        </form>
+        <hr>
+        <form method="post" action="${TWO_FACTOR_PAGE}">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <input type="hidden" name="method" value="backup">
+          <label for="backup">Or use a backup code (each works once)</label>
+          <input id="backup" name="code" autocomplete="off" required>
+          <button class="secondary">Use backup code</button>
+        </form>`,
+      status
+    );
+  app.get(TWO_FACTOR_PAGE, (c) => twoFactorPage(c, oauthQuery(c)));
+  app.post(TWO_FACTOR_PAGE, async (c) => {
+    const f = await form(c);
+    const query = f('oauth_query');
+    const path = f('method') === 'backup' ? '/two-factor/verify-backup-code' : '/two-factor/verify-totp';
+    const r = await ba(c, 'POST', path, { code: f('code'), ...(query ? { oauth_query: query } : {}) });
+    if (r.status !== 200) return twoFactorPage(c, query, errorText(path, r), r.status === 429 ? 429 : 400);
+    // With oauth_query the provider continues the app's request and answers with where to go next.
+    const next = (r.data as { url?: string } | null)?.url;
+    if (query && !next) throw new Error('2FA during an OAuth request returned no redirect');
+    return c.redirect(next ?? '/', 303);
+  });
+
+  // ── Turning on TOTP: enable (secret + backup codes, shown once), then confirm a code ──
+  const signedOut = (c: Context) => c.redirect('/sign-in', 303);
+  const confirmForm = html`<p>Turning it on signs out your other sessions, revokes apps' refresh tokens and removes
+      your passkeys (add them again afterwards).</p>
+    <form method="post" action="/two-factor/setup/confirm">
+    <label for="code">Then enter the code it shows</label>
+    <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+    <button>Turn on</button>
+  </form>`;
+  app.get('/two-factor/setup', async (c) => {
+    const session = await currentSession(c);
+    if (!session) return signedOut(c);
+    if (session.user.twoFactorEnabled) return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on.</p>`);
+    return render(
+      c,
+      'Two-factor authentication',
+      html`<p>Each sign-in will also ask for a code from an authenticator app.</p>
+        <form method="post" action="/two-factor/setup">
+          <label for="password">Your password (leave empty if your account has none)</label>
+          <input id="password" name="password" type="password" autocomplete="current-password">
+          <button>Set up</button>
+        </form>`
+    );
+  });
+  app.post('/two-factor/setup', async (c) => {
+    const password = (await form(c))('password');
+    const r = await ba(c, 'POST', '/two-factor/enable', password ? { password } : {});
+    if (r.status === 401) return signedOut(c);
+    if (r.status !== 200) return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/enable', r))}<p><a href="/two-factor/setup">Try again</a></p>`, 400);
+    const { totpURI, backupCodes } = r.data as { totpURI: string; backupCodes: string[] };
+    return render(
+      c,
+      'Two-factor authentication',
+      html`<p>Add this account to your authenticator app with this key:</p>
+        <p><code>${new URL(totpURI).searchParams.get('secret')}</code></p>
+        <p>or this link: <code>${totpURI}</code></p>
+        <p>Backup codes, each works once if you lose the app. Save them now: they won't be shown again.</p>
+        <ul>${backupCodes.map((code) => html`<li><code>${code}</code></li>`)}</ul>
+        ${confirmForm}`
+    );
+  });
+  app.post('/two-factor/setup/confirm', async (c) => {
+    const r = await ba(c, 'POST', '/two-factor/verify-totp', { code: (await form(c))('code') });
+    if (r.status !== 200) return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/verify-totp', r))}${confirmForm}`, 400);
+    return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on. Your other sessions were signed out, apps'
+        refresh tokens revoked and passkeys removed. <a href="/passkeys">Add a passkey</a></p>`);
+  });
+
+  // ── Adding a passkey (the browser half is /passkey.js). On a 2FA account, a fresh code comes first. ──
+  // Better Auth also refuses a session older than its freshAge, so such a session is asked to sign in again first.
+  const tooOld = (session: NonNullable<SessionData>) => Date.now() - new Date(session.session.createdAt).getTime() >= SESSION_FRESH_AGE_SECONDS * 1000;
+  const signInAgain = (c: Context) =>
+    render(
+      c,
+      'Passkeys',
+      html`<p>To add a passkey, sign in again first: your sign-in is more than a day old.</p>
+        <form method="post" action="/sign-out"><button>Sign out</button></form>`
+    );
+  const passkeysPage = (c: Context, needsCode: boolean, error?: string, status: ContentfulStatusCode = 200) =>
+    render(
+      c,
+      'Passkeys',
+      needsCode
+        ? html`${alert(error)}
+            <form method="post" action="/passkeys">
+              <label for="code">To add a passkey, enter a code from your authenticator app</label>
+              <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+              <button>Continue</button>
+            </form>`
+        : html`<p>A passkey signs you in with this device's lock (fingerprint, face or PIN) instead of a password.</p>
+            <button type="button" data-passkey="add" data-status="passkey-status">Add a passkey</button>
+            <p id="passkey-status" role="status"></p>`,
+      status,
+      !needsCode
+    );
+  app.get('/passkeys', async (c) => {
+    const session = await currentSession(c);
+    if (!session) return signedOut(c);
+    if (tooOld(session)) return signInAgain(c);
+    return passkeysPage(c, session.user.twoFactorEnabled === true);
+  });
+  app.post('/passkeys', async (c) => {
+    const session = await currentSession(c);
+    if (!session) return signedOut(c);
+    if (tooOld(session)) return signInAgain(c);
+    const r = await ba(c, 'POST', '/two-factor/verify-totp', { code: (await form(c))('code') });
+    if (r.status !== 200) return passkeysPage(c, true, errorText('/two-factor/verify-totp', r), 400);
+    return passkeysPage(c, false);
   });
 
   return app;

@@ -3,6 +3,7 @@ import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
 import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
+import { linkingPolicy, signInPlugins, socialProviders } from './signin.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -10,6 +11,9 @@ import type { SendMail } from './mailer.ts';
 type RateLimitStorage = NonNullable<NonNullable<BetterAuthOptions['rateLimit']>['customStorage']>;
 
 export const CLIENT_IP_HEADER = 'x-authwapi-client-ip';
+
+/** How old a session may be for Better Auth's "fresh session" routes (adding a passkey). Its default, made explicit for the pages. */
+export const SESSION_FRESH_AGE_SECONDS = 24 * 60 * 60;
 
 /**
  * For anything Better Auth puts in our log: a refused value ("Invalid callbackURL: <value>") is blanked whatever
@@ -81,6 +85,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     secret,
     database: db,
     trustedOrigins: config.trustedOrigins,
+    session: { freshAge: SESSION_FRESH_AGE_SECONDS },
     // Better Auth's warnings and errors go to our log (app.jsonl), not only the console. Errors are
     // recorded by message, without stack traces.
     logger: {
@@ -96,6 +101,10 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     advanced: {
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
+    // Google / GitHub, each only when its client ID and secret are set (config.ts). Linking: src/signin.ts.
+    socialProviders: socialProviders(config.social),
+    account: { accountLinking: { trustedProviders: [] } },
+    user: { validateUserInfo: linkingPolicy },
     // Reset and verification tokens are stored hashed, so a copy of the database can't be used to reset.
     verification: { storeIdentifier: 'hashed' },
     emailAndPassword: {
@@ -141,6 +150,8 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
           });
         },
       }),
+      // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
+      ...signInPlugins(config),
       ...oauthPlugins(deps), // lane A
       adminKeySchema,
     ],
