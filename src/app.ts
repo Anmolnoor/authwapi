@@ -1,14 +1,19 @@
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type Database from 'better-sqlite3';
+import type { AuthContext } from 'better-auth';
 import { Hono, type Context } from 'hono';
+import path from 'node:path';
+import { adminRoutes } from './admin.ts';
 import { CLIENT_IP_HEADER } from './auth.ts';
 import type { Config } from './config.ts';
+import type { DataPaths } from './data.ts';
 import type { Logger } from './log.ts';
 import { wellKnownRoutes } from './oauth.ts';
 import { pageRoutes } from './pages.ts';
 
 interface AuthHandler {
   handler: (request: Request) => Promise<Response>;
+  $context: Promise<AuthContext>;
 }
 
 /**
@@ -23,10 +28,11 @@ export interface AppDeps {
   config: Config;
   db: Database.Database;
   log: Logger;
+  paths: DataPaths;
   secret: string;
 }
 
-export function createApp({ auth, config, db, log, secret }: AppDeps): Hono {
+export function createApp({ auth, config, db, log, paths, secret }: AppDeps): Hono {
   const app = new Hono();
   const callAuth: AuthCall = (c, request) => {
     const headers = new Headers(request.headers);
@@ -63,6 +69,7 @@ export function createApp({ auth, config, db, log, secret }: AppDeps): Hono {
 
   app.route('/', wellKnownRoutes({ callAuth, config })); // lane A
   app.route('/', pageRoutes({ callAuth, config, db, log, secret })); // lane B; before the catch-all so it can intercept
+  app.route('/', adminRoutes({ authContext: auth.$context, config, db, auditFile: path.join(paths.logs, 'audit.jsonl'), bootstrapFile: paths.bootstrapKey }));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
 
   return app;

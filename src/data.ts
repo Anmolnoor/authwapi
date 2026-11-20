@@ -7,6 +7,7 @@ export interface DataPaths {
   root: string;
   db: string;
   secret: string;
+  bootstrapKey: string; // one-time admin key (src/admin.ts); deleted once spent
   schema: string;
   logs: string;
   outbox: string;
@@ -19,6 +20,7 @@ export function dataPaths(root: string): DataPaths {
     root,
     db: path.join(root, 'authwapi.db'),
     secret: path.join(root, 'secret'),
+    bootstrapKey: path.join(root, 'bootstrap-admin-key'),
     schema: path.join(root, 'schema.sql'),
     logs: path.join(root, 'logs'),
     outbox: path.join(root, 'outbox'),

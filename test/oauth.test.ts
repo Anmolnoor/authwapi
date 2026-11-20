@@ -259,6 +259,26 @@ test('userinfo accepts a bearer access token and refuses a browser session cooki
   assert.equal(info.email_verified, true);
 });
 
+test('the admin MCP accepts no OAuth token or session token, even one minted for /mcp as its audience', async () => {
+  const MCP = `${s.base}/mcp`;
+  const client = await createClient('--resource', MCP);
+  const user = await signedInUser();
+  const opaque = await codeForTokens(client, user.cookie);
+  const jwt = await codeForTokens(client, user.cookie, { resource: MCP });
+  assert.ok([decodeJwt(jwt.access_token).aud].flat().includes(MCP));
+  const sessionToken = decodeURIComponent(/session_token=([^;]+)/.exec(user.cookie)![1]).split('.')[0];
+  for (const bearer of [opaque.access_token, opaque.refresh_token!, opaque.id_token!, jwt.access_token, sessionToken]) {
+    const res = await fetch(MCP, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert.equal(res.status, 401);
+  }
+  const withCookie = await fetch(MCP, { method: 'POST', headers: { cookie: user.cookie, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(withCookie.status, 401);
+});
+
 test('sign-out ends the session and revokes every token the user holds: JWT and opaque access, refresh, offline_access', async () => {
   const client = await createClient('--resource', API);
   const user = await signedInUser();

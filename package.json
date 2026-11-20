@@ -18,13 +18,16 @@
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.26",
     "@hono/node-server": "2.1.9",
+    "@modelcontextprotocol/server": "2.4.0",
     "better-auth": "1.7.26",
     "better-sqlite3": "13.2.0",
     "hono": "4.13.19",
     "jose": "6.2.18",
-    "resend": "6.39.0"
+    "resend": "6.39.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.6",
     "typescript": "7.0.2"

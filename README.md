@@ -2,10 +2,10 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 3 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
+**Status: early (M1, slice 4 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
 pages, email + password with verification, magic links, password reset, sessions, apps signing users in through
-AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder, migrations and Docker. **Not built yet:** the admin MCP
-server, export/import, the no-human agent test. Don't put real users on it yet.
+AuthWAPI (OAuth 2.1 / OpenID Connect), the admin MCP server for AI agents, the data folder, migrations and Docker.
+**Not built yet:** export/import, the no-human agent test. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -42,6 +42,8 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
+| `logs/audit.jsonl` | One line per admin MCP call: time, key id, tool, outcome. Never contains a key. |
+| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600. Valid 24 hours; deleted once used. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
 **To move it:** stop the container, copy the folder, start a container on the new folder. Never copy the
@@ -100,6 +102,33 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
   user has, for every app.
 - Send `resource` on the token request only if it was on the authorization request (`invalid_target` otherwise).
   A `claims` request may name `email`/`email_verified` only with the `email` scope.
+
+## Admin MCP (for AI agents)
+
+An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP, protocol 2026-07-28; 2025-era
+clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth token or session is accepted here.
+
+1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
+   24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
+   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`.
+2. **Mint an agent key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (or
+   `"read"`). The result `{"keyId", "scope", "key"}` is the only place the key ever appears: store it now. The
+   bootstrap key is spent and its file deleted.
+3. **Reconnect with the agent key** and administer. For example, in Claude Code:
+   `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $KEY"`.
+
+| Tool | Scope | What |
+| --- | --- | --- |
+| `mint_agent_key` | bootstrap key or `write` | `{scope}` → a new key, shown once |
+| `revoke_agent_key` | `write` | `{keyId}` → the key stops working at once |
+| `get_status` | `read`, `write` | Version, base URL, email mode, user and agent-key counts |
+| `list_users` | `read`, `write` | `{limit?, offset?}` → users, oldest first |
+| `create_user` | `write` | `{email, name, password}` → a user who can sign in at once (the email counts as verified) |
+| `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
+
+Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
+instructions. A refused scope returns `{"error": "forbidden"}` and is audited; an unknown, revoked or expired key
+gets HTTP 401. The bootstrap key isn't reissued: if it expires unused, start on a fresh data folder.
 
 ## API
 
