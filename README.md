@@ -58,7 +58,7 @@ backup API, one consistent snapshot, plus the `secret`, into a new or empty fold
 while the server runs:
 
 ```bash
-docker exec authwapi node src/cli.ts export /data/export-$(date +%Y%m%d)
+docker exec -u 1000 authwapi node src/cli.ts export /data/export-$(date +%Y%m%d)   # -u: your PUID if not 1000
 mv authwapi-data/export-$(date +%Y%m%d) ./authwapi-export    # it lands inside the mounted folder; move it out
 ```
 
@@ -119,8 +119,8 @@ AuthWAPI is the identity provider. Issuer: your `BASE_URL`. Discovery:
 `BASE_URL/.well-known/openid-configuration` (keys at `/api/auth/jwks`).
 
 ```bash
-docker exec authwapi node src/cli.ts clients create --name "My app" --redirect-uri https://myapp.example/callback [--resource https://api.myapp.example]
-docker exec authwapi node src/cli.ts clients list
+docker exec -u 1000 authwapi node src/cli.ts clients create --name "My app" --redirect-uri https://myapp.example/callback [--resource https://api.myapp.example]
+docker exec -u 1000 authwapi node src/cli.ts clients list
 ```
 The client secret is printed once and stored hashed. Plain `http://` redirect URIs are allowed only on loopback.
 
