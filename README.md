@@ -54,14 +54,23 @@ Never copy `authwapi.db` while the server runs: a copy taken mid-write can be co
 on the new folder.
 
 **Export, then import.** `export` copies the database through SQLite's online backup API, plus the `secret`, into
-a new or empty folder (0700, files 0600). It works while the server runs; writes pause briefly while it copies.
-An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop the
-old server (or stop sending it traffic) first, then take the final export.
+a new or empty folder (0700, files 0600). It works while the server runs; writes pause briefly while it copies:
 
 ```bash
 d=$(date +%Y%m%d)
 docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d   # -u: your PUID if not 1000
 mv authwapi-data/export-$d ./authwapi-export    # it lands inside the mounted folder; move it out
+```
+
+An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
+the old server first and take the final export with a one-off container (`docker exec` needs a running one):
+
+```bash
+docker stop authwapi
+d=$(date +%Y%m%d)
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
+  --entrypoint node authwapi src/cli.ts export /data/export-$d
+mv authwapi-data/export-$d ./authwapi-export
 ```
 
 `import` restores an export into a data folder that has no database or secret yet. It first checks the export
@@ -85,8 +94,10 @@ An export holds only `authwapi.db` and `secret`, which is everything the new fol
 means it must be kept as private as the data folder. Left behind: `schema.sql` and `migrations/` (rebuilt on
 boot), `backups/` (this instance's pre-upgrade copies), `logs/` (this instance's history) and `outbox/` (sign-in
 links that expire; an export shouldn't carry working credentials). Import refuses a folder that already has a
-database or secret, so it never overwrites data or runs under a live server. A failed export or import removes
-what it wrote, so you can simply retry.
+database or secret, so it never overwrites data or runs under a live server. An export or import that fails with
+an error removes what it wrote, so you can retry. An import that was interrupted (killed, or the machine went down)
+can leave a database without its secret: delete the destination folder and import again before starting the
+server on it.
 
 ## Email
 

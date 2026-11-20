@@ -300,3 +300,49 @@ test('import refuses to run as root, which would leave files the server cannot r
   assert.match(r.stderr, /as root.*--user/);
   assert.ok(!existsSync(target));
 });
+
+test('a failed export removes only what it wrote: a file someone else adds meanwhile stays', async () => {
+  const s = await server();
+  const lock = new Database(s.paths.db);
+  lock.exec('BEGIN EXCLUSIVE'); // the export waits 5s on it, then fails
+  const out = path.join(tmp(), 'export');
+  try {
+    const running = cli(s.paths.root, 'export', out);
+    while (!existsSync(path.join(out, 'authwapi.db'))) await new Promise((r) => setTimeout(r, 20));
+    writeFileSync(path.join(out, 'theirs.txt'), 'not the export');
+    const r = await running;
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /busy/);
+  } finally {
+    lock.exec('ROLLBACK');
+    lock.close();
+  }
+  assert.deepEqual(readdirSync(out), ['theirs.txt']);
+});
+
+test('export refuses a target among the data folder\'s own files, but a new folder at its top level is fine', async () => {
+  const s = await server();
+  for (const target of [s.paths.root, path.join(s.paths.backups, 'export'), path.join(s.paths.logs, 'a', 'b')]) {
+    const r = await cli(s.paths.root, 'export', target);
+    assert.equal(r.code, 1, target);
+    assert.match(r.stderr, /data folder/, target);
+  }
+  assert.deepEqual(readdirSync(s.paths.backups), []);
+  assert.deepEqual(readdirSync(s.paths.logs).filter((f) => f === 'a'), []);
+  const r = await cli(s.paths.root, 'export', path.join(s.paths.root, 'export-1')); // the README's docker exec example
+  assert.equal(r.code, 0, r.stderr);
+});
+
+test('two imports into the same folder at once: exactly one succeeds and the folder ends complete', async () => {
+  const out = await freshExport();
+  const secret = readFileSync(path.join(out, 'secret'));
+  for (let round = 0; round < 5; round++) {
+    const target = path.join(tmp(), 'new');
+    const results = await Promise.all([cli(target, 'import', out), cli(target, 'import', out)]);
+    assert.deepEqual(results.map((r) => r.code).sort(), [0, 1], results.map((r) => r.stderr).join('\n'));
+    assert.match(results.find((r) => r.code === 1)!.stderr, /another import|already has a database/);
+    assert.ok(readFileSync(path.join(target, 'secret')).equals(secret), 'the secret is missing or wrong');
+    assert.equal(integrity(path.join(target, 'authwapi.db')), 'ok');
+    assert.deepEqual(readdirSync(target).filter((f) => f.startsWith('.import')), []);
+  }
+});

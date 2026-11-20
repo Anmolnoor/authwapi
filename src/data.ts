@@ -2,8 +2,8 @@
 import Database from 'better-sqlite3';
 import { randomBytes } from 'node:crypto';
 import {
-  accessSync, chmodSync, closeSync, constants, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync,
-  readFileSync, renameSync, rmSync, writeFileSync,
+  accessSync, chmodSync, closeSync, constants, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
+  rmdirSync, rmSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 
@@ -99,14 +99,20 @@ function readSecret(file: string): string {
  */
 export async function exportData(p: DataPaths, dir: string): Promise<string> {
   const out = path.resolve(dir);
+  const within = (parent: string) => !path.relative(parent, out).startsWith('..') && !path.isAbsolute(path.relative(parent, out));
+  // A new folder at the top of the data folder is fine (docker exec can only write under /data); its own files aren't.
+  if (out === p.root || [p.logs, p.outbox, p.migrations, p.backups].some(within)) {
+    throw new Error(`${out} is among the data folder's own files; export to a new folder such as ${path.join(p.root, 'export-<date>')}`);
+  }
   if (existsSync(out) && readdirSync(out).length > 0) throw new Error(`${out} is not empty; export into a new or empty folder`);
   const made = mkdirSync(out, { recursive: true, mode: 0o700 }); // the first folder this call created, if any
+  const created: string[] = [];
   try {
     chmodSync(out, 0o700); // an existing empty folder keeps its own mode otherwise
-    const secret = path.join(out, 'secret');
-    copyFileSync(p.secret, secret, constants.COPYFILE_EXCL);
-    chmodSync(secret, 0o600); // copyFileSync keeps the source's mode, not the umask
+    copyExclusive(p.secret, path.join(out, 'secret'), created);
     const copy = path.join(out, 'authwapi.db');
+    closeSync(openSync(copy, 'wx')); // claimed first, so cleanup knows the file is this export's
+    created.push(copy);
     const db = new Database(p.db, { readonly: true, fileMustExist: true });
     let pages: number;
     try {
@@ -117,16 +123,26 @@ export async function exportData(p: DataPaths, dir: string): Promise<string> {
     } finally {
       db.close();
     }
-    // If the first step can't get a read lock within the busy timeout, better-sqlite3 resolves with 0 pages and
-    // deletes the copy instead of failing. An empty database file looks the same.
+    // If the first step can't get a read lock within the busy timeout, better-sqlite3 resolves with 0 pages
+    // instead of failing. An empty database file looks the same.
     if (pages === 0) throw new Error(`The backup of ${p.db} copied nothing (the database was busy, or is empty); retry`);
     chmodSync(copy, 0o600);
     checkDb(copy);
     return out;
   } catch (err) {
-    // Undo this call, so the folder isn't left half-written and a retry isn't refused as "not empty".
-    if (made) rmSync(made, { recursive: true, force: true });
-    else for (const name of readdirSync(out)) rmSync(path.join(out, name), { recursive: true, force: true }); // it was empty
+    // Undo only this call: its files, then the folders it created, while they are empty. Anything someone else
+    // put there meanwhile stays, and so does its folder (rmdir fails on a non-empty folder; that ends the walk).
+    for (const file of created) rmSync(file, { force: true });
+    if (made) {
+      for (let d = out; ; d = path.dirname(d)) {
+        try {
+          rmdirSync(d);
+        } catch {
+          break;
+        }
+        if (d === made) break;
+      }
+    }
     throw err;
   }
 }
@@ -150,26 +166,47 @@ export function importData(dataDir: string, dir: string): DataPaths {
     }
   }
   const p = prepareDataDir(dataDir);
-  // Stage both files under temporary names and check the staged database. Then rename the database first and the
-  // secret last: a crash in between never leaves a secret-only folder, which would boot an empty instance and
-  // refuse a retry. A crashed import's staged files are simply overwritten by the next one.
+  // Stage both files under temporary names, created exclusively: a second import running at the same time fails
+  // there instead of sharing them. Check the staged database, then publish with link(), which never replaces an
+  // existing file, the database first and the secret last: a crash in between never leaves a secret-only folder,
+  // which would boot an empty instance. Each publish is fsynced on its own, so they reach the disk in that order.
   const staged = { db: path.join(p.root, '.import.db'), secret: path.join(p.root, '.import.secret') };
+  const created: string[] = []; // only what this call made, so a failure never removes another import's files
   try {
-    for (const [src, dst] of [[from.db, staged.db], [from.secret, staged.secret]]) {
-      copyFileSync(src, dst);
-      chmodSync(dst, 0o600); // copyFileSync keeps the source's mode, not the umask
-      fsync(dst); // on disk before a rename makes it visible
-    }
+    copyExclusive(from.db, staged.db, created);
+    copyExclusive(from.secret, staged.secret, created);
     checkDb(staged.db);
-    renameSync(staged.db, p.db);
-    renameSync(staged.secret, p.secret);
-    fsync(p.root); // the renames themselves
+    for (const [src, dst] of [[staged.db, p.db], [staged.secret, p.secret]]) {
+      linkSync(src, dst); // EEXIST if anything got there first
+      created.push(dst);
+      unlinkSync(src);
+      created.splice(created.indexOf(src), 1);
+      fsync(p.root);
+    }
   } catch (err) {
-    // None of these existed before this call (checked above), so removing them undoes it and a retry works.
-    for (const file of [staged.db, staged.secret, p.db, p.secret]) rmSync(file, { force: true });
+    for (const file of created) rmSync(file, { force: true });
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(
+        `${p.root} is taken by another import running now, or by one that was interrupted. ` +
+          'If none is running, delete the folder and import again.',
+        { cause: err }
+      );
+    }
     throw err;
   }
   return p;
+}
+
+/** Copies src to a new file dst (fails if dst exists), mode 0600, on disk before it returns. */
+function copyExclusive(src: string, dst: string, created: string[]): void {
+  const fd = openSync(dst, 'wx', 0o600);
+  created.push(dst);
+  try {
+    writeFileSync(fd, readFileSync(src));
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function fsync(file: string): void {
