@@ -207,17 +207,20 @@ export function importData(dataDir: string, dir: string): DataPaths {
 function copyExclusive(src: string, dst: string, created: string[]): void {
   const out = openSync(dst, 'wx', 0o600); // claims the name; nobody else can create it now
   created.push(dst);
-  const from = openSync(src, 'r');
   try {
-    // 1 MiB at a time through the claiming descriptor: no whole-database buffer, and unlike copyFileSync nothing
-    // unlinks dst on a write error, which would let another import claim the name before our cleanup ran.
-    const buf = Buffer.allocUnsafe(1 << 20);
-    for (let n; (n = readSync(from, buf, 0, buf.length, null)) > 0; ) {
-      for (let done = 0; done < n; ) done += writeSync(out, buf, done, n - done);
+    const from = openSync(src, 'r'); // inside the try, so a failed open still closes `out`
+    try {
+      // 1 MiB at a time through the claiming descriptor: no whole-database buffer, and unlike copyFileSync nothing
+      // unlinks dst on a write error, which would let another import claim the name before our cleanup ran.
+      const buf = Buffer.allocUnsafe(1 << 20);
+      for (let n; (n = readSync(from, buf, 0, buf.length, null)) > 0; ) {
+        for (let done = 0; done < n; ) done += writeSync(out, buf, done, n - done);
+      }
+      fsyncSync(out);
+    } finally {
+      closeSync(from);
     }
-    fsyncSync(out);
   } finally {
-    closeSync(from);
     closeSync(out);
   }
 }

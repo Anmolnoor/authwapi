@@ -58,9 +58,9 @@ a new or empty folder (0700, files 0600). It works while the server runs; writes
 
 ```bash
 d=$(date +%Y%m%d-%H%M%S)   # a new name every run, so nothing old can be picked up by mistake
-src=authwapi-export-$d
+unset src
 docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d \
-  && mv "authwapi-data/export-$d" "$src" && echo "export ready: $src"   # -u: your PUID if not 1000
+  && mv "authwapi-data/export-$d" "authwapi-export-$d" && src=authwapi-export-$d && echo "export ready: $src"   # -u: your PUID if not 1000
 ```
 
 An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
@@ -70,10 +70,11 @@ running one):
 ```bash
 docker stop authwapi
 d=$(date +%Y%m%d-%H%M%S)
-src=authwapi-export-final-$d
+unset src
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
   --entrypoint node authwapi src/cli.ts export /data/export-$d \
-  && mv "authwapi-data/export-$d" "$src" && echo "export ready: $src"
+  && mv "authwapi-data/export-$d" "authwapi-export-final-$d" && src=authwapi-export-final-$d \
+  && echo "export ready: $src"
 ```
 
 `import` restores an export into a data folder that has no database or secret yet. It first checks the export
@@ -82,12 +83,13 @@ new server starts, then start the server on that folder (it applies any newer mi
 host, remove the old container first, since the new one takes its name and port:
 
 ```bash
-# Only after the export above printed "export ready: <folder>"; $src is that folder (same shell).
-docker rm -f authwapi    # same host only; on a new host, skip this
-mkdir new-data           # a fresh, empty folder
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
-  --entrypoint node authwapi src/cli.ts import /import
-docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/new-data:/data" authwapi
+# Same shell as the export: $src is set only when the export and the move both succeeded.
+: "${src:?run the export above first}" \
+  && docker rm -f authwapi `# same host only; on a new host, drop this line` \
+  && mkdir new-data `# a fresh, empty folder` \
+  && docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
+       --entrypoint node authwapi src/cli.ts import /import \
+  && docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/new-data:/data" authwapi
 ```
 
 Rootless podman: use `--userns=keep-id` instead of `--user`, and add `:Z` to both volumes on SELinux. Without
