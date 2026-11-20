@@ -27,7 +27,8 @@ With rootless podman and `--userns=keep-id`, use `podman exec -u "$(id -u)"` ins
    git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi
    docker build -t authwapi .
    docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
-   BASE_URL=http://localhost:4000   # the BASE_URL the server runs with (this is the default), no trailing slash
+   BASE_URL=http://localhost:4000   # the BASE_URL the server runs with (this is the default)
+   BASE_URL=${BASE_URL%/}            # drop a trailing slash so the paths below stay single-slashed
    ```
 2. **Wait for health.** Poll `curl -s "$BASE_URL/health"` until it prints `{"status":"ok"}`. If the
    container exits, `docker logs authwapi` says why.
@@ -124,8 +125,9 @@ and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_U
 3. **Mint a write key** with the bootstrap key (it mints only write keys). The result `{"keyId", "scope", "key"}`
    is the only place the key ever appears, so send it straight to a private file and read the key from there.
    `set -C` refuses to overwrite an existing `agent-key.json`, so a rerun can't destroy the only copy, and `KEY`
-   is set only if the mint worked. If it fails, `agent-key.json` holds the error instead: read it, remove the file,
-   and try again.
+   is set only if the mint worked. If `set -C` refuses because `agent-key.json` already exists, keep that file: it
+   may hold the only copy of your write key. If the mint itself fails, the new file holds the error: read it, remove
+   that file only, and try again.
    ```bash
    export BASE_URL
    (umask 077; set -C; KEY="$BOOT" node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json) \

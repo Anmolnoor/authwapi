@@ -22,7 +22,7 @@ BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)
 `-u 1000` is the server's user, the default `PUID`: use yours if you set one. With rootless podman and
 `--userns=keep-id`, use `podman exec -u "$(id -u)"`. On another port, set `BASE_URL` to match
 (`-p 127.0.0.1:8080:4000 -e BASE_URL=http://localhost:8080`): `/health` answers on any Host, but every other route
-refuses a Host that isn't `BASE_URL`'s with `421 unknown_host`. Podman, SELinux, other user IDs and Docker Desktop file sharing:
+refuses a Host that isn't `BASE_URL`'s (or listed in `ALLOWED_HOSTS`) with `421 unknown_host`. Podman, SELinux, other user IDs and Docker Desktop file sharing:
 [Configuration](site/src/content/docs/docs/configuration.md#running-on-other-setups).
 
 ## The bootstrap key
