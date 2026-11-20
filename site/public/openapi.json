@@ -898,6 +898,28 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The callbackURL is not on BASE_URL or an ALLOWED_HOSTS name",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": "Invalid callbackURL",
+                  "code": "INVALID_CALLBACK_URL"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "headers": {
+              "X-Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait"
+              }
+            }
           }
         }
       }

@@ -72,7 +72,7 @@ Every step is a shell command whose output you can check.
   `BASE_URL` or `ALLOWED_HOSTS` to match, or every request gets `421 unknown_host`.
 - **Send `Origin` with the cookie.** A `POST` to a Better Auth route that sends any cookie, such as the session cookie (sign-out, change-password,
   revoking sessions) must send `-H 'origin: http://localhost:4000'` (your `BASE_URL`), or it fails with
-  `403 MISSING_OR_NULL_ORIGIN` and changes nothing. An `Origin` that isn't `BASE_URL`'s or an `ALLOWED_HOSTS` name gets `403 untrusted_origin`.
+  `403 MISSING_OR_NULL_ORIGIN` and changes nothing. Any other `Origin` gets `403 untrusted_origin`; the only others accepted are `ALLOWED_HOSTS` names with `BASE_URL`'s scheme and the listening port, such as `http://authwapi:4000`.
 - **Respect `429`.** Wait the number of seconds in `X-Retry-After`. Sign-in and sign-up allow 3 requests per 10
   seconds per IP; [other limits](/docs/configuration/#rate-limits). The hosted forms answer an error page
   instead.
