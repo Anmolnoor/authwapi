@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
+import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
@@ -141,6 +142,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
         },
       }),
       ...oauthPlugins(deps), // lane A
+      adminKeySchema,
     ],
     emailVerification: {
       sendOnSignUp: true,
