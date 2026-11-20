@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
+import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
 import { linkingPolicy, signInPlugins, socialProviders } from './signin.ts';
 import type { Config } from './config.ts';
@@ -152,6 +153,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
       // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
       ...signInPlugins(config),
       ...oauthPlugins(deps), // lane A
+      adminKeySchema,
     ],
     emailVerification: {
       sendOnSignUp: true,

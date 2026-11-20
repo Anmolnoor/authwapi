@@ -2,11 +2,11 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 3 of the [plan](.solofounder/flow.md), plus M2 sign-in methods).** Works today: hosted
+**Status: early (M1 slice 4 of the [plan](.solofounder/flow.md), plus M2 sign-in methods).** Works today: hosted
 sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub sign-in, TOTP
 two-factor authentication with backup codes, passkeys, password reset, sessions, apps signing users in through
-AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder, migrations and Docker. **Not built yet:** the admin MCP
-server, export/import, the no-human agent test. Don't put real users on it yet.
+AuthWAPI (OAuth 2.1 / OpenID Connect), the admin MCP server for AI agents, the data folder with export/import,
+migrations and Docker. **Not built yet:** the no-human agent test. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -43,10 +43,71 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
+| `logs/audit.jsonl` | One line per admin MCP call: time, key id, its scope, tool, outcome. Never contains a key or arguments. |
+| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
-**To move it:** stop the container, copy the folder, start a container on the new folder. Never copy the
-database while the server runs.
+**To move it**, see [Moving the data folder](#moving-the-data-folder).
+
+## Moving the data folder
+
+Never copy `authwapi.db` while the server runs: a copy taken mid-write can be corrupt. Two safe ways:
+
+**Stop, copy, start.** Stop the container, copy the whole folder (`cp -a`, keeping file modes), start a container
+on the new folder.
+
+**Export, then import.** `export` copies the database through SQLite's online backup API, plus the `secret`, into
+a new or empty folder (0700, files 0600). It works while the server runs; writes pause briefly while it copies:
+
+```bash
+d=$(date +%Y%m%d-%H%M%S)   # a new name every run, so nothing old can be picked up by mistake
+unset src
+docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d \
+  && mv "authwapi-data/export-$d" "authwapi-export-$d" && src=authwapi-export-$d && echo "export ready: $src"   # -u: your PUID if not 1000
+```
+
+An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
+the old server first and take the final export, to its own path, with a one-off container (`docker exec` needs a
+running one):
+
+```bash
+docker stop authwapi
+d=$(date +%Y%m%d-%H%M%S)
+unset src
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
+  --entrypoint node authwapi src/cli.ts export /data/export-$d \
+  && mv "authwapi-data/export-$d" "authwapi-export-final-$d" && src=authwapi-export-final-$d \
+  && echo "export ready: $src"
+```
+
+`import` restores an export into a data folder that has no database or secret yet. It first checks the export
+(`PRAGMA integrity_check`, AuthWAPI's migrations table, the secret) and refuses to run as root. Run it before the
+new server starts, then start the server on that folder (it applies any newer migrations on boot). On the same
+host, remove the old container first, since the new one takes its name and port:
+
+```bash
+# Same shell as the export: $src is set only when the export and the move both succeeded.
+: "${src:?run the export above first}" \
+  && docker rm -f authwapi `# same host only; on a new host, drop this line` \
+  && mkdir new-data `# a fresh, empty folder` \
+  && docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
+       --entrypoint node authwapi src/cli.ts import /import \
+  && docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/new-data:/data" authwapi
+```
+
+Rootless podman: use `--userns=keep-id` instead of `--user`, and add `:Z` to both volumes on SELinux. Without
+Docker: `DATA_DIR=./authwapi-data node src/cli.ts export ./authwapi-export`, and
+`DATA_DIR=./new-data node src/cli.ts import ./authwapi-export`.
+
+An export holds only `authwapi.db` and `secret`, which is everything the new folder needs, and the secret
+means it must be kept as private as the data folder. Left behind: `schema.sql` and `migrations/` (rebuilt on
+boot), `backups/` (this instance's pre-upgrade copies), `logs/` (this instance's history) and `outbox/` (sign-in
+links that expire; an export shouldn't carry working credentials). Import refuses a folder that already has a
+database or secret, so it never overwrites data or runs under a live server. An export or import that fails with
+an error removes what it wrote, so you can retry. An import that was interrupted (killed, or the machine went down)
+can leave a database without its secret. Don't start a server on that folder: import again into a fresh, empty
+folder, or (with no import running) remove only that import's `authwapi.db`, `secret` and `.import.*` files from
+it and import again.
 
 ## Email
 
@@ -134,8 +195,8 @@ AuthWAPI is the identity provider. Issuer: your `BASE_URL`. Discovery:
 `BASE_URL/.well-known/openid-configuration` (keys at `/api/auth/jwks`).
 
 ```bash
-docker exec authwapi node src/cli.ts clients create --name "My app" --redirect-uri https://myapp.example/callback [--resource https://api.myapp.example]
-docker exec authwapi node src/cli.ts clients list
+docker exec -u 1000 authwapi node src/cli.ts clients create --name "My app" --redirect-uri https://myapp.example/callback [--resource https://api.myapp.example]
+docker exec -u 1000 authwapi node src/cli.ts clients list
 ```
 The client secret is printed once and stored hashed. Plain `http://` redirect URIs are allowed only on loopback.
 
@@ -151,6 +212,44 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
   user has, for every app.
 - Send `resource` on the token request only if it was on the authorization request (`invalid_target` otherwise).
   A `claims` request may name `email`/`email_verified` only with the `email` scope.
+
+## Admin MCP (for AI agents)
+
+An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP, protocol 2026-07-28; 2025-era
+clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth token or session is accepted here.
+
+1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
+   24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
+   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`.
+2. **Mint a write key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (the
+   bootstrap key mints only write keys). The result `{"keyId", "scope", "key"}` is the only place the key ever
+   appears: store it now. The bootstrap key is now spent: its file stays, but the key in it no longer works.
+   Mint `read` keys with the write key.
+3. **Reconnect with the agent key** and administer. For example, in Claude Code:
+   `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $KEY"`.
+
+| Tool | Scope | What |
+| --- | --- | --- |
+| `mint_agent_key` | bootstrap key or `write` | `{scope}` → a new key, shown once |
+| `revoke_agent_key` | `write` | `{keyId}` → the key stops working at once |
+| `get_status` | `read`, `write` | Version, base URL, email mode, user and agent-key counts |
+| `list_users` | `read`, `write` | `{limit?, offset?}` → users, oldest first |
+| `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery is asynchronous, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
+| `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
+
+Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
+instructions. `tools/list` shows only the tools your key's scope can call. Each key may make 60 tool calls a minute
+(`{"error": "rate_limited", "retryAfterSeconds"}`). Every tool call, refused or not, writes one audit line (a write whose
+commit fails adds a second, `rolled_back` line); a refused scope returns `{"error": "forbidden"}`, and an unknown tool a JSON-RPC `-32602` error. Requests the MCP
+protocol layer rejects as malformed (not valid tool calls) change nothing and aren't audited. An unknown, revoked
+or expired key gets HTTP 401; the first refusal per IP per minute is logged in `logs/app.jsonl` with that IP
+(never the key).
+
+**Lost the bootstrap key, it expired, or no write key is left?** The operator writes a fresh one-time key to
+`bootstrap-admin-key` (valid 24 hours; any earlier unused one stops working):
+`docker exec -u 1000 authwapi node src/cli.ts bootstrap-key`. The same command recovers a first boot that couldn't write
+the file. If the command reports that the new key is in a `bootstrap-admin-key.<random>.tmp` file (the final
+rename failed), move that file to `bootstrap-admin-key`; the key in it already works.
 
 ## API
 

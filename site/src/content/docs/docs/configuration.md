@@ -35,7 +35,10 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
 | `outbox/` | Emails, when Resend isn't configured. 0600 files, deleted once they are 24 hours old (checked hourly). |
 
-**To move it:** stop the container, copy the folder, start a container on the new folder. Never copy the database
+**To move it:** stop the container, copy the folder, start a container on the new folder. Or, while the server
+runs, `docker exec -u 1000 authwapi node src/cli.ts export /data/export-<date>` and `import` it into the new folder before
+its server starts (see the README's
+[Moving the data folder](https://github.com/Anmolnoor/authwapi#moving-the-data-folder)). Never copy the database
 while the server runs.
 
 **Upgrades:** on boot, AuthWAPI applies any new migrations in one transaction, after backing up the database and

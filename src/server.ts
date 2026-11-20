@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { betterAuth } from 'better-auth';
 import type { AddressInfo } from 'node:net';
+import { ensureBootstrapKey } from './admin.ts';
 import { createApp } from './app.ts';
 import { authOptions } from './auth.ts';
 import { loadConfig } from './config.ts';
@@ -26,10 +27,11 @@ export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: Send
   const db = openDb(paths.db);
   await migrate(db, MIGRATIONS_DIR, paths, log);
   await sweepOutbox(paths.outbox); // at boot, in either email mode
+  ensureBootstrapKey(db, paths.bootstrapKey, log);
 
   const sendMail = overrides.sendMail ?? createMailer(config.email, paths.outbox, log);
   const auth = betterAuth(authOptions({ config, db, secret, sendMail, log }));
-  const app = createApp({ auth, config, db, log, secret });
+  const app = createApp({ auth, config, db, log, paths, secret });
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port });
   await new Promise<void>((resolve, reject) => {
