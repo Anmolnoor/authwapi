@@ -32,12 +32,13 @@ export default defineConfig({
           details: [
             'Facts an agent needs before acting:',
             '',
-            '- Status: early (M1). The admin MCP server and export/import are not built yet. Do not put real users on it.',
+            '- Status: early (M1, plus M2 sign-in methods). The admin MCP server and export/import work. Do not put real users on it.',
             '- Start it (no published image yet): `git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi && docker build -t authwapi .` then `docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi`. Health: `GET http://localhost:4000/health` returns `{"status":"ok"}`.',
-            '- Every request needs a Host header equal to BASE_URL\'s host (default `localhost:4000`) or a name in ALLOWED_HOSTS, else 421 `unknown_host`. An Origin header, if sent, must be BASE_URL\'s origin (or an ALLOWED_HOSTS name), else 403 `untrusted_origin`. A POST to a Better Auth route that sends any cookie (such as the session cookie) must send that Origin, else 403 `MISSING_OR_NULL_ORIGIN` and nothing happens.',
+            '- Every request except `GET /health` needs a Host header equal to BASE_URL\'s host (default `localhost:4000`) or a name in ALLOWED_HOSTS, else 421 `unknown_host`. An Origin header, if sent, must be BASE_URL\'s origin (or an ALLOWED_HOSTS name), else 403 `untrusted_origin`. A POST to a Better Auth route that sends any cookie (such as the session cookie) must send that Origin, else 403 `MISSING_OR_NULL_ORIGIN` and nothing happens.',
             '- Without Resend configured, emails (verification, reset, magic links) are written as JSON files to `<data folder>/outbox/`. They contain credentials, as do session cookies, sign-in responses and the client secret the CLI prints: never print or log them.',
             `- HTTP API: Better Auth routes under \`BASE_URL/api/auth\`. Machine-readable reference (OpenAPI 3.1): ${site}/openapi.json`,
-            `- Step-by-step runbook (start, sign up, verify from the outbox, sign in, create an OAuth client) with no human: ${site}/docs/for-ai-agents/`,
+            `- Step-by-step runbook (start, sign up, verify from the outbox, sign in, create an OAuth client, then the admin MCP) with no human: ${site}/docs/for-ai-agents/`,
+            `- Admin MCP for agents at \`BASE_URL/mcp\`: read the one-time bootstrap key from \`<data folder>/bootstrap-admin-key\` (ends with a newline; trim it), use it once to mint a write key with \`mint_agent_key\`, then administer with that key. Never print a key. Runbook: ${site}/docs/for-ai-agents/#admin-mcp`,
             '- Apps sign users in with OAuth 2.1 authorization code + PKCE (S256). Clients are created only with `docker exec -u 1000 authwapi node src/cli.ts clients create ...`; dynamic client registration is off.',
           ].join('\n'),
           optionalLinks: [

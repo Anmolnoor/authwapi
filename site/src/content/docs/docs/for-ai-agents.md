@@ -17,19 +17,23 @@ first link below; it leads to everything else.
 
 ## Runbook: start AuthWAPI and create a verified user, no human needed
 
-Every step is a shell command whose output you can check.
+Every step is a shell command whose output you can check. The steps share shell variables (`BASE_URL`, later
+`BOOT` and `KEY`), so run them in one shell; if your tool starts a new shell for each command, set them again
+first. `docker exec -u 1000` runs as the server's user: 1000 is the default `PUID`, so use yours if you set one.
+With rootless podman and `--userns=keep-id`, use `podman exec -u "$(id -u)"` instead.
 
 1. **Build and start.**
    ```bash
    git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi
    docker build -t authwapi .
    docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
+   BASE_URL=http://localhost:4000   # the BASE_URL the server runs with (this is the default), no trailing slash
    ```
-2. **Wait for health.** Poll `curl -s http://localhost:4000/health` until it prints `{"status":"ok"}`. If the
+2. **Wait for health.** Poll `curl -s "$BASE_URL/health"` until it prints `{"status":"ok"}`. If the
    container exits, `docker logs authwapi` says why.
 3. **Sign up.**
    ```bash
-   curl -s -X POST http://localhost:4000/api/auth/sign-up/email -H 'content-type: application/json' \
+   curl -s -X POST "$BASE_URL/api/auth/sign-up/email" -H 'content-type: application/json' \
      -d '{"name":"Test User","email":"test@example.com","password":"a-long-test-password"}'
    ```
 4. **Verify.** The email is written just after the sign-up answer, so wait for it. Read it through the container
@@ -40,15 +44,15 @@ Every step is a shell command whose output you can check.
      MAIL=$(docker exec -u 1000 authwapi sh -c 'grep -l "\"to\": \"test@example.com\"" /data/outbox/*.json 2>/dev/null | sort | tail -1')
      [ -n "$MAIL" ] && break; sleep 0.5
    done
-   LINK=$(docker exec -u 1000 authwapi grep -o 'http://localhost:4000/api/auth/verify-email?[^"\\]*' "$MAIL")
+   LINK=$(docker exec -u 1000 authwapi grep -o "${BASE_URL%/}"'/api/auth/verify-email?[^"\\]*' "$MAIL")
    curl -s -X POST "$LINK" --data-urlencode password=a-long-test-password | grep -o 'Your email is verified'
    ```
    It prints `Your email is verified`. The link expires after one hour.
 5. **Sign in** and check the session. Both answers contain the session token, so print only what you need:
    ```bash
-   (umask 077; curl -s -o /dev/null -w '%{http_code}\n' -c jar -X POST http://localhost:4000/api/auth/sign-in/email \
+   (umask 077; curl -s -o /dev/null -w '%{http_code}\n' -c jar -X POST "$BASE_URL/api/auth/sign-in/email" \
      -H 'content-type: application/json' -d '{"email":"test@example.com","password":"a-long-test-password"}')
-   curl -s -b jar http://localhost:4000/api/auth/get-session | grep -o '"emailVerified":true'
+   curl -s -b jar "$BASE_URL/api/auth/get-session" | grep -o '"emailVerified":true'
    ```
    It prints `200`, then `"emailVerified":true`.
 6. **To connect an app,** follow [Integrate an app](/docs/integrate-an-app/). The client command prints the
@@ -63,13 +67,14 @@ Every step is a shell command whose output you can check.
 
 ## Rules for agents
 
-- **Links and tokens are credentials.** Outbox files, verification, reset and magic links, session cookies, client
-  secrets and refresh tokens all grant access. Don't print them in output a person or another system will read,
-  and don't write them to logs. Pass them between commands in variables or files.
+- **Keys, links and tokens are credentials.** Agent keys, the bootstrap key, outbox files, verification, reset
+  and magic links, session cookies, client secrets and refresh tokens all grant access. Don't print them in output
+  a person or another system will read, and don't write them to logs. Pass them between commands in variables or
+  files.
 - **Keep it on localhost.** Publish the port on `127.0.0.1` only, as above. Exposing AuthWAPI beyond the machine
   needs HTTPS and Resend, which isn't documented yet.
 - **Match the Host.** If you reach the server under another name (another container, another port), set
-  `BASE_URL` or `ALLOWED_HOSTS` to match, or every request gets `421 unknown_host`.
+  `BASE_URL` or `ALLOWED_HOSTS` to match, or every request except `GET /health` gets `421 unknown_host`.
 - **Send `Origin` with the cookie.** A `POST` to a Better Auth route that sends any cookie, such as the session cookie (sign-out, change-password,
   revoking sessions) must send `-H 'origin: http://localhost:4000'` (your `BASE_URL`), or it fails with
   `403 MISSING_OR_NULL_ORIGIN` and changes nothing. Any other `Origin` gets `403 untrusted_origin`; the only others accepted are `ALLOWED_HOSTS` names with `BASE_URL`'s scheme and the listening port (or the port given with the name), such as `http://authwapi:4000`.
@@ -82,19 +87,79 @@ Every step is a shell command whose output you can check.
 
 ## Admin MCP
 
-Connect an MCP client to `http://localhost:4000/mcp` (Streamable HTTP) with `Authorization: Bearer <key>`.
+An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP). Every request sends
+`Authorization: Bearer <key>`. This runbook continues from the one above, in the same shell (same `BASE_URL`),
+and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_URL` again, read `BOOT` again
+(step 1), and after step 3 set `KEY` from `agent-key.json`.
 
-1. Read the one-time bootstrap key without printing it:
-   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`. It works for 24 hours after first boot,
-   only with `mint_agent_key`, and only once.
-2. With it, call `mint_agent_key` with `{"scope": "write"}` (the bootstrap key mints only write keys). The
-   result's `key` is shown only there: store it, then reconnect with it.
-3. Tools: `get_status`, `list_users`, `read_audit` (read or write key); `create_user`, `revoke_agent_key`,
-   `mint_agent_key` (write key). Every call is written to `logs/audit.jsonl` by key id. Each key may make 60
-   calls a minute.
-4. `create_user` makes an unverified user and emails them a verification link (it asks for the password you set);
-   they can sign in once verified. Passing `emailVerified: true` instead attests that the address is theirs: they
-   can sign in at once and no email is sent.
+1. **Read the bootstrap key** without printing it. It works for 24 hours after first boot, only with
+   `mint_agent_key`, and only once. The file ends with a newline: `$(…)` drops it, but trim it if you read the
+   file in code.
+   ```bash
+   BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)
+   ```
+2. **Install the official MCP TypeScript SDK client** in a folder outside the AuthWAPI checkout, since it will
+   hold your key:
+   ```bash
+   mkdir -p ../authwapi-agent && cd ../authwapi-agent && npm init -y >/dev/null && npm install @modelcontextprotocol/client@2.4.0
+   ```
+   Save this as `admin.mjs`. It calls one tool and prints its JSON result:
+   ```js
+   // Usage: KEY=... BASE_URL=... node admin.mjs <tool> ['<json arguments>']
+   import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
+   const client = new Client({ name: 'my-agent', version: '1.0.0' });
+   const transport = new StreamableHTTPClientTransport(new URL('/mcp', process.env.BASE_URL), {
+     requestInit: { headers: { Authorization: `Bearer ${process.env.KEY.trim()}` } }, // the key file ends with a newline
+   });
+   await client.connect(transport);
+   const result = await client.callTool({ name: process.argv[2], arguments: JSON.parse(process.argv[3] ?? '{}') });
+   console.log(result.content[0].text);
+   await client.close();
+   if (result.isError) process.exit(1);
+   ```
+   With the older `@modelcontextprotocol/sdk` 1.x package, import `Client` from
+   `@modelcontextprotocol/sdk/client/index.js` and `StreamableHTTPClientTransport` from
+   `@modelcontextprotocol/sdk/client/streamableHttp.js`; the rest is the same.
+3. **Mint a write key** with the bootstrap key (it mints only write keys). The result `{"keyId", "scope", "key"}`
+   is the only place the key ever appears, so send it straight to a private file and read the key from there.
+   `set -C` refuses to overwrite an existing `agent-key.json`, so a rerun can't destroy the only copy, and `KEY`
+   is set only if the mint worked. If it fails, `agent-key.json` holds the error instead: read it, remove the file,
+   and try again.
+   ```bash
+   export BASE_URL
+   (umask 077; set -C; KEY="$BOOT" node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json) \
+     && export KEY=$(node -p 'require("./agent-key.json").key')
+   ```
+   The bootstrap key is now spent: its file stays, but the key in it gets HTTP 401. Mint `read` keys with the
+   write key.
+4. **Create a user.**
+   ```bash
+   node admin.mjs create_user '{"email":"agent-made@example.com","name":"Agent Made","password":"a-long-test-password"}'
+   ```
+   ```json
+   {"user":{"id":"AOgX…","email":"agent-made@example.com","name":"Agent Made","emailVerified":false},"verificationEmail":"queued"}
+   ```
+   The user gets the same "Verify your email" outbox mail as a sign-up and can't sign in until verified: verify
+   them with step 4 of the runbook above, using their email and the password you set here (the link asks for it).
+   Passing `"emailVerified": true` instead attests that the address is theirs: they can sign in at once and no
+   email is sent.
+5. **Read the audit log.**
+   ```bash
+   node admin.mjs read_audit '{"limit":5}'
+   ```
+   ```json
+   {"entries":[{"time":"2026-11-20T14:31:45.546Z","who":"key_61e9…","scope":"bootstrap","tool":"mint_agent_key","outcome":"ok","minted":"key_cec3…"},
+     {"time":"2026-11-20T14:31:45.779Z","who":"key_cec3…","scope":"write","tool":"create_user","outcome":"ok","target":"AOgX…"}]}
+   ```
+   `who` is the calling key's id (never the key), `target` the user or key a call changed, `minted` a new key's
+   id, and `reason` says why a call was refused or rolled back. Every tool call is written, refused or not;
+   `initialize` and `tools/list` aren't tool calls and aren't written.
+
+Tools: `get_status`, `list_users`, `read_audit` (read or write key); `create_user`, `revoke_agent_key`,
+`mint_agent_key` (write key). `tools/list` shows only the ones your key can call; the
+[README](https://github.com/Anmolnoor/authwapi#admin-mcp-for-ai-agents) lists their arguments. Each key may make
+60 tool calls a minute. An unknown, revoked or expired key gets HTTP 401, which the script reports as an error.
 
 If the bootstrap key is lost or expired, or no write key is left, the operator runs
 `docker exec -u 1000 authwapi node src/cli.ts bootstrap-key` for a new one-time key.

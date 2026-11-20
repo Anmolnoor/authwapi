@@ -30,7 +30,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 
 ## Still to build in M1
 
-- **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over MCP
+- **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over
+  MCP. Host run passed; container run pending.
 
 ## After M1
 
