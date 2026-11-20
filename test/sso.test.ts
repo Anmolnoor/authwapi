@@ -540,18 +540,65 @@ test('an organization with SSO providers keeps an owner: removing, leaving or de
   const removed = await send(sp, admin, 'POST', '/api/auth/admin/remove-user', { json: { userId: v2 } });
   assert.equal(removed.status, 400, removed.body);
   assert.match(removed.body, needsOwner);
+  // Better Auth itself refuses the only owner leaving or being removed (any organization), before the database would.
+  const onlyOwner = /needs an owner|as the only owner/;
   const left = await send(sp, v2Jar, 'POST', '/api/auth/organization/leave', { json: { organizationId: a.organizationId } });
   assert.equal(left.status, 400, left.body);
-  assert.match(left.body, needsOwner);
+  assert.match(left.body, onlyOwner);
   const selfDemoted = await send(sp, v2Jar, 'POST', '/api/auth/organization/update-member-role', { json: { memberId: 'm-v2', role: 'member', organizationId: a.organizationId } });
   assert.equal(selfDemoted.status, 400, selfDemoted.body);
-  assert.match(selfDemoted.body, needsOwner);
+  assert.match(selfDemoted.body, /needs an owner|without an owner/);
   const removedMember = await send(sp, v2Jar, 'POST', '/api/auth/organization/remove-member', { json: { memberIdOrEmail: 'v2@a.test', organizationId: a.organizationId } });
   assert.equal(removedMember.status, 400, removedMember.body);
-  assert.match(removedMember.body, needsOwner);
+  assert.match(removedMember.body, onlyOwner);
   assert.equal(count("SELECT count(*) FROM member WHERE organizationId = ? AND role = 'owner'", a.organizationId), 1);
   assert.equal(count('SELECT count(*) FROM user WHERE id = ?', v2), 1);
   await ok(call(write, 'delete_sso_provider', { providerId: a.providerId }));
+});
+
+test('two owners demoting each other at once leave one owner (the database decides, not a pre-check)', async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const v = row("SELECT u.id AS user, m.id AS member FROM user u JOIN member m ON m.userId = u.id WHERE u.email = 'owner@a.test'")!;
+  const v2 = await verifiedUser(sp, 'v2@a.test');
+  const d = db(sp);
+  d.prepare("INSERT INTO member (id, organizationId, userId, role, createdAt) VALUES ('m-v2', ?, ?, 'owner', ?)").run(a.organizationId, v2, new Date().toISOString());
+  d.close();
+  const vJar = new Jar();
+  const v2Jar = new Jar();
+  assert.equal((await passwordSignIn(sp, vJar, 'owner@a.test')).status, 200);
+  assert.equal((await passwordSignIn(sp, v2Jar, 'v2@a.test')).status, 200);
+  const demote = (jar: Jar, memberId: string) =>
+    send(sp, jar, 'POST', '/api/auth/organization/update-member-role', { json: { memberId, role: 'member', organizationId: a.organizationId } });
+  const results = await Promise.all([demote(vJar, 'm-v2'), demote(v2Jar, v.member)]);
+  // One wins; the other is refused, by the database (needs an owner) or by Better Auth (no longer an owner itself).
+  assert.equal(results.filter((r) => r.status === 200).length, 1, results.map((r) => r.body).join(' | '));
+  assert.ok([400, 403].includes(results.find((r) => r.status !== 200)!.status));
+  assert.equal(count("SELECT count(*) FROM member WHERE organizationId = ? AND role = 'owner'", a.organizationId), 1);
+  // Underneath, SQLite refuses the write itself, whoever makes it.
+  const raw = db(sp);
+  assert.throws(() => raw.prepare("UPDATE member SET role = 'member' WHERE organizationId = ? AND role = 'owner'").run(a.organizationId), /sso_org_needs_owner/);
+  assert.throws(() => raw.prepare("DELETE FROM member WHERE organizationId = ? AND role = 'owner'").run(a.organizationId), /sso_org_needs_owner/);
+  raw.close();
+});
+
+test("someone without the right gets Better Auth's refusal, not word of the org's SSO providers", async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const v = row("SELECT u.id AS user, m.id AS member FROM user u JOIN member m ON m.userId = u.id WHERE u.email = 'owner@a.test'")!;
+  const idpJar = await idpUser('alice@a.example');
+  const alice = new Jar(); // a plain member of the organization
+  assert.equal((await ssoSignIn(alice, idpJar, 'alice@a.example')).back.location, '/');
+  for (const [p, body] of [
+    ['/organization/update-member-role', { memberId: v.member, role: 'member', organizationId: a.organizationId }],
+    ['/organization/remove-member', { memberIdOrEmail: 'owner@a.test', organizationId: a.organizationId }],
+    ['/admin/remove-user', { userId: v.user }],
+  ] as const) {
+    const r = await send(sp, alice, 'POST', `/api/auth${p}`, { json: body });
+    assert.ok(r.status >= 400 && r.status < 500, `${p}: ${r.status} ${r.body}`); // Better Auth's own refusal
+    assert.doesNotMatch(r.body, /SSO/, p);
+  }
+  assert.equal(count("SELECT count(*) FROM member WHERE organizationId = ? AND role = 'owner'", a.organizationId), 1);
 });
 
 test("cross-org: org B's provider can't sign in an identity bound to org A's", async () => {

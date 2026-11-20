@@ -9,14 +9,14 @@
 //   over by magic link, password reset or the verify page; each first mailbox proof clears everything set up before it
 //   (purgeUnproven), and so does an admin marking the email verified.
 // - Deleting a provider ends its users' sessions and OAuth tokens (guardProviderMutation, inside Better Auth's delete).
-//   The owner who registered a provider, and its organization, can't be deleted while it exists (ON DELETE RESTRICT,
-//   with friendlier checks in front).
+//   The owner who registered a provider, and its organization, can't be deleted while it exists (ON DELETE RESTRICT),
+//   and the organization always keeps an owner (migrations/0008's triggers); src/orgs.ts words those refusals.
 import { createHash } from 'node:crypto';
 import { sso, type SSOOptions } from '@better-auth/sso';
 import { defineRequestState, getCurrentAdapter, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import type Database from 'better-sqlite3';
-import { APIError, createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, isAPIError, resetPassword } from 'better-auth/api';
+import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError, resetPassword } from 'better-auth/api';
 import * as z from 'zod';
 import { isLoopback } from './config.ts';
 import { revokeUserTokens } from './oauth.ts';
@@ -89,7 +89,8 @@ export function purgeUnproven(db: Database.Database, userId: string, { keepCrede
   db.prepare(`DELETE FROM account WHERE userId = ?${keepCredential ? " AND providerId != 'credential'" : ''}`).run(userId);
   for (const table of ['session', 'twoFactor', 'passkey', 'oauthConsent']) db.prepare(`DELETE FROM "${table}" WHERE userId = ?`).run(userId);
   // Memberships too, except the last owner of an organization with SSO providers (no unverified user is made an owner
-  // now, src/orgs.ts; this covers older data): without an owner, nobody could delete those providers.
+  // now, src/orgs.ts; this covers older data). Migration 0008's triggers would refuse that delete and so the whole
+  // proof; skipping it lets the mailbox owner recover, and the organization keeps an owner who can delete the providers.
   db.prepare(`DELETE FROM member WHERE userId = ? AND NOT ${soleOwnerOfSsoOrg('member')}`).run(userId);
   // What revokeUserTokens (src/oauth.ts) does, in SQL.
   db.prepare('UPDATE oauthRefreshToken SET revoked = ? WHERE userId = ?').run(now, userId);
@@ -125,39 +126,10 @@ async function unprovenUser(ctx: HookContext): Promise<string | undefined> {
 }
 
 const isOwner = (alias: string) => `(',' || replace(${alias}.role, ' ', '') || ',') LIKE '%,owner,%'`;
-/** SQL: membership row `m` is the only owner of an organization that has SSO providers (nobody else could delete them). */
+/** SQL: membership row `m` is the only owner of an organization that has SSO providers (migrations/0008's condition). */
 const soleOwnerOfSsoOrg = (m: string) => `(${isOwner(m)}
   AND EXISTS (SELECT 1 FROM ssoProvider p WHERE p.organizationId = ${m}.organizationId)
   AND NOT EXISTS (SELECT 1 FROM member o WHERE o.organizationId = ${m}.organizationId AND o.userId != ${m}.userId AND ${isOwner('o')}))`;
-
-const NEEDS_OWNER = 'This organization has SSO providers and needs an owner: add another owner or delete its SSO providers first.';
-
-/**
- * Whether a request would leave an organization that has SSO providers without an owner: removing that user
- * (/admin/remove-user, any organization), or their membership (/organization/leave, /organization/remove-member), or
- * the owner role (/organization/update-member-role).
- */
-async function orphansSsoOrg(db: Database.Database, ctx: HookContext): Promise<boolean> {
-  const body = (ctx.body ?? {}) as Record<string, unknown>;
-  const soleOwner = (where: string, ...args: unknown[]) =>
-    db.prepare(`SELECT 1 FROM member m LEFT JOIN "user" u ON u.id = m.userId WHERE ${where} AND ${soleOwnerOfSsoOrg('m')}`).get(...args) !== undefined;
-  switch (ctx.path) {
-    case '/admin/remove-user':
-      return typeof body.userId === 'string' && soleOwner('m.userId = ?', body.userId);
-    case '/organization/leave': {
-      const userId = (await getSessionFromCtx(ctx))?.user.id;
-      return typeof userId === 'string' && soleOwner('m.userId = ? AND m.organizationId = ?', userId, body.organizationId);
-    }
-    case '/organization/remove-member':
-      return soleOwner('m.organizationId = ? AND (m.id = ? OR u.email = lower(?))', body.organizationId, body.memberIdOrEmail, body.memberIdOrEmail);
-    case '/organization/update-member-role': {
-      const roles = [body.role].flat().flatMap((r) => (typeof r === 'string' ? r.split(',') : [])).map((r) => r.trim());
-      return !roles.includes('owner') && soleOwner('m.id = ?', body.memberId);
-    }
-    default:
-      return false;
-  }
-}
 
 type Endpoint = ((ctx: object) => Promise<unknown>) & { path: string; options: { use?: unknown } & Record<string, unknown> };
 
@@ -192,8 +164,6 @@ export function proofInTransaction(endpoint: Endpoint, db: Database.Database): E
     return ctx.json(result!.response as Record<string, unknown> | null);
   }) as unknown as Endpoint;
 }
-
-const ORPHAN_PATHS = new Set(['/admin/remove-user', '/organization/leave', '/organization/remove-member', '/organization/update-member-role']);
 
 const isSsoProviderId = (providerId: unknown) => typeof providerId === 'string' && providerId.startsWith(SSO_PROVIDER_PREFIX);
 
@@ -253,22 +223,6 @@ function ssoGlue(db: Database.Database): BetterAuthPlugin {
             const data = ctx.body?.data;
             if (data && typeof data === 'object' && 'emailVerified' in data && typeof data.emailVerified !== 'boolean') {
               throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL_VERIFIED', message: 'emailVerified must be true or false.' });
-            }
-          }),
-        },
-        {
-          matcher: (ctx) => ORPHAN_PATHS.has(ctx.path ?? ''),
-          handler: createAuthMiddleware(async (ctx) => {
-            if (await orphansSsoOrg(db, ctx)) throw new APIError('BAD_REQUEST', { code: 'ORGANIZATION_NEEDS_OWNER', message: NEEDS_OWNER });
-          }),
-        },
-        {
-          matcher: (ctx) => ctx.path === '/admin/remove-user',
-          handler: createAuthMiddleware(async (ctx) => {
-            const userId = ctx.body?.userId;
-            if (typeof userId !== 'string') return;
-            if (await ctx.context.adapter.findOne({ model: 'ssoProvider', where: [{ field: 'userId', value: userId }] })) {
-              throw new APIError('BAD_REQUEST', { code: 'USER_REGISTERED_SSO_PROVIDERS', message: 'This user registered SSO providers: delete those SSO providers first.' });
             }
           }),
         },
