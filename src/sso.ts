@@ -16,7 +16,7 @@ import { sso, type SSOOptions } from '@better-auth/sso';
 import { defineRequestState, getCurrentAdapter, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import type Database from 'better-sqlite3';
-import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError, resetPassword } from 'better-auth/api';
 import * as z from 'zod';
 import { isLoopback } from './config.ts';
 import { revokeUserTokens } from './oauth.ts';
@@ -87,7 +87,15 @@ const b64sha256 = (s: string) => createHash('sha256').update(s).digest('base64ur
 export function purgeUnproven(db: Database.Database, userId: string, { keepCredential, verify }: { keepCredential: boolean; verify: boolean }): void {
   const now = new Date().toISOString();
   db.prepare(`DELETE FROM account WHERE userId = ?${keepCredential ? " AND providerId != 'credential'" : ''}`).run(userId);
-  for (const table of ['session', 'twoFactor', 'passkey', 'oauthConsent', 'member']) db.prepare(`DELETE FROM "${table}" WHERE userId = ?`).run(userId);
+  for (const table of ['session', 'twoFactor', 'passkey', 'oauthConsent']) db.prepare(`DELETE FROM "${table}" WHERE userId = ?`).run(userId);
+  // Memberships too, except the last owner of an organization with SSO providers (no unverified user is made an owner
+  // now, src/orgs.ts; this covers older data): without an owner, nobody could delete those providers.
+  const isOwner = (alias: string) => `(',' || replace(${alias}.role, ' ', '') || ',') LIKE '%,owner,%'`;
+  db.prepare(
+    `DELETE FROM member WHERE userId = ? AND NOT (${isOwner('member')}
+       AND EXISTS (SELECT 1 FROM ssoProvider p WHERE p.organizationId = member.organizationId)
+       AND NOT EXISTS (SELECT 1 FROM member o WHERE o.organizationId = member.organizationId AND o.userId != member.userId AND ${isOwner('o')}))`
+  ).run(userId);
   // What revokeUserTokens (src/oauth.ts) does, in SQL.
   db.prepare('UPDATE oauthRefreshToken SET revoked = ? WHERE userId = ?').run(now, userId);
   db.prepare('UPDATE oauthAccessToken SET revoked = ? WHERE userId = ?').run(now, userId);
@@ -121,6 +129,36 @@ async function unprovenUser(ctx: HookContext): Promise<string | undefined> {
   return user && !user.emailVerified ? user.id : undefined;
 }
 
+type Endpoint = ((ctx: object) => Promise<unknown>) & { path: string; options: { use?: unknown } & Record<string, unknown> };
+
+/**
+ * A magic link's verify or a password reset, made one transaction with the purge it is the proof for: the purge, the
+ * token's consumption and Better Auth's writes (session, or new password) commit together, or none do. The handler
+ * runs as a plain call with its own middleware; hooks run once, around this endpoint (the pattern of inBanTransaction
+ * in src/orgs.ts). A redirect is the handler's answer (signed in, or an error page), not a failure: it commits, then
+ * goes out as thrown.
+ */
+export function proofInTransaction(endpoint: Endpoint, db: Database.Database): Endpoint {
+  const { use: _middleware, ...options } = endpoint.options;
+  return createAuthEndpoint(endpoint.path, options as never, async (ctx) => {
+    let redirect: unknown;
+    const result = await runWithTransaction(ctx.context.adapter, async () => {
+      const userId = await unprovenUser(ctx as unknown as HookContext);
+      if (userId) purgeUnproven(db, userId, { keepCredential: false, verify: endpoint.path === '/magic-link/verify' });
+      try {
+        return (await endpoint({ ...ctx, asResponse: false, returnHeaders: true, returnStatus: false })) as { headers: Headers; response: unknown };
+      } catch (err) {
+        if (!isAPIError(err) || err.statusCode !== 302) throw err;
+        redirect = err;
+        return undefined;
+      }
+    });
+    if (redirect) throw redirect;
+    for (const cookie of result!.headers.getSetCookie()) (ctx as unknown as { responseHeaders: Headers }).responseHeaders.append('set-cookie', cookie);
+    return ctx.json(result!.response as Record<string, unknown> | null);
+  }) as unknown as Endpoint;
+}
+
 const isSsoProviderId = (providerId: unknown) => typeof providerId === 'string' && providerId.startsWith(SSO_PROVIDER_PREFIX);
 
 function ssoGlue(db: Database.Database): BetterAuthPlugin {
@@ -137,6 +175,9 @@ function ssoGlue(db: Database.Database): BetterAuthPlugin {
         },
       },
     },
+    // Better Auth's /reset-password, replaced by itself in one transaction with the purge (the magic link's verify is
+    // wrapped in src/auth.ts, where that plugin is made).
+    endpoints: { resetPassword: proofInTransaction(resetPassword as unknown as Endpoint, db) as never },
     init: (context) => ({
       options: {
         databaseHooks: {
@@ -170,15 +211,13 @@ function ssoGlue(db: Database.Database): BetterAuthPlugin {
     hooks: {
       before: [
         {
-          // Runs before Better Auth consumes the token and signs in or sets the password.
-          matcher: (ctx) => ctx.path === '/magic-link/verify' || ctx.path === '/reset-password',
+          // Better Auth stores whatever truthy value it is given; only `true` is a verification (and gets the purge).
+          matcher: (ctx) => ctx.path === '/admin/update-user',
           handler: createAuthMiddleware(async (ctx) => {
-            const userId = await unprovenUser(ctx);
-            if (!userId) return;
-            // A Kysely transaction holds the connection, so no other request's transaction can contain this one.
-            await runWithTransaction(ctx.context.adapter, async () =>
-              purgeUnproven(db, userId, { keepCredential: false, verify: ctx.path === '/magic-link/verify' })
-            );
+            const data = ctx.body?.data;
+            if (data && typeof data === 'object' && 'emailVerified' in data && typeof data.emailVerified !== 'boolean') {
+              throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL_VERIFIED', message: 'emailVerified must be true or false.' });
+            }
           }),
         },
         {

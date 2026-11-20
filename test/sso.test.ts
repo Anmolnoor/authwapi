@@ -417,6 +417,92 @@ test("a new SSO user's membership commits with the user: if it can't be written,
   assert.equal(count('SELECT count(*) FROM member WHERE userId = ? AND organizationId = ?', userId, a.organizationId), 1);
 });
 
+/** The squatted account's state from before the proof is all still there (nothing was purged). */
+async function intact(userId: string, attacker: Jar) {
+  const u = row('SELECT emailVerified, twoFactorEnabled FROM user WHERE id = ?', userId)!;
+  assert.deepEqual([u.emailVerified, u.twoFactorEnabled], [0, 1]);
+  assert.equal(count("SELECT count(*) FROM account WHERE userId = ? AND providerId = 'sso-gmail'", userId), 1, 'SSO binding');
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ?', userId), 1, 'membership');
+  assert.equal(await currentUser(sp, attacker), 'future@gmail.com', 'the session from before');
+}
+
+test('a password reset that fails part-way changes nothing: purge, token and password roll back together', async () => {
+  const { write } = await agents();
+  const { attacker, idpJar, userId } = await squatted(write);
+  assert.equal((await send(sp, new Jar(), 'POST', '/api/auth/request-password-reset', { json: { email: 'future@gmail.com', redirectTo: '/' } })).status, 200);
+  const token = linkIn((await sp.mail('future@gmail.com', 'Reset your password')).text).pathname.split('/').pop();
+  const d = db(sp);
+  d.exec("CREATE TRIGGER fail_credential BEFORE INSERT ON account WHEN NEW.providerId = 'credential' BEGIN SELECT RAISE(ABORT, 'injected'); END");
+  const failed = await send(sp, new Jar(), 'POST', '/api/auth/reset-password', { json: { token, newPassword: 'owner new pass' } });
+  assert.equal(failed.status, 500);
+  await intact(userId, attacker);
+  d.exec('DROP TRIGGER fail_credential');
+  d.close();
+  const retried = await send(sp, new Jar(), 'POST', '/api/auth/reset-password', { json: { token, newPassword: 'owner new pass' } });
+  assert.equal(retried.status, 200, retried.body);
+  assert.equal(count("SELECT count(*) FROM account WHERE userId = ? AND providerId = 'sso-gmail'", userId), 0);
+  assert.equal(await currentUser(sp, attacker), null);
+  assert.equal(errorOf((await ssoSignIn(new Jar(), idpJar, 'future@gmail.com')).back.location), 'account_exists');
+});
+
+test('a magic link that fails part-way changes nothing, and the same link works afterwards', async () => {
+  const { write } = await agents();
+  const { attacker, idpJar, userId } = await squatted(write);
+  await send(sp, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'future@gmail.com', callbackURL: '/' } });
+  const link = linkIn((await sp.mail('future@gmail.com', 'Your sign-in link')).text);
+  const d = db(sp);
+  d.exec(`CREATE TRIGGER fail_session BEFORE INSERT ON session WHEN NEW.userId = '${userId}' BEGIN SELECT RAISE(ABORT, 'injected'); END`);
+  const owner = new Jar();
+  await send(sp, owner, 'POST', link.pathname + link.search, { form: {} });
+  assert.equal(await currentUser(sp, owner), null);
+  await intact(userId, attacker);
+  d.exec('DROP TRIGGER fail_session');
+  d.close();
+  const signedIn = await send(sp, owner, 'POST', link.pathname + link.search, { form: {} });
+  assert.ok(signedIn.status < 400, signedIn.body);
+  assert.equal(await currentUser(sp, owner), 'future@gmail.com');
+  await purged(userId, attacker, idpJar);
+});
+
+test("no unverified user becomes an organization's owner; and a proof never removes the last owner of an org with SSO", async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const idpJar = await idpUser('alice@a.example');
+  assert.equal((await ssoSignIn(new Jar(), idpJar, 'alice@a.example')).back.location, '/');
+  const alice = row("SELECT id FROM user WHERE email = 'alice@a.example'")!.id as string;
+  const memberId = row('SELECT id FROM member WHERE userId = ?', alice)!.id;
+  const owner = new Jar();
+  assert.equal((await passwordSignIn(sp, owner, 'owner@a.test')).status, 200);
+  const promoted = await send(sp, owner, 'POST', '/api/auth/organization/update-member-role', { json: { memberId, role: 'owner', organizationId: a.organizationId } });
+  assert.equal(promoted.status, 400, promoted.body);
+  assert.match(promoted.body, /verified email/);
+  assert.equal(row('SELECT role FROM member WHERE id = ?', memberId)!.role, 'member');
+
+  // Data from before this rule: Alice (unverified) is the only owner. Her magic link verifies her but keeps that
+  // membership, so the provider still has an owner who can delete it.
+  const d = db(sp);
+  d.prepare("UPDATE member SET role = 'owner' WHERE id = ?").run(memberId);
+  d.prepare("DELETE FROM member WHERE organizationId = ? AND userId != ?").run(a.organizationId, alice);
+  d.close();
+  await send(sp, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'alice@a.example', callbackURL: '/' } });
+  const link = linkIn((await sp.mail('alice@a.example', 'Your sign-in link')).text);
+  assert.ok((await send(sp, new Jar(), 'POST', link.pathname + link.search, { form: {} })).status < 400);
+  assert.equal(row('SELECT emailVerified FROM user WHERE id = ?', alice)!.emailVerified, 1);
+  assert.equal(row('SELECT role FROM member WHERE id = ?', memberId)?.role, 'owner');
+  await ok(call(write, 'delete_sso_provider', { providerId: a.providerId }));
+});
+
+test('/admin/update-user refuses an emailVerified that is not a boolean, and purges on true', async () => {
+  const { write } = await agents();
+  const { attacker, userId } = await squatted(write);
+  const admin = await signedInAdmin(write);
+  for (const value of [1, '1', 'true']) {
+    const r = await send(sp, admin, 'POST', '/api/auth/admin/update-user', { json: { userId, data: { emailVerified: value } } });
+    assert.equal(r.status, 400, `${JSON.stringify(value)}: ${r.body}`);
+  }
+  await intact(userId, attacker);
+});
+
 test("cross-org: org B's provider can't sign in an identity bound to org A's", async () => {
   const { write } = await agents();
   await ssoOrg(write, 'a', 'a.example');

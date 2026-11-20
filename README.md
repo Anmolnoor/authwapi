@@ -255,12 +255,15 @@ How it's kept safe:
   one). The first proof that someone holds the mailbox (a magic link, a reset, the verify page) removes, in the same
   transaction, every linked sign-in (SSO, Google/GitHub, and any password but the one just checked), session, 2FA,
   passkey, OAuth token, consent, unused authorization code and organization membership set up before; so does an
-  admin marking the email verified. The organization's provider can't sign in to it afterwards.
+  admin marking the email verified (`emailVerified` must then be `true`, not a string or number). If any part of
+  the proof fails, nothing changes, and the same link works again. The organization's provider can't sign in to it
+  afterwards.
 - **2FA still applies** after an SSO sign-in, for users who turned it on.
 - **Deleting a provider** (`delete_sso_provider` or `sso delete <providerId>`) removes its bindings and ends its
   users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets. An
   organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
-  database enforces it too). An organization's owner needs a verified email to register a provider.
+  database enforces it too). An organization's owner needs a verified email: to register a provider, and to be
+  made an owner at all (`create_org`, or a role change to `owner`).
 - Client secrets are stored unencrypted in the SQLite database, like everything in the data folder: keep it private.
 
 ## Apps (OAuth 2.1 / OpenID Connect)

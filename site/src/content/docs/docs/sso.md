@@ -9,8 +9,8 @@ Google Workspace, Keycloak, or another AuthWAPI. AuthWAPI uses
 
 ## Set it up (agent or operator)
 
-You need an organization (`create_org`; its owner's email must be verified) and, from the identity provider, an app
-for AuthWAPI.
+You need an organization (`create_org`; its owner's email must be verified, and only a verified user can be made an
+owner) and, from the identity provider, an app for AuthWAPI.
 
 1. **Pick a slug** for the provider, such as `acme`. Its ID is `sso-acme`.
 2. **At the identity provider**, create a web app (authorization code flow) with:
@@ -101,7 +101,8 @@ owner of the address takes it back with "Email me a link" on `/sign-in` (which a
 mailbox (a magic link, a reset, the verification link) removes, in the same transaction, everything set up before:
 SSO bindings, Google/GitHub links, any password but the one just checked, sessions, 2FA, passkeys, OAuth tokens,
 consents, unused authorization codes and organization memberships. An admin marking the email verified
-(`/admin/update-user`) does the same. The organization's provider can't sign in to it afterwards. (The verification
+(`/admin/update-user` with `emailVerified: true`) does the same. A proof that fails part-way changes nothing, and
+the same link works again. The organization's provider can't sign in to it afterwards. (The verification
 email that AuthWAPI sends a new SSO user can't verify the account on its own: it has no password.)
 
 This is also what happens if an SSO user signs in by magic link or resets their password themselves: their address

@@ -199,12 +199,21 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
   };
 }
 
+function refuseUnverifiedOwner(role: string, user: { emailVerified: boolean }): void {
+  if (roleList(role).includes('owner') && !user.emailVerified) {
+    throw new APIError('BAD_REQUEST', { code: 'OWNER_EMAIL_NOT_VERIFIED', message: 'An organization owner needs a verified email.' });
+  }
+}
+
 /** Better Auth's organization and admin plugins, and the glue above. Added to authOptions().plugins. */
 export function orgAdminPlugins({ config, db }: AuthDeps, deliver: Deliver): Plugin[] {
   return [
     organization({
       // M4a: an organization's SSO providers would outlive it (no foreign key), with no owner left to delete them.
       organizationHooks: {
+        // M4a: an unverified user's first mailbox proof purges their memberships (src/sso.ts), so an owner must be verified.
+        beforeAddMember: async ({ member, user }) => refuseUnverifiedOwner(member.role, user),
+        beforeUpdateMemberRole: async ({ newRole, user }) => refuseUnverifiedOwner(newRole, user),
         beforeDeleteOrganization: async ({ organization: org }) => {
           if (db.prepare('SELECT 1 FROM ssoProvider WHERE organizationId = ?').get(org.id)) {
             throw new APIError('BAD_REQUEST', { code: 'ORGANIZATION_HAS_SSO_PROVIDERS', message: 'This organization has SSO providers: delete its SSO providers first.' });

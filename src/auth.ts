@@ -6,7 +6,7 @@ import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
 import { orgAdminPlugins } from './orgs.ts';
 import { linkingPolicy, signInPlugins, socialProviders } from './signin.ts';
-import { SSO_DISABLED_PATHS, ssoPlugins } from './sso.ts';
+import { proofInTransaction, SSO_DISABLED_PATHS, ssoPlugins } from './sso.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -69,6 +69,13 @@ export interface AuthDeps {
   fetchClientMetadata?: ClientMetadataResourceFetch;
 }
 
+/** The magic-link plugin, with its verify endpoint in one transaction with the purge (proofInTransaction). */
+function withProofTransaction(plugin: ReturnType<typeof magicLink>, db: Database.Database): ReturnType<typeof magicLink> {
+  const endpoints = plugin.endpoints as unknown as Record<string, Parameters<typeof proofInTransaction>[0]>;
+  endpoints.magicLinkVerify = proofInTransaction(endpoints.magicLinkVerify, db);
+  return plugin;
+}
+
 export function authOptions(deps: AuthDeps): BetterAuthOptions {
   const { config, db, secret, sendMail, log } = deps;
   const findAccount = db.prepare('SELECT email FROM "user" WHERE email = ?');
@@ -127,36 +134,40 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
         }),
     },
     plugins: [
-      magicLink({
-        expiresIn: 5 * 60,
-        disableSignUp: true, // a magic link signs in an existing account; it never creates one
-        storeToken: 'hashed',
-        // Better Auth would email any address and refuse at sign-in; we only email existing accounts, so
-        // AuthWAPI can't send mail to strangers. Sending happens after the response (deliver), so known and
-        // unknown addresses get the same answer in the same time.
-        // A magic link also verifies the email and removes any password set before verification (Better
-        // Auth's revokeUnprovenAccountAccess): that's what locks out someone who signed up with your address.
-        sendMagicLink: ({ email, url }) => {
-          const account = findAccount.get(email.toLowerCase()) as { email: string } | undefined;
-          if (account === undefined) {
-            log('info', 'magic link not sent: no account for that email');
-            return;
-          }
-          const now = Date.now();
-          if (now - (recentMagicLink.get(account.email) ?? 0) < MAGIC_LINK_COOLDOWN_MS) {
-            log('info', 'magic link not sent: one was sent to that address in the last minute');
-            return;
-          }
-          recentMagicLink.delete(account.email); // re-insert at the end: Map order = age, for the cap below
-          recentMagicLink.set(account.email, now);
-          if (recentMagicLink.size > 10_000) recentMagicLink.delete(recentMagicLink.keys().next().value!);
-          deliver('magic link', {
-            to: account.email, // the stored address, not the spelling in the request
-            subject: 'Your sign-in link',
-            text: `To sign in, open this link within 5 minutes:\n\n${url}\n\nIf you didn't ask for it, ignore this email.`,
-          });
-        },
-      }),
+      // Its verify runs in one transaction with the purge of a first mailbox proof (src/sso.ts).
+      withProofTransaction(
+        magicLink({
+          expiresIn: 5 * 60,
+          disableSignUp: true, // a magic link signs in an existing account; it never creates one
+          storeToken: 'hashed',
+          // Better Auth would email any address and refuse at sign-in; we only email existing accounts, so
+          // AuthWAPI can't send mail to strangers. Sending happens after the response (deliver), so known and
+          // unknown addresses get the same answer in the same time.
+          // A magic link also verifies the email and removes any password set before verification (Better
+          // Auth's revokeUnprovenAccountAccess): that's what locks out someone who signed up with your address.
+          sendMagicLink: ({ email, url }) => {
+            const account = findAccount.get(email.toLowerCase()) as { email: string } | undefined;
+            if (account === undefined) {
+              log('info', 'magic link not sent: no account for that email');
+              return;
+            }
+            const now = Date.now();
+            if (now - (recentMagicLink.get(account.email) ?? 0) < MAGIC_LINK_COOLDOWN_MS) {
+              log('info', 'magic link not sent: one was sent to that address in the last minute');
+              return;
+            }
+            recentMagicLink.delete(account.email); // re-insert at the end: Map order = age, for the cap below
+            recentMagicLink.set(account.email, now);
+            if (recentMagicLink.size > 10_000) recentMagicLink.delete(recentMagicLink.keys().next().value!);
+            deliver('magic link', {
+              to: account.email, // the stored address, not the spelling in the request
+              subject: 'Your sign-in link',
+              text: `To sign in, open this link within 5 minutes:\n\n${url}\n\nIf you didn't ask for it, ignore this email.`,
+            });
+          },
+        }),
+        db
+      ),
       // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
       ...signInPlugins(config),
       ...orgAdminPlugins(deps, deliver), // M3: src/orgs.ts
