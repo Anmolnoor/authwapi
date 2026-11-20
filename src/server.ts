@@ -1,3 +1,4 @@
+import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
 import { serve } from '@hono/node-server';
 import { betterAuth } from 'better-auth';
 import type { AddressInfo } from 'node:net';
@@ -17,8 +18,16 @@ export interface Running {
   close: () => Promise<void>;
 }
 
-/** `sendMail` is for tests (a slow or failing mailer); the server always builds its own. */
-export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: SendMail } = {}): Promise<Running> {
+/**
+ * For tests only: `sendMail` (a slow or failing mailer) and `fetchClientMetadata` (serves MCP clients' metadata
+ * documents in-process). The server always builds its own mailer and uses the SSRF-safe metadata fetch.
+ */
+export interface Overrides {
+  sendMail?: SendMail;
+  fetchClientMetadata?: ClientMetadataResourceFetch;
+}
+
+export async function start(env: NodeJS.ProcessEnv, overrides: Overrides = {}): Promise<Running> {
   process.umask(0o077); // every file AuthWAPI creates is private to its user
   const config = loadConfig(env);
   const paths = prepareDataDir(config.dataDir);
@@ -30,7 +39,7 @@ export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: Send
   ensureBootstrapKey(db, paths.bootstrapKey, log);
 
   const sendMail = overrides.sendMail ?? createMailer(config.email, paths.outbox, log);
-  const auth = betterAuth(authOptions({ config, db, secret, sendMail, log }));
+  const auth = betterAuth(authOptions({ config, db, secret, sendMail, log, fetchClientMetadata: overrides.fetchClientMetadata }));
   const app = createApp({ auth, config, db, log, paths, secret });
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port });

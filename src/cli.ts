@@ -2,13 +2,18 @@
 // is off), reissues the admin MCP bootstrap key, and moves the data folder:
 //   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
 //   node src/cli.ts clients list
+//   node src/cli.ts resource add <url>
+//   node src/cli.ts resource link <client_id> <resource>
+//   node src/cli.ts resource unlink <client_id> <resource>
 //   node src/cli.ts bootstrap-key
 //   node src/cli.ts export <dir>    (safe while the server runs)
 //   node src/cli.ts import <dir>    (into a data folder with no database; then start the server)
 // In the container: docker exec authwapi node src/cli.ts ...
 // The client secret is printed once, to stdout, and stored only as a hash. It never goes to the log.
+import { validateClientIdUrl } from '@better-auth/cimd';
 import type { oauthProvider } from '@better-auth/oauth-provider';
 import { betterAuth, type InferAPI } from 'better-auth';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -23,6 +28,9 @@ import { MIGRATIONS_DIR } from './migrate.ts';
 const USAGE = `Usage:
   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
   node src/cli.ts clients list
+  node src/cli.ts resource add <url>
+  node src/cli.ts resource link <client_id> <resource>
+  node src/cli.ts resource unlink <client_id> <resource>
   node src/cli.ts bootstrap-key
   node src/cli.ts export <dir>
   node src/cli.ts import <dir>
@@ -32,6 +40,12 @@ import restores such a folder into DATA_DIR, which must not have a database yet;
 
 --resource names an API the app may request access tokens for (RFC 8707). Tokens requested with
 resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is created.
+
+resource add registers an API or MCP server (its URL, exactly as clients send it in resource=).
+resource link lets a client get tokens for it. For an MCP client the client_id is the https URL of its
+Client ID Metadata Document; AuthWAPI fetches that document only after it is linked, when a user signs in.
+resource unlink takes that away: an MCP client linked to no resource gets no new sign-in or refresh from then on.
+Access tokens it already holds stay valid at the resource server until they expire (at most 15 minutes).
 
 bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
 and revokes any unused earlier one. Use it when the bootstrap key is lost or expired, or no write key is left.`;
@@ -65,9 +79,13 @@ async function main(argv: string[]): Promise<void> {
   }
   const bootstrap = group === 'bootstrap-key';
   if (bootstrap && argv.length > 1) throw new UsageError('bootstrap-key takes no options');
-  if (!bootstrap && (group !== 'clients' || (command !== 'create' && command !== 'list'))) throw new UsageError('unknown command');
+  const resource = group === 'resource';
+  if (resource && !((command === 'add' && rest.length === 1) || ((command === 'link' || command === 'unlink') && rest.length === 2))) {
+    throw new UsageError('resource add takes a URL; resource link and unlink take a client_id and a resource');
+  }
+  if (!bootstrap && !resource && (group !== 'clients' || (command !== 'create' && command !== 'list'))) throw new UsageError('unknown command');
   const { values } = parseArgs({
-    args: bootstrap ? [] : rest,
+    args: bootstrap || resource ? [] : rest,
     options: {
       name: { type: 'string' },
       'redirect-uri': { type: 'string', multiple: true },
@@ -124,6 +142,54 @@ async function main(argv: string[]): Promise<void> {
     const auth = betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log }));
     const api = auth.api as unknown as OAuthAdminApi;
     const headers = new Headers(); // Better Auth's admin endpoints require a headers object
+    const context = await auth.$context;
+    // The provider exempts its own userinfo endpoint from resource checks; it must never be a registered resource.
+    // Unlinking one is allowed: it removes a link an older release may have stored.
+    const userinfo = `${context.baseURL}/oauth2/userinfo`;
+    for (const identifier of command === 'unlink' ? [] : resource ? rest.slice(-1) : (values.resource ?? [])) {
+      if (identifier === userinfo) throw new Error(`${identifier} is reserved: it is AuthWAPI's own userinfo endpoint`);
+    }
+    if (resource && command === 'add') {
+      const identifier = rest[0];
+      await api.adminCreateOAuthResource({ headers, body: { identifier, name: identifier } });
+      log('info', 'oauth resource created', { identifier });
+      console.log(`Added resource ${identifier}. Let a client use it with: node src/cli.ts resource link <client_id> ${identifier}`);
+      return;
+    }
+    if (resource) {
+      const [clientId, identifier] = rest;
+      // Path parameters, which Better Auth decodes. Checked first so a failed link leaves no client row behind.
+      const params = { identifier: encodeURIComponent(identifier), client_id: encodeURIComponent(clientId) };
+      if (command === 'unlink') {
+        await api.adminUnlinkClientResource({ headers, params });
+        log('info', 'oauth client unlinked from resource', { clientId, resource: identifier });
+        console.log(`Unlinked ${clientId} from ${identifier}.`);
+        return;
+      }
+      await api.adminGetOAuthResource({ headers, params });
+      if (URL.canParse(clientId)) {
+        const problem = validateClientIdUrl(clientId);
+        if (problem) throw new Error(problem);
+        // The client row the link needs, written with the link in one transaction that takes SQLite's write lock up
+        // front (BEGIN IMMEDIATE), so a concurrent writer can't make it fail halfway. Rows as Better Auth writes them.
+        // The row holds no metadata yet: the server fetches the document (only while the URL is linked) when a user
+        // first signs in through this client.
+        const now = new Date().toISOString();
+        db.transaction(() => {
+          db.prepare(
+            `INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES (?, ?, 'cimd', '[]', ?, ?)
+             ON CONFLICT (clientId) DO NOTHING`
+          ).run(randomUUID(), clientId, now, now);
+          db.prepare('INSERT INTO oauthClientResource (id, clientId, resourceId, createdAt) VALUES (?, ?, ?, ?) ON CONFLICT (clientId, resourceId) DO NOTHING')
+            .run(randomUUID(), clientId, identifier, now);
+        }).immediate();
+      } else {
+        await api.adminLinkClientResource({ headers, params });
+      }
+      log('info', 'oauth client linked to resource', { clientId, resource: identifier });
+      console.log(`Linked ${clientId} to ${identifier}.`);
+      return;
+    }
     const resources = [...new Set(values.resource ?? [])];
     const known = new Set((await api.adminListOAuthResources({ headers })).map((r) => r.identifier));
     for (const identifier of resources.filter((r) => !known.has(r))) {

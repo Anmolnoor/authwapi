@@ -40,6 +40,7 @@ export default defineConfig({
             `- Step-by-step runbook (start, sign up, verify from the outbox, sign in, create an OAuth client, then the admin MCP) with no human: ${site}/docs/for-ai-agents/`,
             `- Admin MCP for agents at \`BASE_URL/mcp\`: read the one-time bootstrap key from \`<data folder>/bootstrap-admin-key\` (ends with a newline; trim it), use it once to mint a write key with \`mint_agent_key\`, then administer with that key. Never print a key. Runbook: ${site}/docs/for-ai-agents/#admin-mcp`,
             '- Apps sign users in with OAuth 2.1 authorization code + PKCE (S256). Clients are created only with `docker exec -u 1000 authwapi node src/cli.ts clients create ...`; dynamic client registration is off.',
+            `- Your own MCP servers can use AuthWAPI as their authorization server: \`resource add <url>\`, then \`resource link <client_id> <url>\` (an MCP client's client_id is its metadata document URL). Guide: ${site}/docs/protect-your-mcp-server/`,
           ].join('\n'),
           optionalLinks: [
             { label: 'Source code', url: 'https://github.com/Anmolnoor/authwapi', description: 'the server, its tests and README.md' },
@@ -60,6 +61,7 @@ export default defineConfig({
           label: 'Guides',
           items: [
             { label: 'Integrate an app (OAuth / OIDC)', slug: 'docs/integrate-an-app' },
+            { label: 'Protect your MCP server', slug: 'docs/protect-your-mcp-server' },
             { label: 'HTTP API (sessions)', slug: 'docs/http-api' },
             { label: 'Hosted pages', slug: 'docs/hosted-pages' },
             { label: 'Configuration', slug: 'docs/configuration' },
