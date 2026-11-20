@@ -87,17 +87,13 @@ const guardProviderMutation: NonNullable<SSOOptions['guardProviderMutation']> = 
 /** The ACS route, whose POST comes from the IdP's site: src/app.ts lets it past the Origin check. */
 export const SAML_ACS_PATH = /^\/api\/auth\/sso\/saml2\/sp\/acs\/[^/]+$/;
 /**
- * Binds a SAML sign-in to the browser that started it (login CSRF): a hash of the AuthnRequest ID, sent back only with
- * the IdP's cross-site POST to the ACS (SameSite=None, which needs Secure; browsers treat http://localhost as secure).
+ * Binds a SAML sign-in to the browser that started it (login CSRF): a hash of the AuthnRequest ID, which must come back
+ * with the IdP's cross-site POST to the ACS (SameSite=None, which needs Secure; browsers treat http://localhost as
+ * secure). __Host- (Secure, Path=/, no Domain): a sibling subdomain can't plant or overwrite it. One per browser: a
+ * later sign-in start replaces an earlier one's.
  */
-const SAML_REQUEST_COOKIE = 'authwapi_saml_request';
-const samlRequestCookie = (context: AuthContext, maxAge: number) => ({
-  httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
-  path: `${new URL(context.baseURL).pathname}/sso/saml2/sp/acs`,
-  maxAge,
-});
+const SAML_REQUEST_COOKIE = '__Host-authwapi_saml_request';
+const samlRequestCookie = (maxAge: number) => ({ httpOnly: true, secure: true, sameSite: 'none' as const, path: '/', maxAge });
 
 export const PERSISTENT_NAMEID = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
 const SAML_ASSERTION_NS = 'urn:oasis:names:tc:SAML:2.0:assertion';
@@ -116,7 +112,8 @@ const children = (parent: Element | undefined, ns: string, name: string) =>
  *   only from a redirect binding's query string; the ACS takes POST, whose algorithm is inside the XML.)
  * - It answers the AuthnRequest this browser started (the signed SubjectConfirmationData@InResponseTo matches the
  *   cookie set at /sign-in/sso): otherwise anyone could post their own signed response from a victim's browser and
- *   sign it into the attacker's account. The cookie is cleared once checked.
+ *   sign it into the attacker's account. The cookie is cleared only when it matched: a refused post (an attacker's)
+ *   leaves the browser's own sign-in in progress working.
  * - The NameID is persistent: transient ones change every sign-in, email ones change with the address.
  * - An `email` attribute carries the address (otherwise Better Auth would fall back to the NameID).
  */
@@ -134,11 +131,11 @@ function checkSamlAssertion(input: SSOSAMLUserResolutionInput) {
     children(subject, SAML_ASSERTION_NS, 'SubjectConfirmation').flatMap((c) => children(c, SAML_ASSERTION_NS, 'SubjectConfirmationData').map((d) => d.getAttribute('InResponseTo')))
   );
   const cookie = ctx.getCookie!(SAML_REQUEST_COOKIE);
-  ctx.setCookie!(SAML_REQUEST_COOKIE, '', samlRequestCookie(ctx.context, 0));
   const [requestId] = answered;
   if (answered.size !== 1 || !requestId || !cookie || cookie !== b64sha256(requestId)) {
-    return reject('saml_request_not_from_this_browser', 'This sign-in was started in another browser. Start it again here.');
+    return reject('saml_request_not_from_this_browser', 'This sign-in was started in another browser or tab. Start it again here.');
   }
+  ctx.setCookie!(SAML_REQUEST_COOKIE, '', samlRequestCookie(0));
   const nameIds = children(subject, SAML_ASSERTION_NS, 'NameID');
   if (nameIds.length !== 1 || nameIds[0].getAttribute('Format') !== PERSISTENT_NAMEID) {
     return reject('nameid_not_persistent', 'The identity provider must send a persistent NameID.');
@@ -303,7 +300,7 @@ function ssoGlue(db: Database.Database): BetterAuthPlugin {
             const request = typeof url === 'string' && URL.canParse(url) ? new URL(url).searchParams.get('SAMLRequest') : null;
             if (!request) return;
             const id = /\sID="([^"]+)"/.exec(inflateRawSync(Buffer.from(request, 'base64')).toString())?.[1];
-            if (id) ctx.setCookie(SAML_REQUEST_COOKIE, b64sha256(id), samlRequestCookie(ctx.context, 300)); // Better Auth's request TTL
+            if (id) ctx.setCookie(SAML_REQUEST_COOKIE, b64sha256(id), samlRequestCookie(300)); // Better Auth's request TTL
           }),
         },
       ],
@@ -468,6 +465,10 @@ export async function registerSsoProvider(context: AuthContext, api: unknown, ra
   const providerId = `${SSO_PROVIDER_PREFIX}${input.slug}`;
   let protocolConfig;
   if (input.protocol === 'saml') {
+    // The login-CSRF cookie is Secure: on a plain-http BASE_URL (other than localhost) browsers drop it, and no SAML
+    // sign-in could finish.
+    const base = new URL(context.baseURL);
+    if (base.protocol !== 'https:' && !isLoopback(base)) throw new SsoRefusal('saml_needs_https');
     protocolConfig = { issuer: spEntityId(context, providerId), samlConfig: samlConfig(context, input) };
   } else {
     if (![input.issuer, input.authorizationEndpoint, input.tokenEndpoint, input.jwksEndpoint].every((u) => secureUrl(context, u))) throw new SsoRefusal('insecure_endpoint');

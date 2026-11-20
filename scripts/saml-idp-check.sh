@@ -166,8 +166,8 @@ SPJAR="$T/sp.jar"; IDPJAR="$T/idp.jar"
 SSO_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("url",""))' "$T/start.json")
 case "$SSO_URL" in "$IDP_URL/simplesaml/saml2/idp/SSOService.php?"*) pass browser "redirected to the IdP with an AuthnRequest";; *) fail browser "start: $(head -c 300 "$T/start.json")"; exit 1;; esac
 # The login-CSRF binding (SameSite=None; Secure): sent by hand, since curl may not keep a Secure cookie set over http.
-REQUEST_COOKIE=$(tr -d '\r' <"$T/start.headers" | sed -n 's/^[Ss]et-[Cc]ookie: \(authwapi_saml_request=[^;]*\);.*/\1/p' | head -1)
-[ -n "$REQUEST_COOKIE" ] && pass browser "request-binding cookie set" || fail browser "no authwapi_saml_request cookie at sign-in start"
+REQUEST_COOKIE=$(tr -d '\r' <"$T/start.headers" | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-authwapi_saml_request=[^;]*\);.*/\1/p' | head -1)
+[ -n "$REQUEST_COOKIE" ] && pass browser "request-binding cookie set" || fail browser "no __Host-authwapi_saml_request cookie at sign-in start"
 # The IdP's login form (after its own redirects).
 LOGIN_URL=$("${CURL[@]}" -L -c "$IDPJAR" -b "$IDPJAR" -o "$T/login.html" -w '%{url_effective}' "$SSO_URL")
 AUTHSTATE=$(field "$T/login.html" AuthState)

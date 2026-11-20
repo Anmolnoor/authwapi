@@ -164,7 +164,7 @@ joined by email, new users unverified, 2FA after sign-in, deleted with their ses
      --slug acme --domain acme.com < idp-metadata.xml
    ```
 
-Refusals, besides OIDC's: `invalid_idp_metadata`, `insecure_endpoint` and `idp_signing_cert_missing` (the
+Refusals, besides OIDC's: `saml_needs_https` (see below), `invalid_idp_metadata`, `insecure_endpoint` and `idp_signing_cert_missing` (the
 metadata must have an `https` HTTP-Redirect SSO URL and a signing certificate), `invalid_idp_signing_cert`, and
 input errors (both metadata and the manual fields, or OIDC fields on a SAML provider). Plain `http` is accepted only
 for a loopback SSO URL whose origin AuthWAPI trusts (`BASE_URL` or `ALLOWED_HOSTS`): a test IdP on your machine.
@@ -182,7 +182,7 @@ an origin that isn't AuthWAPI's own or in `ALLOWED_HOSTS`). The response is refu
 | Its audience is this provider's SP entity ID, and its recipient this provider's ACS URL | `saml_error` or `invalid_saml_response` |
 | It answers an AuthnRequest AuthWAPI sent, for this provider, in the last 5 minutes, that wasn't answered before | `invalid_saml_response` |
 | It answers an AuthnRequest at all (no IdP-initiated responses) | `unsolicited_response` |
-| It answers the AuthnRequest *this browser* started: starting a SAML sign-in sets an `authwapi_saml_request` cookie (a hash of the request ID; `SameSite=None; Secure; HttpOnly`, sent only to the ACS, 5 minutes), which must match the assertion's signed `InResponseTo`. Without it, someone could post their own signed response from your browser and sign you in as them | `saml_request_not_from_this_browser` |
+| It answers the AuthnRequest *this browser* started: starting a SAML sign-in sets a `__Host-authwapi_saml_request` cookie (a hash of the request ID; `Secure; HttpOnly; SameSite=None; Path=/`, 5 minutes), which must match the assertion's signed `InResponseTo`. Without it, someone could post their own signed response from your browser and sign you in as them. A refused post leaves the cookie, so your own sign-in still finishes | `saml_request_not_from_this_browser` |
 | Its `Conditions` carry `NotBefore`/`NotOnOrAfter`, and now is inside them (5 minutes' clock skew) | `saml_error` |
 | Its ID wasn't used before | `replay_detected` |
 | Signatures and digests are SHA-256 or stronger (SHA-1 is refused) | `saml_deprecated_algorithm` |
@@ -190,6 +190,12 @@ an origin that isn't AuthWAPI's own or in `ALLOWED_HOSTS`). The response is refu
 | The signed NameID is exactly the one Better Auth read | `nameid_mismatch` |
 | An `email` attribute holds an email address | `email_missing` |
 | No other account has that email (see [Who someone is](#who-someone-is)) | `account_exists` |
+
+One sign-in per browser at a time: if you start a SAML sign-in in a second tab before the first one finishes, the
+later start wins and the first tab gets `saml_request_not_from_this_browser`; start it again there.
+
+**SAML needs https.** The request cookie is `Secure`, which browsers keep only over https (and on `localhost`), so
+registering a SAML provider is refused with `saml_needs_https` when `BASE_URL` is plain `http` on any other host.
 
 The identity is (provider, NameID). The email attribute only fills in the new user's address: a later sign-in with
 the same NameID is the same user even if the email changed. Transient NameIDs would make a new user at every

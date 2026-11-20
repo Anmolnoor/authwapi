@@ -12,6 +12,8 @@ import { inflateRawSync } from 'node:zlib';
 import { afterEach, beforeEach, test } from 'node:test';
 import samlify from 'samlify';
 import { SignedXml } from 'xml-crypto';
+import { registerSsoProvider, SsoRefusal } from '../src/sso.ts';
+import type { AuthContext } from 'better-auth';
 import { startTestServer, type TestServer } from './helpers.ts';
 import { currentUser, db, enableTotp, Jar, send, totp, verifiedUser } from './signin-helpers.ts';
 
@@ -308,35 +310,37 @@ test("login CSRF: the attacker's signed response, posted from the victim's brows
   assert.equal(count("SELECT count(*) FROM user WHERE email = 'mallory@a.example'"), 0);
 });
 
-test('login CSRF: a browser that started its own sign-in gets only its own response; the cookie is cleared after', async () => {
+test("login CSRF: an attacker's post into a sign-in in progress is refused and doesn't break it; the cookie is cleared after", async () => {
   const write = await writeAgent();
   const idp = await makeIdp('idp-a');
   const a = await samlOrg(write, 'a', 'a.example', idp);
   const s = await start(new Jar(), { providerId: a.providerId }); // the attacker's
   const browser = new Jar();
-  const s2 = await start(browser, { providerId: a.providerId });
-  const theirs = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-evil', email: 'mallory@a.example', inResponseTo: s.requestId }), s2.relayState);
+  const s2 = await start(browser, { providerId: a.providerId }); // the victim's, at the IdP now
+  const theirs = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-evil', email: 'mallory@a.example', inResponseTo: s.requestId }), s.relayState);
   assert.equal(errorOf(theirs.location), 'saml_request_not_from_this_browser', String(theirs.location));
-  const s3 = await start(browser, { providerId: a.providerId });
-  const own = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-2', email: 'u2@a.example', inResponseTo: s3.requestId }), s3.relayState);
+  assert.ok(!theirs.setCookies.some((c) => c.startsWith('__Host-authwapi_saml_request=')), 'a mismatch leaves the cookie');
+  // The victim's own response still signs them in.
+  const own = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-2', email: 'u2@a.example', inResponseTo: s2.requestId }), s2.relayState);
   assert.equal(own.location, '/');
   assert.equal(await currentUser(sp, browser), 'u2@a.example');
-  assert.ok(own.setCookies.some((c) => /^authwapi_saml_request=;/.test(c) && /max-age=0/i.test(c)), own.setCookies.join(' | '));
+  assert.ok(own.setCookies.some((c) => /^__Host-authwapi_saml_request=;/.test(c) && /max-age=0/i.test(c)), own.setCookies.join(' | '));
 });
 
-test('the SAML request cookie: SameSite=None, Secure, HttpOnly, the hash of the AuthnRequest ID, only on the ACS path', async () => {
+test('the SAML request cookie: __Host- (Secure, Path=/, no Domain), SameSite=None, HttpOnly, the hash of the AuthnRequest ID', async () => {
   const write = await writeAgent();
   const idp = await makeIdp('idp-a');
   const a = await samlOrg(write, 'a', 'a.example', idp);
   const r = await send(sp, new Jar(), 'POST', '/api/auth/sign-in/sso', { json: { providerId: a.providerId, callbackURL: '/' } });
-  const cookie = r.setCookies.find((c) => c.startsWith('authwapi_saml_request='));
+  const cookie = r.setCookies.find((c) => c.startsWith('__Host-authwapi_saml_request='));
   assert.ok(cookie, r.setCookies.join(' | '));
-  for (const attr of [/;\s*SameSite=None/i, /;\s*Secure/i, /;\s*HttpOnly/i, /;\s*Path=\/api\/auth\/sso\/saml2\/sp\/acs/i]) assert.match(cookie!, attr);
+  for (const attr of [/;\s*SameSite=None/i, /;\s*Secure/i, /;\s*HttpOnly/i, /;\s*Path=\/(;|$)/i]) assert.match(cookie!, attr);
+  assert.doesNotMatch(cookie!, /;\s*Domain=/i);
   const id = /\sID="([^"]+)"/.exec(inflateRawSync(Buffer.from(new URL(r.json().url).searchParams.get('SAMLRequest')!, 'base64')).toString())![1];
   assert.ok(!cookie!.includes(id), 'the cookie holds a hash, not the request ID');
   // The hosted page's SSO start sets it too.
   const page = await send(sp, new Jar(), 'POST', '/sign-in', { form: { method: 'sso', email: 'alice@a.example', oauth_query: '' } });
-  assert.ok(page.setCookies.some((c) => c.startsWith('authwapi_saml_request=')), page.setCookies.join(' | '));
+  assert.ok(page.setCookies.some((c) => c.startsWith('__Host-authwapi_saml_request=')), page.setCookies.join(' | '));
 });
 
 test('an IdP on another site posts to the ACS (no Origin refusal there); other routes still refuse that Origin', async () => {
@@ -517,4 +521,13 @@ test('CLI: the operator registers a SAML provider from metadata on stdin; deleti
   await cli(['sso', 'delete', 'sso-a']);
   assert.equal(await currentUser(sp, jar), null);
   assert.equal(count("SELECT count(*) FROM account WHERE providerId = 'sso-a'"), 0);
+});
+
+test('SAML needs https: refused on a plain-http BASE_URL that is not loopback (browsers drop its Secure cookie)', async () => {
+  const idp = await makeIdp('idp-a');
+  const input = { protocol: 'saml' as const, organizationId: 'org', slug: 'a', domain: 'a.example', idpMetadata: idp.metadata };
+  await assert.rejects(
+    registerSsoProvider({ baseURL: 'http://auth.example.com/api/auth' } as AuthContext, null, input, () => {}),
+    (err: unknown) => err instanceof SsoRefusal && err.message === 'saml_needs_https'
+  );
 });
