@@ -139,8 +139,12 @@ STEP='confirm the browser session and present its cookie to the API'
 http_status 200 '' "$AUTH/api/auth/get-session" "${browser[@]}"
 jq -e --arg sub "$sub" '.user.id == $sub' "$T/body" >/dev/null
 cookie=$(podman exec "$DRIVER" awk -F '\t' \
-  '$1 ~ /^(#HttpOnly_)?authwapi\.localhost$/ && $6 ~ /session_token$/ {print $6 "=" $7}' /tmp/cookies)
+  '$1 ~ /^(#HttpOnly_)?authwapi\.localhost$/ && $6 ~ /session_token$/ {print $6 "=" $7; n++} END {exit n != 1}' /tmp/cookies)
 [[ -n $cookie ]]
+# Positive control: the extracted cookie alone (no jar) is a valid session for this user, so the refusals below
+# are about where it is presented, not about a wrong or stale cookie.
+http_status 200 "$(printf 'header = "Cookie: %s"\n' "$cookie")" "$AUTH/api/auth/get-session"
+jq -e --arg sub "$sub" '.user.id == $sub' "$T/body" >/dev/null
 http_status 401 "$(printf 'header = "Cookie: %s"\n' "$cookie")" "$API/api"
 jq -e '.error == "bearer_required"' "$T/body" >/dev/null
 STEP='present the session cookie value as a bearer token to the API'
@@ -186,11 +190,6 @@ jq -e '.error == "invalid_grant"' "$T/body" >/dev/null
 check_pass 'sign-out ended the browser session; both access tokens introspected inactive and the offline_access refresh was refused'
 
 STEP='check the refresh token from the flow without offline_access'
-other_refresh=$(jq -r '.refresh_token' "$T/state/other.json")
-if [[ $other_refresh == null ]]; then
-  check_pass 'the flow without offline_access received no refresh token, so there is none to revoke'
-else
-  refresh 400 "$other_refresh"
-  jq -e '.error == "invalid_grant"' "$T/body" >/dev/null
-  check_pass 'sign-out also revoked the refresh token from the flow without offline_access'
-fi
+# OIDC: no refresh token without offline_access.
+jq -e '.refresh_token == null' "$T/state/other.json" >/dev/null
+check_pass 'the flow without offline_access received no refresh token

@@ -81,6 +81,11 @@ check_failure_context() {
     cat "$T/response" "$T/curl-error" 2>/dev/null | head -c 4000 | redact >&2 || true
     printf '\n' >&2
   fi
+  for name in "$T"/pull.log "$T"/cli-error; do
+    [[ -s $name ]] || continue
+    printf -- '--- tail of %s\n' "${name##*/}" >&2
+    tail -n 20 "$name" | redact >&2 || true
+  done
   if [[ ${STEP:-} == build* ]]; then
     for name in "$T"/build*.log; do
       printf -- '--- tail of %s\n' "${name##*/}" >&2
