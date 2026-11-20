@@ -25,7 +25,7 @@ import { dataPaths, exportData, importData, loadOrCreateSecret, prepareDataDir, 
 import { openDb } from './db.ts';
 import { createLogger } from './log.ts';
 import { MIGRATIONS_DIR } from './migrate.ts';
-import { bindSsoIdentity, deleteSsoProvider, listSsoProviders, registerSsoProvider, ssoProviderInput } from './sso.ts';
+import { bindSsoIdentity, deleteSsoProvider, listSsoProviders, registerSsoProvider, ssoProviderInput, type SsoProviderSummary } from './sso.ts';
 
 const USAGE = `Usage:
   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
@@ -36,6 +36,9 @@ const USAGE = `Usage:
   node src/cli.ts bootstrap-key
   node src/cli.ts sso register --org <id> --slug <slug> --domain <domain> --issuer <url> --client-id <id>
       --authorization-endpoint <url> --token-endpoint <url> --jwks-endpoint <url>   (client secret on stdin)
+  node src/cli.ts sso register --protocol saml --org <id> --slug <slug> --domain <domain>   (IdP metadata XML on stdin)
+  node src/cli.ts sso register --protocol saml --org <id> --slug <slug> --domain <domain>
+      --idp-entity-id <id> --idp-sso-url <url>   (IdP signing certificate PEM on stdin)
   node src/cli.ts sso list
   node src/cli.ts sso delete <providerId>
   node src/cli.ts sso bind --provider <providerId> --subject <sub> --user <userId>
@@ -54,8 +57,8 @@ Client ID Metadata Document; AuthWAPI fetches that document only after it is lin
 resource unlink takes that away: an MCP client linked to no resource gets no new sign-in or refresh from then on.
 Access tokens it already holds stay valid at the resource server until they expire (at most 15 minutes).
 
-sso register adds an organization's OIDC identity provider (provider ID sso-<slug>); register the printed
-redirect URI with the identity provider. sso bind lets a subject at a provider sign in as an existing, verified
+sso register adds an organization's OIDC or SAML identity provider (provider ID sso-<slug>); register the printed
+redirect URI (OIDC), or ACS URL and SP entity ID (SAML), with the identity provider. sso bind lets a subject at a provider sign in as an existing, verified
 user (SSO never joins accounts by email). sso delete also ends its users' sessions and OAuth tokens.
 
 bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
@@ -242,13 +245,16 @@ function cliAuth(config: ReturnType<typeof loadConfig>, paths: DataPaths, db: Re
   return betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log: createLogger(paths.logs) }));
 }
 
+const endpoints = (p: SsoProviderSummary) =>
+  p.protocol === 'saml' ? `  ACS URL: ${p.acsUrl}\n  SP entity ID (and SP metadata URL): ${p.spEntityId}` : `  redirect URI: ${p.redirectUri}`;
+
 /** `sso register|list|delete|bind`. Each change writes an audit line (who: operator-cli). */
 async function sso(command: string | undefined, args: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: command === 'delete',
     options: Object.fromEntries(
-      ['org', 'slug', 'domain', 'issuer', 'client-id', 'authorization-endpoint', 'token-endpoint', 'jwks-endpoint', 'provider', 'subject', 'user'].map((o) => [o, { type: 'string' as const }])
+      ['protocol', 'org', 'slug', 'domain', 'issuer', 'client-id', 'authorization-endpoint', 'token-endpoint', 'jwks-endpoint', 'idp-entity-id', 'idp-sso-url', 'provider', 'subject', 'user'].map((o) => [o, { type: 'string' as const }])
     ),
     strict: true,
   });
@@ -263,7 +269,7 @@ async function sso(command: string | undefined, args: string[]): Promise<void> {
     if (command === 'list') {
       const providers = await listSsoProviders(context);
       if (providers.length === 0) console.log('No SSO providers. Add one with: node src/cli.ts sso register ...');
-      for (const p of providers) console.log(`${p.providerId}  ${p.domain}  organization ${p.organizationId}\n  issuer: ${p.issuer}\n  redirect URI: ${p.redirectUri}`);
+      for (const p of providers) console.log(`${p.providerId}  ${p.domain}  organization ${p.organizationId}\n  issuer: ${p.issuer}\n${endpoints(p)}`);
     } else if (command === 'delete') {
       await deleteSsoProvider(context, auth.api, positionals[0], () => audit('sso delete', positionals[0]));
       console.log(`Deleted ${positionals[0]}; its users' sessions and OAuth tokens are revoked.`);
@@ -272,21 +278,27 @@ async function sso(command: string | undefined, args: string[]): Promise<void> {
       await bindSsoIdentity(context, values.provider, values.subject, values.user, () => audit('sso bind', values.user!, { provider: values.provider!, subject: values.subject! }));
       console.log(`Bound subject ${values.subject} at ${values.provider} to user ${values.user}.`);
     } else {
+      const stdin = readFileSync(0, 'utf8').trim(); // never in the process list or shell history
+      const saml = values.protocol === 'saml';
       const input = ssoProviderInput.safeParse({
+        protocol: values.protocol,
         organizationId: values.org,
         slug: values.slug,
         domain: values.domain,
         issuer: values.issuer,
         clientId: values['client-id'],
-        clientSecret: readFileSync(0, 'utf8').trim(), // stdin: never in the process list or shell history
+        clientSecret: saml ? undefined : stdin,
         authorizationEndpoint: values['authorization-endpoint'],
         tokenEndpoint: values['token-endpoint'],
         jwksEndpoint: values['jwks-endpoint'],
+        idpEntityId: values['idp-entity-id'],
+        idpSsoUrl: values['idp-sso-url'],
+        ...(saml ? (values['idp-entity-id'] ? { idpSigningCert: stdin } : { idpMetadata: stdin }) : {}),
       });
       if (!input.success) throw new UsageError(input.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
       const p = await registerSsoProvider(context, auth.api, input.data, (providerId) => audit('sso register', providerId));
       console.log(`Registered ${p.providerId} for organization ${p.organizationId}, domain ${p.domain}.`);
-      console.log(`Redirect URI (register it with the identity provider): ${p.redirectUri}`);
+      console.log(`Register these with the identity provider:\n${endpoints(p)}`);
     }
   } finally {
     db.close();
