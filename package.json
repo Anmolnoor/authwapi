@@ -38,6 +38,7 @@
     "@peculiar/x509": "1.14.3",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.6",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "xml-crypto": "6.4.0"
   }
 }

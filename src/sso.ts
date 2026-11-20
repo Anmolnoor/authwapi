@@ -17,6 +17,7 @@
 // IdP-initiated sign-in), carry timestamps, and are signed with SHA-256 or stronger. The IdP's metadata and
 // certificate sit in the ssoProvider row, unencrypted, like OIDC client secrets: the data folder is the secret.
 import { createHash, X509Certificate } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { deriveSAMLIdentityProviderEntityID, sso, type SAMLConfig, type SSOOptions, type SSOSAMLUserResolutionInput } from '@better-auth/sso';
 import { defineRequestState, getCurrentAdapter, getCurrentAuthEndpointContext, runWithTransaction } from '@better-auth/core/context';
 import { DOMParser, type Element } from '@xmldom/xmldom';
@@ -83,6 +84,21 @@ const guardProviderMutation: NonNullable<SSOOptions['guardProviderMutation']> = 
   (await providerDeleted.get())?.();
 };
 
+/** The ACS route, whose POST comes from the IdP's site: src/app.ts lets it past the Origin check. */
+export const SAML_ACS_PATH = /^\/api\/auth\/sso\/saml2\/sp\/acs\/[^/]+$/;
+/**
+ * Binds a SAML sign-in to the browser that started it (login CSRF): a hash of the AuthnRequest ID, sent back only with
+ * the IdP's cross-site POST to the ACS (SameSite=None, which needs Secure; browsers treat http://localhost as secure).
+ */
+const SAML_REQUEST_COOKIE = 'authwapi_saml_request';
+const samlRequestCookie = (context: AuthContext, maxAge: number) => ({
+  httpOnly: true,
+  secure: true,
+  sameSite: 'none' as const,
+  path: `${new URL(context.baseURL).pathname}/sso/saml2/sp/acs`,
+  maxAge,
+});
+
 export const PERSISTENT_NAMEID = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
 const SAML_ASSERTION_NS = 'urn:oasis:names:tc:SAML:2.0:assertion';
 const XMLDSIG_NS = 'http://www.w3.org/2000/09/xmldsig#';
@@ -98,21 +114,36 @@ const children = (parent: Element | undefined, ns: string, name: string) =>
  * Better Auth extracted.
  * - Signatures and digests are SHA-256 or stronger. (Better Auth's `onDeprecated: 'reject'` reads the algorithm
  *   only from a redirect binding's query string; the ACS takes POST, whose algorithm is inside the XML.)
+ * - It answers the AuthnRequest this browser started (the signed SubjectConfirmationData@InResponseTo matches the
+ *   cookie set at /sign-in/sso): otherwise anyone could post their own signed response from a victim's browser and
+ *   sign it into the attacker's account. The cookie is cleared once checked.
  * - The NameID is persistent: transient ones change every sign-in, email ones change with the address.
  * - An `email` attribute carries the address (otherwise Better Auth would fall back to the NameID).
  */
 function checkSamlAssertion(input: SSOSAMLUserResolutionInput) {
-  const posted = (getCurrentAuthEndpointContext().body as { SAMLResponse: string }).SAMLResponse;
+  const ctx = getCurrentAuthEndpointContext();
+  const posted = (ctx.body as { SAMLResponse: string }).SAMLResponse;
   const doc = new DOMParser().parseFromString(Buffer.from(posted.replace(/\s+/g, ''), 'base64').toString('utf8'), 'text/xml');
   const algorithms = (name: string) => Array.from(doc.getElementsByTagNameNS(XMLDSIG_NS, name)).map((e) => e.getAttribute('Algorithm') ?? '');
   if (!algorithms('SignatureMethod').every((a) => STRONG_SIGNATURE.test(a)) || !algorithms('DigestMethod').every((a) => STRONG_DIGEST.test(a))) {
     return reject('saml_deprecated_algorithm', 'The identity provider must sign with SHA-256 or stronger.');
   }
   const [assertion] = children(doc.documentElement ?? undefined, SAML_ASSERTION_NS, 'Assertion');
-  const nameIds = children(children(assertion, SAML_ASSERTION_NS, 'Subject')[0], SAML_ASSERTION_NS, 'NameID');
-  if (nameIds.length !== 1 || nameIds[0].getAttribute('Format') !== PERSISTENT_NAMEID || nameIds[0].textContent?.trim() !== input.accountKey.accountId) {
+  const subject = children(assertion, SAML_ASSERTION_NS, 'Subject')[0];
+  const answered = new Set(
+    children(subject, SAML_ASSERTION_NS, 'SubjectConfirmation').flatMap((c) => children(c, SAML_ASSERTION_NS, 'SubjectConfirmationData').map((d) => d.getAttribute('InResponseTo')))
+  );
+  const cookie = ctx.getCookie!(SAML_REQUEST_COOKIE);
+  ctx.setCookie!(SAML_REQUEST_COOKIE, '', samlRequestCookie(ctx.context, 0));
+  const [requestId] = answered;
+  if (answered.size !== 1 || !requestId || !cookie || cookie !== b64sha256(requestId)) {
+    return reject('saml_request_not_from_this_browser', 'This sign-in was started in another browser. Start it again here.');
+  }
+  const nameIds = children(subject, SAML_ASSERTION_NS, 'NameID');
+  if (nameIds.length !== 1 || nameIds[0].getAttribute('Format') !== PERSISTENT_NAMEID) {
     return reject('nameid_not_persistent', 'The identity provider must send a persistent NameID.');
   }
+  if (nameIds[0].textContent !== input.accountKey.accountId) return reject('nameid_mismatch', "The signed NameID isn't the one that was read.");
   const email = input.providerAttributes.email;
   if (typeof email !== 'string' || !z.email().safeParse(email).success || email.toLowerCase() !== input.providerUser.email) {
     return reject('email_missing', 'The identity provider must send the email address in an "email" attribute.');
@@ -263,6 +294,19 @@ function ssoGlue(db: Database.Database): BetterAuthPlugin {
       },
     }),
     hooks: {
+      after: [
+        {
+          // A SAML sign-in start (its URL carries the AuthnRequest): bind it to this browser (SAML_REQUEST_COOKIE).
+          matcher: (ctx) => ctx.path === '/sign-in/sso',
+          handler: createAuthMiddleware(async (ctx) => {
+            const url = (ctx.context.returned as { url?: unknown } | undefined)?.url;
+            const request = typeof url === 'string' && URL.canParse(url) ? new URL(url).searchParams.get('SAMLRequest') : null;
+            if (!request) return;
+            const id = /\sID="([^"]+)"/.exec(inflateRawSync(Buffer.from(request, 'base64')).toString())?.[1];
+            if (id) ctx.setCookie(SAML_REQUEST_COOKIE, b64sha256(id), samlRequestCookie(ctx.context, 300)); // Better Auth's request TTL
+          }),
+        },
+      ],
       before: [
         {
           // Better Auth stores whatever truthy value it is given; only `true` is a verification (and gets the purge).

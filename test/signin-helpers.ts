@@ -51,14 +51,14 @@ export function send(
   jar: Jar,
   method: string,
   url: string,
-  { json, form, navigate = false }: { json?: unknown; form?: Record<string, string>; navigate?: boolean } = {}
+  { json, form, navigate = false, origin = s.base }: { json?: unknown; form?: Record<string, string>; navigate?: boolean; origin?: string } = {}
 ): Promise<Answer> {
   const target = new URL(url, s.base);
   const body = json !== undefined ? JSON.stringify(json) : form ? new URLSearchParams(form).toString() : undefined;
   const headers: Record<string, string> = { cookie: jar.toString() };
   if (body !== undefined) {
     headers['content-type'] = json !== undefined ? 'application/json' : 'application/x-www-form-urlencoded';
-    headers.origin = s.base;
+    headers.origin = origin;
   }
   if (navigate) Object.assign(headers, { accept: 'text/html', 'sec-fetch-mode': 'navigate' });
   else headers.accept = 'application/json';

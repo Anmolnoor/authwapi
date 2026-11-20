@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
 import { afterEach, beforeEach, test } from 'node:test';
 import samlify from 'samlify';
+import { SignedXml } from 'xml-crypto';
 import { startTestServer, type TestServer } from './helpers.ts';
 import { currentUser, db, enableTotp, Jar, send, totp, verifiedUser } from './signin-helpers.ts';
 
@@ -25,6 +26,9 @@ afterEach(async () => {
 const PERSISTENT = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
 const SHA256 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
 const SHA1 = 'http://www.w3.org/2000/09/xmldsig#rsa-sha1';
+const SHA1_DIGEST = 'http://www.w3.org/2000/09/xmldsig#sha1';
+/** Where real IdPs post from: another site, not in ALLOWED_HOSTS. */
+const IDP_ORIGIN = 'https://idp.example';
 
 // ── MCP on the AuthWAPI under test ──
 async function connect(key: string) {
@@ -100,6 +104,7 @@ interface Assertion {
   timestamps?: 'valid' | 'expired' | 'none'; // none: no NotBefore/NotOnOrAfter in Conditions (the bearer confirmation keeps its own)
   sign?: 'assertion' | 'response' | 'both' | 'none';
   algorithm?: string;
+  digest?: string; // the assertion signature's DigestMethod, when not the signature algorithm's own
   issuer?: string;
 }
 const iso = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
@@ -124,7 +129,19 @@ function samlResponse(idp: Idp, p: { acsUrl: string; spEntityId: string }, a: As
     `${email}</saml:Assertion></samlp:Response>`;
   const sign = a.sign ?? 'assertion';
   const signing = { privateKey: idp.privateKey, signingCert: idp.cert.replace(/-----[^-]+-----|\s/g, ''), signatureAlgorithm: a.algorithm ?? SHA256, isBase64Output: false };
-  if (sign === 'assertion' || sign === 'both') {
+  if (a.digest) {
+    // samlify always pairs the digest with the signature algorithm; xml-crypto signs with any pair.
+    const sig = new SignedXml({ privateKey: idp.privateKey });
+    sig.addReference({
+      xpath: "/*[local-name(.)='Response']/*[local-name(.)='Assertion']",
+      transforms: ['http://www.w3.org/2000/09/xmldsig#enveloped-signature', 'http://www.w3.org/2001/10/xml-exc-c14n#'],
+      digestAlgorithm: a.digest,
+    });
+    sig.canonicalizationAlgorithm = 'http://www.w3.org/2001/10/xml-exc-c14n#';
+    sig.signatureAlgorithm = a.algorithm ?? SHA256;
+    sig.computeSignature(xml, { prefix: 'ds', location: { reference: "/*[local-name(.)='Response']/*[local-name(.)='Assertion']/*[local-name(.)='Issuer']", action: 'after' } });
+    xml = sig.getSignedXml();
+  } else if (sign === 'assertion' || sign === 'both') {
     xml = samlify.SamlLib.constructSAMLSignature({
       ...signing,
       rawSamlMessage: xml,
@@ -164,9 +181,9 @@ async function start(jar: Jar, by: { providerId: string } | { email: string }) {
   const request = inflateRawSync(Buffer.from(url.searchParams.get('SAMLRequest')!, 'base64')).toString();
   return { url, request, requestId: /\sID="([^"]+)"/.exec(request)![1], relayState: url.searchParams.get('RelayState')! };
 }
-/** The browser's form POST of the IdP's response to the ACS. */
+/** The browser's form POST of the IdP's response to the ACS: cross-site, from the IdP's page. */
 const post = (jar: Jar, providerId: string, SAMLResponse: string, RelayState?: string) =>
-  send(sp, jar, 'POST', `/api/auth/sso/saml2/sp/acs/${providerId}`, { form: { SAMLResponse, ...(RelayState ? { RelayState } : {}) }, navigate: true });
+  send(sp, jar, 'POST', `/api/auth/sso/saml2/sp/acs/${providerId}`, { form: { SAMLResponse, ...(RelayState ? { RelayState } : {}) }, navigate: true, origin: IDP_ORIGIN });
 
 /** A full SP-initiated round trip; the assertion answers the request unless told otherwise. */
 async function signIn(jar: Jar, idp: Idp, p: Provider, a: Assertion) {
@@ -232,6 +249,7 @@ const forged: [string, Assertion, ((idp: Idp) => Promise<Idp>)?][] = [
   ['an email NameID', { nameId: 'u1@a.example', email: 'u1@a.example', format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress' }],
   ['an unspecified NameID', { nameId: 'u1@a.example', email: 'u1@a.example', format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified' }],
   ['no email attribute', { nameId: 'u-1' }],
+  ['a SHA-1 digest under an RSA-SHA256 signature', { nameId: 'u-1', email: 'u1@a.example', digest: SHA1_DIGEST }],
 ];
 for (const [name, assertion, signer] of forged) {
   test(`refused: ${name}`, async () => {
@@ -263,6 +281,98 @@ test('the refusal codes our checks add: SHA-1, a NameID that is not persistent, 
   assert.equal(errorOf(noEmail.back.location), 'email_missing');
 });
 
+test('the refusal code for a SHA-1 digest under an RSA-SHA256 signature', async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const a = await samlOrg(write, 'a', 'a.example', idp);
+  const digest = await signIn(new Jar(), idp, a, { nameId: 'u-1', email: 'u1@a.example', digest: SHA1_DIGEST });
+  assert.equal(errorOf(digest.back.location), 'saml_deprecated_algorithm');
+  assert.equal(count("SELECT count(*) FROM account WHERE providerId = 'sso-a'"), 0);
+});
+
+test("login CSRF: the attacker's signed response, posted from the victim's browser (with or without RelayState), is refused", async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const a = await samlOrg(write, 'a', 'a.example', idp);
+  for (const withRelay of [true, false]) {
+    // The attacker starts a sign-in and gets the IdP's response for their own account...
+    const s = await start(new Jar(), { providerId: a.providerId });
+    const response = samlResponse(idp, a, { nameId: 'u-evil', email: 'mallory@a.example', inResponseTo: s.requestId });
+    // ...and has the victim's browser post it.
+    const victim = new Jar();
+    const back = await post(victim, a.providerId, response, withRelay ? s.relayState : undefined);
+    assert.equal(back.status, 302, back.body);
+    assert.equal(errorOf(back.location), 'saml_request_not_from_this_browser', String(back.location));
+    assert.equal(await currentUser(sp, victim), null);
+  }
+  assert.equal(count("SELECT count(*) FROM user WHERE email = 'mallory@a.example'"), 0);
+});
+
+test('login CSRF: a browser that started its own sign-in gets only its own response; the cookie is cleared after', async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const a = await samlOrg(write, 'a', 'a.example', idp);
+  const s = await start(new Jar(), { providerId: a.providerId }); // the attacker's
+  const browser = new Jar();
+  const s2 = await start(browser, { providerId: a.providerId });
+  const theirs = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-evil', email: 'mallory@a.example', inResponseTo: s.requestId }), s2.relayState);
+  assert.equal(errorOf(theirs.location), 'saml_request_not_from_this_browser', String(theirs.location));
+  const s3 = await start(browser, { providerId: a.providerId });
+  const own = await post(browser, a.providerId, samlResponse(idp, a, { nameId: 'u-2', email: 'u2@a.example', inResponseTo: s3.requestId }), s3.relayState);
+  assert.equal(own.location, '/');
+  assert.equal(await currentUser(sp, browser), 'u2@a.example');
+  assert.ok(own.setCookies.some((c) => /^authwapi_saml_request=;/.test(c) && /max-age=0/i.test(c)), own.setCookies.join(' | '));
+});
+
+test('the SAML request cookie: SameSite=None, Secure, HttpOnly, the hash of the AuthnRequest ID, only on the ACS path', async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const a = await samlOrg(write, 'a', 'a.example', idp);
+  const r = await send(sp, new Jar(), 'POST', '/api/auth/sign-in/sso', { json: { providerId: a.providerId, callbackURL: '/' } });
+  const cookie = r.setCookies.find((c) => c.startsWith('authwapi_saml_request='));
+  assert.ok(cookie, r.setCookies.join(' | '));
+  for (const attr of [/;\s*SameSite=None/i, /;\s*Secure/i, /;\s*HttpOnly/i, /;\s*Path=\/api\/auth\/sso\/saml2\/sp\/acs/i]) assert.match(cookie!, attr);
+  const id = /\sID="([^"]+)"/.exec(inflateRawSync(Buffer.from(new URL(r.json().url).searchParams.get('SAMLRequest')!, 'base64')).toString())![1];
+  assert.ok(!cookie!.includes(id), 'the cookie holds a hash, not the request ID');
+  // The hosted page's SSO start sets it too.
+  const page = await send(sp, new Jar(), 'POST', '/sign-in', { form: { method: 'sso', email: 'alice@a.example', oauth_query: '' } });
+  assert.ok(page.setCookies.some((c) => c.startsWith('authwapi_saml_request=')), page.setCookies.join(' | '));
+});
+
+test('an IdP on another site posts to the ACS (no Origin refusal there); other routes still refuse that Origin', async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const a = await samlOrg(write, 'a', 'a.example', idp);
+  const jar = new Jar();
+  const { back } = await signIn(jar, idp, a, { nameId: 'u-1', email: 'u1@a.example' }); // posted with Origin https://idp.example
+  assert.equal(back.status, 302, back.body);
+  assert.equal(back.location, '/');
+  const elsewhere = await send(sp, new Jar(), 'POST', '/api/auth/sign-in/sso', { json: { providerId: a.providerId, callbackURL: '/' }, origin: IDP_ORIGIN });
+  assert.equal(elsewhere.status, 403);
+  const metadata = await send(sp, new Jar(), 'POST', `/api/auth/sso/saml2/sp/acs-other/${a.providerId}`, { form: {}, origin: IDP_ORIGIN });
+  assert.equal(metadata.status, 403);
+});
+
+test('sign-in through a provider registered by hand (entity ID, SSO URL, certificate)', async () => {
+  const write = await writeAgent();
+  const idp = await makeIdp('idp-a');
+  const organizationId = await org(write, 'a');
+  const { provider } = await ok(
+    call(write, 'register_sso_provider', { protocol: 'saml', organizationId, slug: 'a', domain: 'a.example', idpEntityId: idp.entityID, idpSsoUrl: idp.ssoUrl, idpSigningCert: idp.cert })
+  );
+  const a: Provider = { ...provider, organizationId };
+  const jar = new Jar();
+  const s = await start(jar, { email: 'u1@a.example' });
+  assert.ok(s.url.href.startsWith(`${idp.ssoUrl}?`), s.url.href);
+  const back = await post(jar, a.providerId, samlResponse(idp, a, { nameId: 'u-1', email: 'u1@a.example', inResponseTo: s.requestId }), s.relayState);
+  assert.equal(back.location, '/');
+  assert.equal(await currentUser(sp, jar), 'u1@a.example');
+  // Another key is refused for it, as with metadata.
+  const other = await makeIdp('other');
+  const forged = await signIn(new Jar(), { ...other, entityID: idp.entityID }, a, { nameId: 'u-2', email: 'u2@a.example' });
+  assert.ok(errorOf(forged.back.location), String(forged.back.location));
+});
+
 test('refused: a replayed assertion, with its own RelayState and against a fresh request', async () => {
   const write = await writeAgent();
   const idp = await makeIdp('idp-a');
@@ -271,8 +381,9 @@ test('refused: a replayed assertion, with its own RelayState and against a fresh
   assert.equal(first.back.location, '/');
   const sessions = count('SELECT count(*) FROM session');
   assert.ok(errorOf((await post(new Jar(), a.providerId, first.SAMLResponse, first.relayState)).location));
-  const fresh = await start(new Jar(), { providerId: a.providerId });
-  assert.ok(errorOf((await post(new Jar(), a.providerId, first.SAMLResponse, fresh.relayState)).location));
+  const freshJar = new Jar();
+  const fresh = await start(freshJar, { providerId: a.providerId });
+  assert.ok(errorOf((await post(freshJar, a.providerId, first.SAMLResponse, fresh.relayState)).location));
   assert.equal(count('SELECT count(*) FROM session'), sessions);
 });
 
@@ -282,11 +393,12 @@ test('refused: an InResponseTo AuthWAPI never sent or already answered, and an u
   const a = await samlOrg(write, 'a', 'a.example', idp);
   const unknown = await signIn(new Jar(), idp, a, { nameId: 'u-2', email: 'bob@a.example', inResponseTo: '_not-a-request' });
   assert.equal(errorOf(unknown.back.location), 'invalid_saml_response');
-  const s = await start(new Jar(), { providerId: a.providerId });
+  const browser = new Jar();
+  const s = await start(browser, { providerId: a.providerId });
   const answered = samlResponse(idp, a, { nameId: 'u-3', email: 'carol@a.example', inResponseTo: s.requestId });
-  assert.equal((await post(new Jar(), a.providerId, answered, s.relayState)).location, '/');
+  assert.equal((await post(browser, a.providerId, answered, s.relayState)).location, '/');
   const again = samlResponse(idp, a, { nameId: 'u-4', email: 'dave@a.example', inResponseTo: s.requestId });
-  assert.equal(errorOf((await post(new Jar(), a.providerId, again, s.relayState)).location), 'invalid_saml_response');
+  assert.equal(errorOf((await post(browser, a.providerId, again, s.relayState)).location), 'invalid_saml_response');
   // IdP-initiated: no request, no RelayState.
   const unsolicited = await post(new Jar(), a.providerId, samlResponse(idp, a, { nameId: 'u-5', email: 'erin@a.example' }));
   assert.equal(unsolicited.status, 302);
@@ -303,17 +415,20 @@ test("cross-provider: org B's IdP assertion posted to org A's ACS, and A's reque
   const b = await samlOrg(write, 'b', 'b.example', idpB);
 
   // B's IdP, signing for B's SP, answering a request A made: posted to A's ACS.
-  const sa = await start(new Jar(), { providerId: a.providerId });
+  const jar = new Jar();
+  const sa = await start(jar, { providerId: a.providerId });
   const forB = samlResponse(idpB, b, { nameId: 'u-1', email: 'mallory@a.example', inResponseTo: sa.requestId });
-  assert.ok(errorOf((await post(new Jar(), a.providerId, forB, sa.relayState)).location));
+  assert.ok(errorOf((await post(jar, a.providerId, forB, sa.relayState)).location));
   // B's IdP, addressed to A (audience, recipient), answering A's request: B's key isn't trusted for A.
-  const sa2 = await start(new Jar(), { providerId: a.providerId });
+  const jar2 = new Jar();
+  const sa2 = await start(jar2, { providerId: a.providerId });
   const forged = samlResponse(idpB, a, { nameId: 'u-2', email: 'mallory@a.example', inResponseTo: sa2.requestId, issuer: idpA.entityID });
-  assert.ok(errorOf((await post(new Jar(), a.providerId, forged, sa2.relayState)).location));
+  assert.ok(errorOf((await post(jar2, a.providerId, forged, sa2.relayState)).location));
   // A's request, A's IdP, posted to B's ACS.
-  const sa3 = await start(new Jar(), { providerId: a.providerId });
+  const jar3 = new Jar();
+  const sa3 = await start(jar3, { providerId: a.providerId });
   const toB = samlResponse(idpA, a, { nameId: 'u-3', email: 'mallory@a.example', inResponseTo: sa3.requestId });
-  assert.ok(errorOf((await post(new Jar(), b.providerId, toB, sa3.relayState)).location));
+  assert.ok(errorOf((await post(jar3, b.providerId, toB, sa3.relayState)).location));
   assert.equal(count('SELECT count(*) FROM session'), 0);
   assert.equal(count("SELECT count(*) FROM user WHERE email = 'mallory@a.example'"), 0);
 });

@@ -2,8 +2,9 @@
 # SAML round trip against a real identity provider (M4b): SimpleSAMLphp in a container, AuthWAPI's image in another,
 # both rootless podman. An agent registers the IdP from its metadata over the admin MCP; curl then plays the browser
 # through AuthWAPI's SP-initiated flow (AuthnRequest, IdP login form, signed response posted to the ACS) and checks
-# that a new, unverified user is signed in, bound to the IdP's persistent NameID. Then the same response, posted
-# again, is refused (replay).
+# that a new, unverified user is signed in, bound to the IdP's persistent NameID. The response is posted from the
+# IdP's origin with only the cookie AuthWAPI set when the sign-in started (the login-CSRF binding). Then the same
+# response, posted again, is refused (replay).
 #
 #   scripts/saml-idp-check.sh
 #
@@ -160,10 +161,13 @@ grep -q 'WantAssertionsSigned="true"' "$T/sp-metadata.xml" && pass register "SP 
 # --- the browser -----------------------------------------------------------------------------------------
 say "-- SP-initiated sign-in as $EMAIL"
 SPJAR="$T/sp.jar"; IDPJAR="$T/idp.jar"
-"${CURL[@]}" -c "$SPJAR" -b "$SPJAR" -o "$T/start.json" -X POST "$BASE_URL/api/auth/sign-in/sso" -H "origin: $BASE_URL" \
+"${CURL[@]}" -c "$SPJAR" -b "$SPJAR" -D "$T/start.headers" -o "$T/start.json" -X POST "$BASE_URL/api/auth/sign-in/sso" -H "origin: $BASE_URL" \
   -H 'content-type: application/json' -H 'accept: application/json' -d "{\"email\":\"$EMAIL\",\"callbackURL\":\"/\",\"errorCallbackURL\":\"/sign-in\"}"
 SSO_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("url",""))' "$T/start.json")
 case "$SSO_URL" in "$IDP_URL/simplesaml/saml2/idp/SSOService.php?"*) pass browser "redirected to the IdP with an AuthnRequest";; *) fail browser "start: $(head -c 300 "$T/start.json")"; exit 1;; esac
+# The login-CSRF binding (SameSite=None; Secure): sent by hand, since curl may not keep a Secure cookie set over http.
+REQUEST_COOKIE=$(tr -d '\r' <"$T/start.headers" | sed -n 's/^[Ss]et-[Cc]ookie: \(authwapi_saml_request=[^;]*\);.*/\1/p' | head -1)
+[ -n "$REQUEST_COOKIE" ] && pass browser "request-binding cookie set" || fail browser "no authwapi_saml_request cookie at sign-in start"
 # The IdP's login form (after its own redirects).
 LOGIN_URL=$("${CURL[@]}" -L -c "$IDPJAR" -b "$IDPJAR" -o "$T/login.html" -w '%{url_effective}' "$SSO_URL")
 AUTHSTATE=$(field "$T/login.html" AuthState)
@@ -176,11 +180,12 @@ ACTION=$(form_action "$T/post.html"); SAML_RESPONSE=$(field "$T/post.html" SAMLR
 printf %s "$SAML_RESPONSE" | base64 -d >"$T/response.xml" 2>/dev/null
 grep -q 'nameid-format:persistent' "$T/response.xml" && grep -q 'rsa-sha256' "$T/response.xml" && pass browser "persistent NameID, RSA-SHA256" \
   || fail browser "response lacks a persistent NameID or RSA-SHA256"
-post_acs() { # $1 jar, $2 output; prints status and Location
-  "${CURL[@]}" -c "$1" -b "$1" -o "$2" -w '%{http_code} %{redirect_url}' -X POST "$ACS" -H "origin: $IDP_URL" -H 'accept: text/html' -H 'sec-fetch-mode: navigate' \
+post_acs() { # $1 jar (receives the session), $2 output, $3 Cookie header; prints status and Location
+  "${CURL[@]}" -c "$1" -o "$2" -w '%{http_code} %{redirect_url}' -X POST "$ACS" -H "origin: $IDP_URL" -H 'accept: text/html' -H 'sec-fetch-mode: navigate' \
+    ${3:+-H "cookie: $3"} \
     --data-urlencode "SAMLResponse=$SAML_RESPONSE" --data-urlencode "RelayState=$RELAY"
 }
-BACK=$(post_acs "$SPJAR" "$T/acs.out")
+BACK=$(post_acs "$SPJAR" "$T/acs.out" "$REQUEST_COOKIE")
 [ "$BACK" = "302 $BASE_URL/" ] && pass browser "ACS signs in and redirects to /" || fail browser "ACS answered '$BACK': $(head -c 300 "$T/acs.out")"
 "${CURL[@]}" -b "$SPJAR" -o "$T/session.json" -H 'accept: application/json' "$BASE_URL/api/auth/get-session"
 python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); assert s and s["user"]["email"] == sys.argv[2], s' "$T/session.json" "$EMAIL" \
@@ -195,7 +200,7 @@ const m = u && db.prepare('select role from member where userId = ?').get(u.id);
 console.log(u ? [u.emailVerified, a?.providerId, a?.accountId, m?.role].join(' ') : 'none');
 db.close();" "$T/data/authwapi.db" "$EMAIL" 2>&1)
 [ "$STORED" = "0 $PROVIDER $NAMEID member" ] && pass stored "unverified email, bound to ($PROVIDER, $NAMEID), org member" || fail stored "got '$STORED'"
-REPLAY=$(post_acs "$T/replay.jar" "$T/replay.out")
+REPLAY=$(post_acs "$T/replay.jar" "$T/replay.out" "$REQUEST_COOKIE")
 case "$REPLAY" in "302 "*error=*) pass replay "the same response again is refused (${REPLAY#302 })";; *) fail replay "replay answered '$REPLAY'";; esac
 
 say "-- $FAILS failure(s)"

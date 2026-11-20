@@ -173,7 +173,8 @@ for a loopback SSO URL whose origin AuthWAPI trusts (`BASE_URL` or `ALLOWED_HOST
 ### What a sign-in must pass
 
 AuthWAPI sends a SAML AuthnRequest asking for a persistent NameID, and the identity provider posts its response to
-the ACS URL. The response is refused, and the browser sent to `errorCallbackURL` with `?error=`, unless:
+the ACS URL, from its own site: that one route accepts a browser POST from another origin (every other route refuses
+an origin that isn't AuthWAPI's own or in `ALLOWED_HOSTS`). The response is refused, and the browser sent to `errorCallbackURL` with `?error=`, unless:
 
 | Check | `error` when it fails |
 | --- | --- |
@@ -181,10 +182,12 @@ the ACS URL. The response is refused, and the browser sent to `errorCallbackURL`
 | Its audience is this provider's SP entity ID, and its recipient this provider's ACS URL | `saml_error` or `invalid_saml_response` |
 | It answers an AuthnRequest AuthWAPI sent, for this provider, in the last 5 minutes, that wasn't answered before | `invalid_saml_response` |
 | It answers an AuthnRequest at all (no IdP-initiated responses) | `unsolicited_response` |
+| It answers the AuthnRequest *this browser* started: starting a SAML sign-in sets an `authwapi_saml_request` cookie (a hash of the request ID; `SameSite=None; Secure; HttpOnly`, sent only to the ACS, 5 minutes), which must match the assertion's signed `InResponseTo`. Without it, someone could post their own signed response from your browser and sign you in as them | `saml_request_not_from_this_browser` |
 | Its `Conditions` carry `NotBefore`/`NotOnOrAfter`, and now is inside them (5 minutes' clock skew) | `saml_error` |
 | Its ID wasn't used before | `replay_detected` |
 | Signatures and digests are SHA-256 or stronger (SHA-1 is refused) | `saml_deprecated_algorithm` |
 | The NameID's format is `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent` | `nameid_not_persistent` |
+| The signed NameID is exactly the one Better Auth read | `nameid_mismatch` |
 | An `email` attribute holds an email address | `email_missing` |
 | No other account has that email (see [Who someone is](#who-someone-is)) | `account_exists` |
 
