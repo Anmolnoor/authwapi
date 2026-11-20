@@ -47,8 +47,8 @@ M1 (the core server, admin MCP and export/import), M2 (Google and GitHub sign-in
 (organizations and admin), M4a (OIDC SSO), M4b (SAML SSO), M5 (OAuth for your own MCP servers) and M6 (CI on Linux
 and macOS, and a release workflow) are built. The release workflow builds a multi-arch (amd64/arm64) image for GHCR
 from a version tag, and [UPGRADING.md](https://github.com/Anmolnoor/authwapi/blob/main/UPGRADING.md) holds the
-upgrade notes. No tag has been pushed yet, so there is no published image: build it from source as the quick start
-shows.
+upgrade notes. No release tag (`vX.Y.Z`) has been pushed yet, so there is no published image: build it from source
+as the quick start shows.
 
 Still open from M1's exit checklist: a click-through of every hosted page and email link in a browser, and a real
 email sent through Resend.
