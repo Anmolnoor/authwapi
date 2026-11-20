@@ -187,3 +187,23 @@ export async function allow(s: TestServer, jar: Jar, consentLocation: string) {
   assert.equal(r.status, 303, r.body);
   return r.location;
 }
+
+// ── Passkeys (with test/webauthn.ts) ──
+type Authenticator = { register: (o: any, opts?: { uv?: boolean }) => object; authenticate: (o: any, opts?: { uv?: boolean }) => object };
+
+export async function addPasskey(s: TestServer, jar: Jar, key: Authenticator, opts: { uv?: boolean } = {}) {
+  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options');
+  if (options.status !== 200) return options;
+  const o = options.json();
+  assert.equal(o.rp.id, new URL(s.base).hostname);
+  assert.equal(o.authenticatorSelection.userVerification, 'required');
+  return send(s, jar, 'POST', '/api/auth/passkey/verify-registration', { json: { response: key.register(o, opts) } });
+}
+
+export async function passkeySignIn(s: TestServer, jar: Jar, key: Authenticator, opts: { uv?: boolean; oauth_query?: string } = {}) {
+  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-authenticate-options');
+  assert.equal(options.status, 200, options.body);
+  assert.equal(options.json().userVerification, 'required');
+  const body = { response: key.authenticate(options.json(), opts), ...(opts.oauth_query ? { oauth_query: opts.oauth_query } : {}) };
+  return send(s, jar, 'POST', '/api/auth/passkey/verify-authentication', { json: body });
+}

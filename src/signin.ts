@@ -6,10 +6,12 @@
 import { passkey } from '@better-auth/passkey';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { base32 } from '@better-auth/utils/base32';
+import { createOTP } from '@better-auth/utils/otp';
 import { deleteSessionCookie } from 'better-auth/cookies';
-import { generateRandomString } from 'better-auth/crypto';
+import { generateRandomString, symmetricDecrypt } from 'better-auth/crypto';
 import { twoFactor } from 'better-auth/plugins';
-import type { Config } from './config.ts';
+import type { Config, SocialConfig } from './config.ts';
 import { revokeUserTokens } from './oauth.ts';
 
 type Plugin = NonNullable<BetterAuthOptions['plugins']>[number];
@@ -41,8 +43,19 @@ export const linkingPolicy: ValidateUserInfo = async ({ user, source }, ctx) => 
   }
 };
 
+/**
+ * Google / GitHub from config. ID-token sign-in (an app posting a provider ID token to /sign-in/social or
+ * /link-social) is off: it would reach accounts without the redirect flow this policy is tested on.
+ */
+export function socialProviders(social: SocialConfig): NonNullable<BetterAuthOptions['socialProviders']> {
+  const providers: NonNullable<BetterAuthOptions['socialProviders']> = {};
+  if (social.google) providers.google = { ...social.google, disableIdTokenSignIn: true };
+  if (social.github) providers.github = { ...social.github, disableIdTokenSignIn: true };
+  return providers;
+}
+
 // Responses that prove both factors themselves: a second factor, or a passkey with user verification (required below).
-const PROVES_BOTH_FACTORS = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code', '/two-factor/verify-otp', '/passkey/verify-authentication']);
+const PROVES_BOTH_FACTORS = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code', '/passkey/verify-authentication']);
 const SECOND_FACTOR = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code']);
 // Changes that weaken or bypass 2FA (or read its secret) need a code entered in the last few minutes on a 2FA account.
 const NEEDS_FRESH_CHECK = new Set([
@@ -53,6 +66,7 @@ const NEEDS_FRESH_CHECK = new Set([
   '/two-factor/generate-backup-codes',
 ]);
 const FRESH_CHECK_MS = 5 * 60_000;
+const MAX_SIGNED_IN_FAILURES = 5; // wrong codes from one signed-in session before it is ended
 const CHALLENGE_MAX_AGE = 600; // seconds; twoFactor's twoFactorCookieMaxAge default
 
 /** The session token in a Set-Cookie this response carries (not one that expires the cookie). */
@@ -107,12 +121,32 @@ async function challenge(ctx: HookContext, token: string, userId: string) {
   return ctx.json({ twoFactorRedirect: true, twoFactorMethods: ['totp'] });
 }
 
+/**
+ * The check Better Auth's verify-totp makes (twoFactor/totp: the stored secret, decrypted, 6 digits, 30 s, one step
+ * either side), for a code that would turn 2FA on.
+ */
+async function totpMatches(ctx: HookContext, userId: string, code: unknown): Promise<boolean> {
+  if (typeof code !== 'string') return false;
+  const row = await ctx.context.adapter.findOne<{ secret: string }>({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] });
+  if (!row) return false;
+  const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: row.secret });
+  const secret = raw.startsWith('base32:') ? base32.decode(raw.slice(7).toUpperCase()) : raw;
+  return createOTP(secret, { digits: 6, period: 30 }).verify(code);
+}
+
 function mfaGlue(): BetterAuthPlugin {
   /** The valid session each request arrived with, if any (it may be gone by the time the response is built). */
-  const arrivedWith = new WeakMap<Request, { sessionId: string; userId: string; twoFactorEnabled: boolean }>();
+  const arrivedWith = new WeakMap<Request, { token: string; sessionId: string; userId: string; twoFactorEnabled: boolean }>();
   /** Session id → until when its last 2FA check counts as fresh. ponytail: in memory; a restart just asks again. */
   const freshUntil = new Map<string, number>();
+  /** Session id → wrong codes entered while signed in, in a row. */
+  const failures = new Map<string, number>();
   const arrived = (ctx: HookContext) => (ctx.request ? arrivedWith.get(ctx.request) : undefined);
+  const markFresh = (sessionId: string) => {
+    const now = Date.now();
+    for (const [id, until] of freshUntil) if (until <= now) freshUntil.delete(id);
+    freshUntil.set(sessionId, now + FRESH_CHECK_MS);
+  };
 
   return {
     id: 'authwapi-mfa',
@@ -141,7 +175,7 @@ function mfaGlue(): BetterAuthPlugin {
             const found = token ? await ctx.context.internalAdapter.findSession(token) : null;
             if (!found || found.session.expiresAt <= new Date()) return;
             const { session, user } = found as typeof found & { user: { twoFactorEnabled?: boolean | null } };
-            arrivedWith.set(ctx.request!, { sessionId: session.id, userId: user.id, twoFactorEnabled: user.twoFactorEnabled === true });
+            arrivedWith.set(ctx.request!, { token: session.token, sessionId: session.id, userId: user.id, twoFactorEnabled: user.twoFactorEnabled === true });
           }),
         },
         {
@@ -156,41 +190,62 @@ function mfaGlue(): BetterAuthPlugin {
             }
           }),
         },
+        {
+          // Turning 2FA on: once the code is known to be right, and BEFORE Better Auth commits the switch, end every
+          // other session, revoke the user's OAuth tokens and remove their passkeys (one added by whoever else knew
+          // the password would otherwise sign in as both factors). If the switch then fails, 2FA is simply still off
+          // and the user can retry; once it is on, nothing from before is left.
+          matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
+          handler: createAuthMiddleware(async (ctx) => {
+            const s = arrived(ctx);
+            if (!s || s.twoFactorEnabled || !(await totpMatches(ctx, s.userId, ctx.body?.code))) return;
+            const others = (await ctx.context.internalAdapter.listSessions(s.userId)).filter((x) => x.token !== s.token);
+            await ctx.context.internalAdapter.deleteSessions(others.map((x) => x.token));
+            await revokeUserTokens(ctx.context, s.userId);
+            await ctx.context.adapter.deleteMany({ model: 'passkey', where: [{ field: 'userId', value: s.userId }] });
+          }),
+        },
       ],
       after: [
         {
-          // Any response that hands out a session: a first factor (password, magic link, social callback, ... and
-          // whatever else creates one) is not enough for a 2FA user. Renewals and rotations for a request that
-          // arrived with that user's valid session (get-session, update-user, change-password) are not sign-ins.
-          matcher: (ctx) => newSessionToken(ctx) !== undefined,
+          // A second factor: a right code makes the resulting session fresh for the changes above (Better Auth's
+          // final newSession, or the session it was entered in); wrong codes from a signed-in session are counted.
+          matcher: (ctx) => SECOND_FACTOR.has(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {
-            const token = newSessionToken(ctx)!;
-            const found = await ctx.context.internalAdapter.findSession(token);
-            // Already deleted (twoFactor's own sign-in challenge): don't send a dead token either.
-            if (!found) return dropSessionCookies(ctx);
-            const user = found.user as typeof found.user & { twoFactorEnabled?: boolean | null };
-            const before = arrived(ctx);
-            if (SECOND_FACTOR.has(ctx.path ?? '')) {
-              freshUntil.set(found.session.id, Date.now() + FRESH_CHECK_MS);
-              if (before && !before.twoFactorEnabled && user.twoFactorEnabled) {
-                // 2FA was just turned on (verify-totp rotated the session): every other session and token goes.
-                const others = (await ctx.context.internalAdapter.listSessions(user.id)).filter((s) => s.token !== token);
-                await ctx.context.internalAdapter.deleteSessions(others.map((s) => s.token));
-                await revokeUserTokens(ctx.context, user.id);
-              }
+            const s = arrived(ctx);
+            if (!isAPIError(ctx.context.returned)) {
+              const sessionId = ctx.context.newSession?.session.id ?? s?.sessionId;
+              if (sessionId) markFresh(sessionId);
+              if (s) failures.delete(s.sessionId);
               return;
             }
-            if (PROVES_BOTH_FACTORS.has(ctx.path ?? '') || !user.twoFactorEnabled || before?.userId === user.id) return;
-            return challenge(ctx, token, user.id);
+            if (!s) return; // a sign-in challenge: twoFactor's own attempt limit and lockout apply
+            const count = (failures.get(s.sessionId) ?? 0) + 1;
+            failures.delete(s.sessionId); // re-insert at the end: Map order = age, for the cap below
+            if (count < MAX_SIGNED_IN_FAILURES) {
+              failures.set(s.sessionId, count);
+              if (failures.size > 10_000) failures.delete(failures.keys().next().value!);
+              return;
+            }
+            await ctx.context.internalAdapter.deleteSession(s.token);
+            deleteSessionCookie(ctx);
           }),
         },
         {
-          // A second factor entered while signed in (no new session): fresh for the changes above.
-          matcher: (ctx) => SECOND_FACTOR.has(ctx.path ?? '') && newSessionToken(ctx) === undefined,
+          // Any response that hands out a new session: a first factor (password, magic link, social callback, ... and
+          // whatever else creates one) is not enough for a 2FA user, even one already signed in. Only a renewal of
+          // the session the request arrived with, or its replacement (change-password rotates it), is not a sign-in.
+          matcher: (ctx) => newSessionToken(ctx) !== undefined && !PROVES_BOTH_FACTORS.has(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {
+            const token = ctx.context.newSession?.session.token;
+            const found = token ? await ctx.context.internalAdapter.findSession(token) : null;
+            // Already turned into a challenge (twoFactor's own, on /sign-in/email): don't send a dead token either.
+            if (!token || !found) return dropSessionCookies(ctx);
+            const user = found.user as typeof found.user & { twoFactorEnabled?: boolean | null };
+            if (!user.twoFactorEnabled) return;
             const s = arrived(ctx);
-            if (s && !isAPIError(ctx.context.returned)) freshUntil.set(s.sessionId, Date.now() + FRESH_CHECK_MS);
-            if (freshUntil.size > 10_000) freshUntil.delete(freshUntil.keys().next().value!);
+            if (s?.userId === user.id && (s.token === token || !(await ctx.context.internalAdapter.findSession(s.token)))) return;
+            return challenge(ctx, token, user.id);
           }),
         },
       ],

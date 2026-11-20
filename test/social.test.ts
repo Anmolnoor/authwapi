@@ -136,3 +136,16 @@ test('an unverified local account is never linked (implicitly or explicitly); th
   assert.equal(await currentUser(s, google), 'ada@example.com');
   assert.deepEqual(accounts('ada@example.com'), ['google']);
 });
+
+test('ID-token sign-in and linking are off (they would skip the account-linking policy)', async () => {
+  await up();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const idToken = { token: 'x.y.z' };
+  for (const path of ['/api/auth/link-social', '/api/auth/sign-in/social']) {
+    const r = await send(s, jar, 'POST', path, { json: { provider: 'google', idToken } });
+    assert.equal(r.status, 404, `${path}: ${r.body}`);
+    assert.equal(r.json().code, 'ID_TOKEN_NOT_SUPPORTED', path);
+  }
+});

@@ -11,7 +11,7 @@ import { errors, jwtVerify } from 'jose';
 import { createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { AuthCall } from './app.ts';
-import { memoryRateLimit } from './auth.ts';
+import { memoryRateLimit, SESSION_FRESH_AGE_SECONDS } from './auth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
@@ -27,7 +27,7 @@ export interface PageDeps {
 
 type Html = ReturnType<typeof html>;
 
-const layout = (title: string, body: Html) => html`<!doctype html>
+const layout = (title: string, body: Html, passkeyScript: boolean) => html`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -46,7 +46,7 @@ hr{margin:2rem 0;border:0;border-top:1px solid #ddd}
 @media (prefers-color-scheme:dark){body{background:#121212;color:#eee}input{background:#1e1e1e;color:#eee}
 button.secondary{background:#333;color:#eee}[role=alert]{background:#3a1d22}.ok{background:#1d3324}}
 </style>
-<script src="/passkey.js" defer></script>
+${passkeyScript ? html`<script src="/passkey.js" defer></script>` : ''}
 </head>
 <body><main>
 <h1>${title}</h1>
@@ -204,8 +204,9 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const body = await c.req.parseBody();
     return (name: string) => (typeof body[name] === 'string' ? (body[name] as string) : '');
   };
-  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200) =>
-    c.html(layout(title, body), status);
+  /** `passkeyScript`: the page has passkey buttons, so it loads /passkey.js. */
+  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200, passkeyScript = false) =>
+    c.html(layout(title, body, passkeyScript), status);
   /**
    * The OAuth provider's signed query (the loginPage/consentPage is opened with it), or '' if there is none. A social
    * sign-in that failed comes back with ?error= added, which isn't part of the signed request.
@@ -219,7 +220,11 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   /** Where a sign-in that can't carry the request in its body (magic link, social) lands once it has a session. */
   const resumeUrl = (query: string) => (query ? `${OAUTH_RESUME_PAGE}?${query}` : '/');
   type SessionData = { session: { createdAt: string }; user: { email: string; twoFactorEnabled?: boolean } } | null;
-  const currentSession = async (c: Context) => (await ba(c, 'GET', '/get-session')).data as SessionData;
+  /** The signed-in session, or null, also when the lookup fails (rate limited, say): pages then act signed out. */
+  const currentSession = async (c: Context) => {
+    const r = await ba(c, 'GET', '/get-session');
+    return r.status === 200 ? (r.data as SessionData) : null;
+  };
 
   app.get('/passkey.js', (c) => c.body(PASSKEY_JS, 200, { 'content-type': 'text/javascript; charset=utf-8' }));
 
@@ -271,7 +276,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
           <input id="ml-email" name="email" type="email" autocomplete="email" required>
           <button class="secondary">Email me a link</button>
         </form>`,
-      status
+      status,
+      true
     );
   app.get('/sign-in', (c) => {
     const error = c.req.query('error');
@@ -282,7 +288,12 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const query = f('oauth_query');
     if (f('method') === 'magic-link') {
       // During an OAuth request the link brings the browser back to it (resumeUrl), or to the 2FA page first.
-      const r = await ba(c, 'POST', '/sign-in/magic-link', { email: f('email'), callbackURL: resumeUrl(query) });
+      // A link that fails (used, expired) comes back to this page with the error and the request, never to resumeUrl.
+      const r = await ba(c, 'POST', '/sign-in/magic-link', {
+        email: f('email'),
+        callbackURL: resumeUrl(query),
+        ...(query ? { errorCallbackURL: `/sign-in?${query}` } : {}),
+      });
       if (r.status !== 200) return signInPage(c, query, errorText('/sign-in/magic-link', r), undefined, 400);
       return signInPage(c, query, undefined, 'If that address has an account, a sign-in link is on its way. It works once, for 5 minutes.');
     }
@@ -530,6 +541,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   // to /authorize. Only a session created after the app asked counts as the fresh sign-in prompt=login or max_age want.
   app.get(OAUTH_RESUME_PAGE, async (c) => {
     const query = oauthQuery(c);
+    if (c.req.query('error')) return c.redirect(`/sign-in?${new URL(c.req.url).search.slice(1)}`, 303); // a failed sign-in
     if (!query || !(await verifyOAuthQueryParams(query, secret))) {
       return render(c, 'Sign in', alert('This sign-in request expired or was changed. Start again from the app.'), 400);
     }
@@ -584,7 +596,9 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
 
   // ── Turning on TOTP: enable (secret + backup codes, shown once), then confirm a code ──
   const signedOut = (c: Context) => c.redirect('/sign-in', 303);
-  const confirmForm = html`<form method="post" action="/two-factor/setup/confirm">
+  const confirmForm = html`<p>Turning it on signs out your other sessions, revokes apps' refresh tokens and removes
+      your passkeys (add them again afterwards).</p>
+    <form method="post" action="/two-factor/setup/confirm">
     <label for="code">Then enter the code it shows</label>
     <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
     <button>Turn on</button>
@@ -624,10 +638,20 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   app.post('/two-factor/setup/confirm', async (c) => {
     const r = await ba(c, 'POST', '/two-factor/verify-totp', { code: (await form(c))('code') });
     if (r.status !== 200) return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/verify-totp', r))}${confirmForm}`, 400);
-    return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on. Every other session was signed out.</p>`);
+    return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on. Your other sessions were signed out, apps'
+        refresh tokens revoked and passkeys removed. <a href="/passkeys">Add a passkey</a></p>`);
   });
 
   // ── Adding a passkey (the browser half is /passkey.js). On a 2FA account, a fresh code comes first. ──
+  // Better Auth also refuses a session older than its freshAge, so such a session is asked to sign in again first.
+  const tooOld = (session: NonNullable<SessionData>) => Date.now() - new Date(session.session.createdAt).getTime() >= SESSION_FRESH_AGE_SECONDS * 1000;
+  const signInAgain = (c: Context) =>
+    render(
+      c,
+      'Passkeys',
+      html`<p>To add a passkey, sign in again first: your sign-in is more than a day old.</p>
+        <form method="post" action="/sign-out"><button>Sign out</button></form>`
+    );
   const passkeysPage = (c: Context, needsCode: boolean, error?: string, status: ContentfulStatusCode = 200) =>
     render(
       c,
@@ -642,16 +666,20 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         : html`<p>A passkey signs you in with this device's lock (fingerprint, face or PIN) instead of a password.</p>
             <button type="button" data-passkey="add" data-status="passkey-status">Add a passkey</button>
             <p id="passkey-status" role="status"></p>`,
-      status
+      status,
+      !needsCode
     );
   app.get('/passkeys', async (c) => {
     const session = await currentSession(c);
     if (!session) return signedOut(c);
+    if (tooOld(session)) return signInAgain(c);
     return passkeysPage(c, session.user.twoFactorEnabled === true);
   });
   app.post('/passkeys', async (c) => {
+    const session = await currentSession(c);
+    if (!session) return signedOut(c);
+    if (tooOld(session)) return signInAgain(c);
     const r = await ba(c, 'POST', '/two-factor/verify-totp', { code: (await form(c))('code') });
-    if (r.status === 401 && !(await currentSession(c))) return signedOut(c);
     if (r.status !== 200) return passkeysPage(c, true, errorText('/two-factor/verify-totp', r), 400);
     return passkeysPage(c, false);
   });

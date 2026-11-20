@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { linkIn, startTestServer, type TestServer } from './helpers.ts';
 import { mockOAuth } from './mock-oauth.ts';
+import { softAuthenticator } from './webauthn.ts';
 import {
+  addPasskey,
   allow,
   authorizeUrl,
   codeFrom,
@@ -17,6 +19,7 @@ import {
   exchange,
   Jar,
   liveSessionCookie,
+  passkeySignIn,
   passwordSignIn,
   send,
   totp,
@@ -279,5 +282,195 @@ test('OAuth: magic link is offered during an OAuth sign-in and continues to cons
     }
     assert.match(next, /\/consent\?/, email);
     assert.equal((await exchange(s, client, codeFrom(await allow(s, jar, next)), verifier)).status, 200, email);
+  }
+});
+
+/** A signed-in 2FA session with no recent code: 2FA on, a passkey added right after, then a passkey sign-in. */
+async function staleTwoFactorSession() {
+  const { secret, jar: setup } = await twoFactorUser();
+  const key = softAuthenticator(s.base);
+  assert.equal((await addPasskey(s, setup, key)).status, 200); // fresh: 2FA was just turned on in this session
+  const jar = new Jar();
+  assert.equal((await passkeySignIn(s, jar, key)).status, 200);
+  return { jar, secret, key };
+}
+const ageSession = (jar: Jar, field: 'expiresAt' | 'createdAt', iso: string) => {
+  const d = db(s);
+  d.prepare(`UPDATE session SET ${field} = ? WHERE token = ?`).run(iso, decodeURIComponent(jar.get('session_token')!).split('.')[0]);
+  d.close();
+};
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+
+test('a 2FA user who is already signed in and signs in again with a magic link is challenged', async () => {
+  s = await startTestServer();
+  const { jar } = await twoFactorUser();
+  await send(s, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'ada@example.com', callbackURL: '/' } });
+  const link = linkIn((await s.mail('ada@example.com', 'Your sign-in link')).text);
+  const r = await send(s, jar, 'POST', link.pathname + link.search, { form: {} });
+  assert.equal(r.location, '/two-factor');
+  assert.equal(liveSessionCookie(r.setCookies), undefined);
+});
+
+test('prompt=login: one factor (a magic link) under an existing session yields no code', async () => {
+  s = await startTestServer();
+  const { jar } = await twoFactorUser();
+  const client = await createClient(s);
+  const { url } = authorizeUrl(s, client, { prompt: 'login' });
+  const login = await send(s, jar, 'GET', url, { navigate: true });
+  assert.match(login.location ?? '', /^\/sign-in\?/);
+  const query = new URL(login.location!, s.base).search.slice(1);
+  await send(s, jar, 'POST', '/sign-in', { form: { method: 'magic-link', email: 'ada@example.com', oauth_query: query } });
+  const link = linkIn((await s.mail('ada@example.com', 'Your sign-in link')).text);
+  const r = await send(s, jar, 'POST', link.pathname + link.search, { form: {} });
+  assert.equal(r.location, `/two-factor?${query}`);
+  // Without the second factor, going back to the app's request leads to sign-in, never to consent or a code.
+  const resume = await send(s, jar, 'GET', `/oauth/resume?${query}`, { navigate: true });
+  assert.equal(resume.location, `/sign-in?${query}`);
+});
+
+test("a 2FA user's change-password with revokeOtherSessions keeps them signed in (a rotation, not a sign-in)", async () => {
+  s = await startTestServer();
+  const { jar } = await twoFactorUser();
+  const r = await send(s, jar, 'POST', '/api/auth/change-password', { json: { currentPassword: 'correct horse', newPassword: 'new horse battery', revokeOtherSessions: true } });
+  assert.equal(r.status, 200, r.body);
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('turning 2FA on while Better Auth renews the session in the same request keeps the user signed in', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const enable = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(enable.json().totpURI).searchParams.get('secret')!;
+  ageSession(jar, 'expiresAt', inDays(5)); // past updateAge: the session lookup in verify-totp renews it
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } });
+  assert.equal(r.status, 200, r.body);
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('turning 2FA on revokes before it commits: a wrong code revokes nothing; a failure after revoking leaves 2FA off, safely', async () => {
+  s = await startTestServer();
+  const userId = await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  assert.equal((await addPasskey(s, jar, softAuthenticator(s.base))).status, 200);
+  const other = new Jar();
+  await passwordSignIn(s, other, 'ada@example.com');
+  const enable = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(enable.json().totpURI).searchParams.get('secret')!;
+  const count = (sql: string) => {
+    const d = db(s);
+    const n = d.prepare(sql).pluck().get(userId) as number;
+    d.close();
+    return n;
+  };
+
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: '000000' } })).status, 401);
+  assert.equal(await currentUser(s, other), 'ada@example.com', 'a wrong code revoked a session');
+  assert.equal(count('SELECT count(*) FROM passkey WHERE userId = ?'), 1, 'a wrong code removed a passkey');
+
+  // Enabling fails after the revocation (injected: the UPDATE that turns 2FA on is aborted).
+  const d = db(s);
+  d.exec(`CREATE TRIGGER fail_2fa BEFORE UPDATE OF twoFactorEnabled ON user BEGIN SELECT RAISE(ABORT, 'injected'); END`);
+  d.close();
+  assert.notEqual((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  assert.equal(count('SELECT twoFactorEnabled FROM user WHERE id = ?'), 0);
+  assert.equal(await currentUser(s, other), null, 'another session survived');
+  assert.equal(count('SELECT count(*) FROM passkey WHERE userId = ?'), 0, 'a passkey survived');
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+
+  const d2 = db(s);
+  d2.exec('DROP TRIGGER fail_2fa');
+  d2.close();
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  assert.equal(count('SELECT twoFactorEnabled FROM user WHERE id = ?'), 1);
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('a failed signed-in verification never counts as a fresh check, even when the session is renewed during it', async () => {
+  s = await startTestServer();
+  const { jar } = await staleTwoFactorSession();
+  ageSession(jar, 'expiresAt', inDays(5));
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: '000000' } })).status, 401);
+  assert.equal((await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options')).status, 403);
+});
+
+test('2FA-sensitive endpoints need a fresh code: 403 TWO_FACTOR_CHECK_REQUIRED, then allowed after a signed-in verify-totp', async () => {
+  s = await startTestServer();
+  const { jar, secret } = await staleTwoFactorSession();
+  const calls: [string, unknown][] = [
+    ['/api/auth/two-factor/get-totp-uri', { password: 'correct horse' }],
+    ['/api/auth/two-factor/generate-backup-codes', { password: 'correct horse' }],
+    ['/api/auth/two-factor/disable', { password: 'correct horse' }], // last: it turns 2FA off
+  ];
+  for (const [path, body] of calls) {
+    const r = await send(s, jar, 'POST', path, { json: body });
+    assert.equal(r.status, 403, path);
+    assert.equal(r.json().code, 'TWO_FACTOR_CHECK_REQUIRED', path);
+  }
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  for (const [path, body] of calls) assert.equal((await send(s, jar, 'POST', path, { json: body })).status, 200, path);
+});
+
+test('five wrong codes from a signed-in session end that session', async () => {
+  s = await startTestServer();
+  const { jar } = await staleTwoFactorSession();
+  // Alternating paths keeps under the per-path rate limit (3 per 10 s); the count covers both.
+  for (const path of ['verify-totp', 'verify-backup-code', 'verify-totp', 'verify-backup-code']) {
+    assert.equal((await send(s, jar, 'POST', `/api/auth/two-factor/${path}`, { json: { code: '000000' } })).status, 401, path);
+  }
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+  await send(s, jar, 'POST', '/api/auth/two-factor/verify-backup-code', { json: { code: '000000' } });
+  assert.equal(await currentUser(s, jar), null);
+});
+
+test('OAuth: a magic link that fails goes back to sign-in with the error and the request kept, not on to the app', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'bob@example.com');
+  const client = await createClient(s);
+  const { url } = authorizeUrl(s, client);
+  const jar = new Jar();
+  const query = new URL((await send(s, jar, 'GET', url, { navigate: true })).location!, s.base).search.slice(1);
+  await send(s, jar, 'POST', '/sign-in', { form: { method: 'magic-link', email: 'bob@example.com', oauth_query: query } });
+  const link = linkIn((await s.mail('bob@example.com', 'Your sign-in link')).text);
+  await send(s, jar, 'POST', link.pathname + link.search, { form: {} }); // signed in now
+  const reused = await send(s, jar, 'POST', link.pathname + link.search, { form: {} });
+  const back = new URL(reused.location ?? '/', s.base);
+  assert.ok(`${back.pathname}${back.search}`.startsWith(`/sign-in?${query}&error=`), String(reused.location));
+  const page = await send(s, jar, 'GET', reused.location!);
+  assert.match(page.body, /role="alert"/);
+  assert.ok(page.body.includes(`value="${query.replaceAll('&', '&amp;')}"`), 'the signed request was not kept for a retry');
+  // And /oauth/resume refuses a request carrying an error rather than continuing under the session.
+  const resume = await send(s, jar, 'GET', `/oauth/resume?${query}&error=INVALID_TOKEN`, { navigate: true });
+  assert.ok(!resume.location?.includes("/oauth2/authorize"), String(resume.location));
+});
+
+test('/oauth/resume refuses a signed request with a parameter changed or added', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'bob@example.com');
+  const client = await createClient(s);
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'bob@example.com');
+  const { url } = authorizeUrl(s, client, { prompt: 'login' });
+  const query = new URL((await send(s, jar, 'GET', url, { navigate: true })).location!, s.base).search.slice(1);
+  const changed = new URLSearchParams(query);
+  changed.set('redirect_uri', 'http://localhost:5999/elsewhere');
+  for (const bad of [changed.toString(), `${query}&scope=openid`]) {
+    const r = await send(s, jar, 'GET', `/oauth/resume?${bad}`, { navigate: true });
+    assert.equal(r.status, 400, bad);
+    assert.equal(r.location, undefined);
+  }
+});
+
+test('a rate-limited session lookup does not break the hosted pages', async () => {
+  s = await startTestServer();
+  const { jar } = await twoFactorUser();
+  // Use up /get-session's budget (100 per 10 s per IP).
+  await Promise.all(Array.from({ length: 101 }, () => send(s, jar, 'GET', '/api/auth/get-session')));
+  assert.equal((await send(s, jar, 'GET', '/api/auth/get-session')).status, 429);
+  for (const page of ['/', '/two-factor/setup', '/passkeys', '/oauth/resume?sig=x']) {
+    const r = await send(s, jar, 'GET', page, { navigate: true });
+    assert.ok(r.status < 500, `${page}: ${r.status}`);
   }
 });

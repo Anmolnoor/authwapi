@@ -2,8 +2,10 @@
 // checked on the server. A passkey sign-in counts as both factors; adding one to a 2FA account needs a fresh 2FA check.
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
+import Database from 'better-sqlite3';
 import { startTestServer, type TestServer } from './helpers.ts';
 import {
+  addPasskey as addPasskeyTo,
   allow,
   authorizeUrl,
   codeFrom,
@@ -12,6 +14,7 @@ import {
   enableTotp,
   exchange,
   Jar,
+  passkeySignIn as passkeySignInAs,
   passwordSignIn,
   send,
   totp,
@@ -30,21 +33,8 @@ async function signedIn(email = 'ada@example.com') {
   assert.equal((await passwordSignIn(s, jar, email)).status, 200);
   return jar;
 }
-async function addPasskey(jar: Jar, key: Authenticator, opts: { uv?: boolean } = {}) {
-  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options');
-  if (options.status !== 200) return options;
-  const o = options.json();
-  assert.equal(o.rp.id, new URL(s.base).hostname);
-  assert.equal(o.authenticatorSelection.userVerification, 'required');
-  return send(s, jar, 'POST', '/api/auth/passkey/verify-registration', { json: { response: key.register(o, opts) } });
-}
-async function passkeySignIn(jar: Jar, key: Authenticator, opts: { uv?: boolean; oauth_query?: string } = {}) {
-  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-authenticate-options');
-  assert.equal(options.status, 200, options.body);
-  assert.equal(options.json().userVerification, 'required');
-  const body = { response: key.authenticate(options.json(), opts), ...(opts.oauth_query ? { oauth_query: opts.oauth_query } : {}) };
-  return send(s, jar, 'POST', '/api/auth/passkey/verify-authentication', { json: body });
-}
+const addPasskey = (jar: Jar, key: Authenticator, opts: { uv?: boolean } = {}) => addPasskeyTo(s, jar, key, opts);
+const passkeySignIn = (jar: Jar, key: Authenticator, opts: { uv?: boolean; oauth_query?: string } = {}) => passkeySignInAs(s, jar, key, opts);
 
 test('a passkey registered with user verification signs in; one without user verification is refused both ways', async () => {
   s = await startTestServer();
@@ -66,9 +56,9 @@ test('a passkey registered with user verification signs in; one without user ver
 test('a passkey sign-in counts as both factors on a 2FA account', async () => {
   s = await startTestServer();
   const jar = await signedIn();
-  const key = softAuthenticator(s.base);
-  assert.equal((await addPasskey(jar, key)).status, 200);
   await enableTotp(s, jar);
+  const key = softAuthenticator(s.base);
+  assert.equal((await addPasskey(jar, key)).status, 200); // right after turning 2FA on: a fresh check
 
   const browser = new Jar();
   const r = await passkeySignIn(browser, key);
@@ -80,9 +70,9 @@ test('a passkey sign-in counts as both factors on a 2FA account', async () => {
 test('adding a passkey to a 2FA account needs a fresh 2FA check', async () => {
   s = await startTestServer();
   const setup = await signedIn();
+  const { secret } = await enableTotp(s, setup); // entering that code counts as a fresh check, for that session only
   const first = softAuthenticator(s.base);
   assert.equal((await addPasskey(setup, first)).status, 200);
-  const { secret } = await enableTotp(s, setup); // entering that code counts as a fresh check, for that session only
   // A session with no recent 2FA code: signed in with the first passkey (both factors, but no code entered).
   const jar = new Jar();
   assert.equal((await passkeySignIn(jar, first)).status, 200);
@@ -119,6 +109,29 @@ test('OAuth: a passkey sign-in during an authorization request continues to cons
   assert.equal((await exchange(s, client, codeFrom(await allow(s, browser, next)), verifier)).status, 200);
 });
 
+test('passkeys added before 2FA was turned on are removed by it: they no longer sign in', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  const key = softAuthenticator(s.base);
+  assert.equal((await addPasskey(jar, key)).status, 200);
+  await enableTotp(s, jar);
+  const browser = new Jar();
+  assert.notEqual((await passkeySignIn(browser, key)).status, 200);
+  assert.equal(await currentUser(s, browser), null);
+});
+
+test('the passkeys page asks for a new sign-in when the session is too old for Better Auth to add one', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  const d = new Database(s.paths.db);
+  d.prepare('UPDATE session SET createdAt = ?').run(new Date(Date.now() - 2 * 86_400_000).toISOString());
+  d.close();
+  const page = await send(s, jar, 'GET', '/passkeys');
+  assert.match(page.body, /sign in again/i);
+  assert.doesNotMatch(page.body, /data-passkey="add"/);
+  assert.doesNotMatch(page.body, /name="code"/);
+});
+
 test('hosted pages load the passkey script from our own origin only (CSP)', async () => {
   s = await startTestServer();
   const res = await fetch(`${s.base}/sign-in`);
@@ -126,6 +139,8 @@ test('hosted pages load the passkey script from our own origin only (CSP)', asyn
   assert.match(csp, /script-src 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(await res.text(), /<script src="\/passkey\.js" defer><\/script>/);
+  // Only pages with passkey controls load it.
+  assert.doesNotMatch(await (await fetch(`${s.base}/sign-up`)).text(), /passkey\.js/);
   const js = await fetch(`${s.base}/passkey.js`);
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type') ?? '', /javascript/);

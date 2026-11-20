@@ -75,7 +75,10 @@ Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up
 · `/forgot-password` · `/reset-password` · `/consent` (an app asking for access) · `/signed-out` · `/two-factor` (the
 code after the first step) · `/two-factor/setup` (turn on TOTP) · `/passkeys` (add one). The only script is
 `/passkey.js` for the passkey buttons (WebAuthn needs one); the pages' CSP allows scripts from our own origin only.
-Every sign-in method also works during an app's sign-in: the request carries on to consent afterwards.
+Every sign-in method also works during an app's sign-in: the request carries on to consent afterwards. That
+hand-off is a feature of the hosted pages: an app sends people to `/api/auth/oauth2/authorize` and lets them sign in
+there. Clients that call the sign-in API themselves (for example `POST /api/auth/sign-in/social`) aren't a supported
+way to complete an app's authorization request.
 
 - **Verifying an email asks for the password you chose at sign-up.** Opening the link only shows that form, so
   someone who signed up with *your* address can't get in when you click it: you won't know their password, and
@@ -103,13 +106,16 @@ says the email is verified. It joins an existing AuthWAPI account with the same 
 is verified too, whether it happens at sign-in or through `POST /api/auth/link-social` while signed in. If someone
 created an account with your address and never verified it, the sign-in is refused and the page points to
 "Email me a link": the link proves the address, removes the unproven password and every session, and then Google
-or GitHub works.
+or GitHub works. Signing in by posting a provider ID token (`idToken` on `/sign-in/social` or `/link-social`) is
+turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
 
 ## Two-factor authentication and passkeys
 
 - **TOTP with backup codes.** Turn it on at `/two-factor/setup` (or `POST /api/auth/two-factor/enable`, then
-  `POST /api/auth/two-factor/verify-totp` with a code). Doing so signs out every other session and revokes the
-  user's refresh tokens. Backup codes are shown once.
+  `POST /api/auth/two-factor/verify-totp` with a code). Once the code is checked, and before 2FA is switched on, it
+  signs out every other session, revokes the user's refresh tokens and removes their passkeys (a passkey counts as
+  both factors, so one added by someone else who knew the password must not survive). Add passkeys again afterwards.
+  Backup codes are shown once.
 - **Enforced on the server after every first step**: password, magic link, Google, GitHub. Until the second
   factor, there's no session, no consent and no authorization code. The first step answers with
   `{"twoFactorRedirect": true}` (API) or a redirect to `/two-factor` (browser), plus a short-lived `two_factor`
@@ -120,7 +126,7 @@ or GitHub works.
   `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.
 - **Recent code needed.** On a 2FA account, adding a passkey, turning 2FA off, reading the TOTP secret or making
   new backup codes needs a code entered in the last 5 minutes (`POST /api/auth/two-factor/verify-totp` while signed
-  in, or the code you signed in with).
+  in, or the code you signed in with). Five wrong codes in a row from a signed-in session end that session.
 
 ## Apps (OAuth 2.1 / OpenID Connect)
 
