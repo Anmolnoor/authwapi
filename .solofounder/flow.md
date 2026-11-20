@@ -128,7 +128,7 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
 - **M6, release hardening:** multi-arch image (amd64/arm64) on GHCR, CI on Linux and macOS, semantic versions, upgrade notes. M1 already covers migrations, backup and export.
 
 ### Rev 8 execution (2026-11-20): finish M1, then M2 → M6
-Rev 8 applies council round 2 (Opus 7, Sol 7, Terra 7); rev 7 applied round 1 on rev 6 (Opus 6, Sol 6, Terra 6).
+Rev 9 applies council round 3 (Opus 8, Sol 7, Terra 7) as implementation notes; rev 8 applied round 2 (Opus 7, Sol 7, Terra 7); rev 7 applied round 1 on rev 6 (Opus 6, Sol 6, Terra 6).
 Where this section and the older milestone bullets above disagree (IdP-initiated SAML opt-in, `@better-auth/mcp`),
 this section wins.
 
@@ -159,17 +159,23 @@ schema-drift test cover them.
 | M5 MCP OAuth for users' MCP servers | `m5-mcp-oauth` | M3 |
 | M6b release: multi-arch build on tags (never triggered), semver, `UPGRADING.md` | `m6-release` | all |
 
+Each lane pins any new `@better-auth/*` package at the core's exact version and confirms the options it relies on
+(by test or source citation) before building on them.
+
 **Decisions per milestone:**
 - **M2, MFA is enforced on the server.** No usable session, consent or authorization code exists before the
   second factor, for every first factor: password (Better Auth's built-in challenge), magic-link verify and social
   callback (our hook turns the new session into a 2FA challenge before the response), and later SSO callbacks
   (M4). **Mechanism:** one after-hook, in a plugin registered *before* `oauthProvider` (as is `twoFactor`), fires on
-  any response that sets a session cookie for a user with 2FA on and turns it into the challenge (session and
-  Set-Cookie dropped), so the provider's after-hook never sees a session and mints no code. Allow-list: the
+  a response that *creates a new session by a first factor* (not renewals: `/get-session`, `/update-user` etc. also
+  set the cookie) for a user with 2FA on, and turns it into the challenge exactly as `twoFactor` does (session row
+  deleted, `newSession` cleared, response replaced, its `two_factor` challenge cookie minted), so the provider's
+  after-hook never sees a session and mints no code. `/sign-in/email|username|phone-number` stay with the built-in
+  hook. Allow-list: the
   `/two-factor/verify-*` endpoints, passkey sign-in with user verification, admin impersonation. Tested per path,
   including direct API calls. `twoFactor` with `allowPasswordless: true` and backup codes. **Trusted devices off:**
-  1.7.26 has no switch, so a before-hook rejects `trustDevice: true` on `/two-factor/*` and no trust cookie is
-  honored; enabling 2FA revokes other sessions and refresh tokens. A passkey sign-in counts as both
+  1.7.26 has no switch, so a before-hook rejects `trustDevice: true` on `/two-factor/*` and incoming trust cookies
+  are ignored; enabling 2FA revokes other sessions and refresh tokens. A passkey sign-in counts as both
   factors only with `authenticatorSelection.userVerification: "required"` checked on the server; adding a passkey to
   an account with 2FA needs a fresh 2FA check. The signed OAuth request survives the social redirect, the 2FA page
   and the passkey ceremony (this also closes the M1 follow-up: offer magic link during an OAuth sign-in).
@@ -180,16 +186,17 @@ schema-drift test cover them.
   only when their credentials are set. Passkeys need a small client script and a CSP change on hosted pages. Tests
   use an in-process mock OAuth server and a software WebAuthn authenticator.
 - **M3, one ban operation** for HTTP and MCP: revokes sessions and refresh tokens, and the provider rejects refresh
-  and code exchange for banned users (issuance re-checks the ban, so a concurrent ban can't race it);
+  and code exchange for banned users (ban and issuance are serialized: issuance re-checks the ban after its token write and revokes what it just
+  wrote if a ban landed, tested with a ban between the user read and the write);
   `/admin/update-user` ban fields go through the same operation; introspection reports their tokens inactive (a JWKS-only API keeps the
   15-minute window, documented). Tested against a concurrent ban. `/admin/revoke-user-session(s)`,
   `/admin/set-user-password` and `/admin/remove-user` also revoke refresh tokens. The first admin is set with a
   `set_role` MCP tool (write scope). **Impersonation:** short, audited, can't target admins or org owners/admins,
-  and an impersonated session gets no authorization code (enforced at the provider's shared authorization step, so
+  and an impersonated session gets no consent write and no authorization code (enforced at the provider's shared authorization step, so
   `/oauth2/authorize`, `/oauth2/consent` and `/oauth2/continue` are all covered) and can't change credentials.
   **Org claims** (`org_id`, `roles`) sit behind an `organization` scope, in the **access token and userinfo only**
-  (`customAccessTokenClaims` gets the grant's `referenceId` and runs again on refresh; ID-token claims can't see the
-  grant in 1.7.26, so ID tokens carry none). The org is bound to the grant at sign-in (provider `postLogin` +
+  (`customAccessTokenClaims` gets the grant's `referenceId` and runs again on refresh; userinfo copies them from the
+  validated access-token payload; ID-token claims can't see the grant in 1.7.26, so ID tokens carry none). The org is bound to the grant at sign-in (provider `postLogin` +
   `consentReferenceId`) and shown at consent, never read from the live session; refresh re-checks membership and
   role, and leaves the claims out when there's no authorized org. Tested: org switch before consent and before
   refresh. A hosted page accepts invitations. MCP: `list_orgs` (read), `create_org`,
@@ -197,14 +204,14 @@ schema-drift test cover them.
 - **M4a, SSO trust.** Providers are registered only by a write MCP tool `register_sso_provider` (org-scoped) or the
   CLI, which call Better Auth as the org's owner. The HTTP routes are closed with `disabledPaths` (`/sso/register`,
   `/sso/update-provider`, `/sso/delete-provider`, `/sso/request-domain-verification`, `/sso/verify-domain`);
-  `providersLimit` stays above 0 because 0 also blocks server-side calls. Provider IDs get their own prefix. Explicit endpoints (`skipDiscovery`), so `trustedOrigins`
-  doesn't widen. **No linking by email or domain:** domains only route users to their org's provider, are unique
+  `providersLimit` stays above 0 because 0 also blocks server-side calls. Provider IDs get their own prefix. Explicit endpoints (`skipDiscovery`); the test IdP's origin is trusted
+  only in test fixtures. **No linking by email or domain:** domains only route users to their org's provider, are unique
   across orgs, and are never "verified" (Better Auth would then link any verified user by email). An SSO identity
   resolves only through its (org, issuer, subject) binding. An existing account is linked only by a pre-provisioned
   subject binding (operator) or explicit linking while freshly signed in; org membership alone isn't enough. SSO
   sign-in provisions new users as members of the provider's org. **Reverse pre-hijack:** an SSO-created user's email
-  is stored unverified; when the mailbox owner first proves the address (magic link, Google), the SSO identities are
-  detached and every session and token is revoked (the Risk 8 rule). Deleting a provider revokes its users' sessions and tokens.
+  is stored unverified; the mailbox owner recovers it through magic link only, which atomically clears pre-proof
+  credentials, MFA and passkey enrollments, SSO bindings, sessions and grants (the Risk 8 rule, extended). Deleting a provider revokes its users' sessions and tokens.
   Local 2FA applies after SSO sign-in. Tests: an org claiming `gmail.com` gets no one else's account, existing or future, cross-org,
   unverified email, replay, wrong audience, bad signature. IdP in tests: a second AuthWAPI instance.
 - **M4b, SAML.** IdP-initiated sign-in stays off (Better Auth's switch is global). `wantAssertionsSigned: true` on every
@@ -214,7 +221,9 @@ schema-drift test cover them.
 - **M5, users' MCP servers on the current provider:** `cimd()` plus the provider's resource registry; not
   `@better-auth/mcp`, which would replace the provider. The operator registers each MCP server as a resource
   (`authwapi resource add`) and links clients to it (`authwapi resource link <client_id> <resource>`, which also takes a
-  CIMD client's URL); per-client resource enforcement stays on, so a client with no link gets no token; `isMetadataDocumentUrlAllowed` policy and
+  CIMD client's URL); the CLI resolves a CIMD URL into its client row first (the link is a foreign key). Per-client enforcement stays
+  on, so a client gets no token *for a resource it isn't linked to*, and every resource server rejects tokens whose
+  `aud` isn't itself, including tokens with no `aud`; `isMetadataDocumentUrlAllowed` policy and
   the bundled SSRF-safe fetch; the consent page shows the `client_id` host (a client name is self-asserted). Refresh
   rotation stays strict. Tested with two external MCP resources through discovery, code exchange and refresh: a
   token for one is rejected by the other, and a client can't get a token for a resource that exists but isn't linked to it. OAuth
