@@ -117,7 +117,9 @@ same whether or not the account exists. A failed send is written to `logs/app.js
 
 ## Development
 
-Node 22.18+ runs the TypeScript directly; there's no build step.
+Node 22.18+ runs the TypeScript directly; there's no build step. On a Linux machine without a C++ compiler,
+`npm ci` fails building better-sqlite3 even though it ships a ready-made binary: use `npm ci --ignore-scripts`
+(the Docker image is unaffected).
 
 ```bash
 npm install
