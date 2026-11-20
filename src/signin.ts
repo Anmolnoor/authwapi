@@ -155,6 +155,8 @@ function mfaGlue(): BetterAuthPlugin {
   /** Session id → wrong codes entered while signed in, in a row. */
   const failures = new Map<string, number>();
   const arrived = (ctx: HookContext) => (ctx.request ? arrivedWith.get(ctx.request) : undefined);
+  /** When each passkey registration request started (its passkey may sign someone in before it is checked). */
+  const registrationStarted = new WeakMap<Request, number>();
   const isFresh = (sessionId: string) => (freshUntil.get(sessionId) ?? 0) > Date.now();
   const markFresh = (sessionId: string) => {
     const now = Date.now();
@@ -196,14 +198,18 @@ function mfaGlue(): BetterAuthPlugin {
           matcher: (ctx) => ctx.path !== undefined && NEEDS_FRESH_CHECK.has(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const s = arrived(ctx);
-            // 2FA as it is now (it may have been turned on since the request arrived, e.g. mid passkey registration).
-            const user = s && ((await ctx.context.internalAdapter.findUserById(s.userId)) as { twoFactorEnabled?: boolean | null } | null);
-            if (!s || ((user?.twoFactorEnabled || s.twoFactorEnabled) && !isFresh(s.sessionId))) {
+            if (!s || (s.twoFactorEnabled && !isFresh(s.sessionId))) {
               throw new APIError('FORBIDDEN', {
                 code: 'TWO_FACTOR_CHECK_REQUIRED',
                 message: 'Enter a code from your authenticator app first (POST /two-factor/verify-totp while signed in).',
               });
             }
+          }),
+        },
+        {
+          matcher: (ctx) => ctx.path === '/passkey/verify-registration' && ctx.request !== undefined,
+          handler: createAuthMiddleware(async (ctx) => {
+            registrationStarted.set(ctx.request!, Date.now());
           }),
         },
         {
@@ -263,6 +269,13 @@ function mfaGlue(): BetterAuthPlugin {
             const s = arrived(ctx);
             if (s?.userId === created.userId && isFresh(s.sessionId) && (await ctx.context.internalAdapter.findSession(s.token))) return;
             await ctx.context.adapter.delete({ model: 'passkey', where: [{ field: 'id', value: created.id }] });
+            // From the insert until now the passkey could sign someone in: end every session the user got since this
+            // request started (the one that started it is older), and their OAuth tokens (revokeUserTokens has no
+            // cutoff, so all of them; this is an attack path).
+            const started = (ctx.request && registrationStarted.get(ctx.request)) ?? 0;
+            const since = (await ctx.context.internalAdapter.listSessions(created.userId)).filter((x) => new Date(x.createdAt).getTime() >= started);
+            await ctx.context.internalAdapter.deleteSessions(since.map((x) => x.token));
+            await revokeUserTokens(ctx.context, created.userId);
             throw new APIError('FORBIDDEN', { code: 'TWO_FACTOR_CHECK_REQUIRED', message: '2FA was turned on meanwhile: enter a code from your authenticator app, then add the passkey again.' });
           }),
         },

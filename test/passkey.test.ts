@@ -194,3 +194,23 @@ test('a passkey sign-in whose passkey is removed (2FA turned on) while it runs g
   assert.equal(liveSessionCookie(r.setCookies), undefined);
   assert.equal(await currentUser(s, browser), null);
 });
+
+test('a session signed in with an in-flight passkey before its registration is rejected is ended with it', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options');
+  // Right after the insert: 2FA turns on elsewhere, and a passkey sign-in with the new passkey makes a session.
+  const d = new Database(s.paths.db);
+  d.exec(`CREATE TRIGGER race AFTER INSERT ON passkey BEGIN
+    UPDATE user SET twoFactorEnabled = 1 WHERE id = new.userId;
+    INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId) VALUES ('via-passkey', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 days'),
+      'via-passkey-token', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), new.userId); END`);
+  d.close();
+  const r = await send(s, jar, 'POST', '/api/auth/passkey/verify-registration', { json: { response: softAuthenticator(s.base).register(options.json()) } });
+  assert.equal(r.status, 403, r.body);
+  const d2 = new Database(s.paths.db);
+  assert.equal(d2.prepare("SELECT count(*) FROM session WHERE token = 'via-passkey-token'").pluck().get(), 0, 'the session from the rejected passkey survived');
+  d2.close();
+  assert.equal(await currentUser(s, jar), 'ada@example.com', 'the session that started the registration was ended too');
+});
