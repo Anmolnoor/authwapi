@@ -53,6 +53,7 @@ async function main(argv: string[]): Promise<void> {
   if (process.getuid?.() === 0) {
     const owner = statSync(db0);
     if (owner.uid === 0) throw new Error(`${db0} is owned by root; the server never runs as root. Fix the data folder's owner first.`);
+    process.setgroups!([owner.gid]); // drop root's supplementary groups too
     process.setgid!(owner.gid);
     process.setuid!(owner.uid);
   }
@@ -102,6 +103,7 @@ async function main(argv: string[]): Promise<void> {
         token_endpoint_auth_method: 'client_secret_basic',
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
+        enable_end_session: true, // RP-initiated logout with id_token_hint (also puts sid in ID tokens)
         ...(resources.length > 0 ? { resources } : {}),
       },
     });
