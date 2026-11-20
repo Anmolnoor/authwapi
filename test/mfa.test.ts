@@ -146,6 +146,31 @@ test('a TOTP code works once: the same code cannot finish a second sign-in', asy
   assert.equal(await currentUser(s, b), null, 'a used code signed someone in again');
 });
 
+test('a sign-in refused for a used code keeps its challenge: the next code finishes it on the hosted form', async () => {
+  s = await startTestServer();
+  const { secret, code } = await twoFactorUser();
+  const jar = await challenged();
+  const used = await send(s, jar, 'POST', '/two-factor', { form: { code } });
+  assert.equal(used.status, 400);
+  assert.match(used.body, /already used/);
+  const next = await send(s, jar, 'POST', '/two-factor', { form: { code: totp(secret) } });
+  assert.equal(next.status, 303, next.body);
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test("a refused used code doesn't erase the account's failed attempts", async () => {
+  s = await startTestServer();
+  const { userId, secret } = await twoFactorUser();
+  const code = totp(secret);
+  assert.equal((await verifyTotp(await challenged(), code)).status, 200);
+  const b = await challenged();
+  // Wrong backup codes (the per-path rate limit allows 3 per 10 s); they count toward the same lockout.
+  for (let i = 0; i < 2; i++) assert.equal((await send(s, b, 'POST', '/api/auth/two-factor/verify-backup-code', { json: { code: '000000' } })).status, 401);
+  assert.equal(one('SELECT failedVerificationCount FROM twoFactor WHERE userId = ?', userId), 2);
+  assert.equal((await verifyTotp(b, code)).status, 401);
+  assert.equal(one('SELECT failedVerificationCount FROM twoFactor WHERE userId = ?', userId), 2);
+});
+
 test('two sign-ins racing with the same TOTP code: exactly one gets a session', async () => {
   s = await startTestServer();
   const { secret } = await twoFactorUser();
@@ -157,12 +182,12 @@ test('two sign-ins racing with the same TOTP code: exactly one gets a session', 
   assert.equal(users.filter(Boolean).length, 1);
 });
 
-test('after a TOTP code is accepted, a code from an earlier step in the window is refused', async () => {
+test('after a TOTP code is accepted, a code from an earlier step in the window is refused', async (t) => {
   s = await startTestServer();
   const { secret } = await twoFactorUser();
   const step = Math.floor(Date.now() / 30_000);
   const [newer, older] = [totp(secret, (step + 1) * 30_000), totp(secret, step * 30_000)];
-  assert.notEqual(newer, older);
+  if (newer === older) return t.skip('the two steps happen to share a code (1 in a million)');
   assert.equal((await verifyTotp(await challenged(), newer)).status, 200);
   const refused = await verifyTotp(await challenged(), older);
   assert.equal(refused.status, 401);
