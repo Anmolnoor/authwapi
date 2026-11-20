@@ -127,8 +127,10 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
   - Tested against a separate resource server that publishes its own discovery metadata and checks that tokens are bound to it.
 - **M6, release hardening:** multi-arch image (amd64/arm64) on GHCR, CI on Linux and macOS, semantic versions, upgrade notes. M1 already covers migrations, backup and export.
 
-### Rev 7 execution (2026-11-20): finish M1, then M2 → M6
-Rev 7 applies council round 1 on rev 6 (Opus 6, Sol 6, Terra 6).
+### Rev 8 execution (2026-11-20): finish M1, then M2 → M6
+Rev 8 applies council round 2 (Opus 7, Sol 7, Terra 7); rev 7 applied round 1 on rev 6 (Opus 6, Sol 6, Terra 6).
+Where this section and the older milestone bullets above disagree (IdP-initiated SAML opt-in, `@better-auth/mcp`),
+this section wins.
 
 **G1 result: override, demand not shown.** On 2026-11-20 the owner asked for M2–M6 to be built now, before
 publishing M1. Not a pass. Per the owner: M6 adds the release workflows but publishes no image or tag; quality
@@ -161,45 +163,61 @@ schema-drift test cover them.
 - **M2, MFA is enforced on the server.** No usable session, consent or authorization code exists before the
   second factor, for every first factor: password (Better Auth's built-in challenge), magic-link verify and social
   callback (our hook turns the new session into a 2FA challenge before the response), and later SSO callbacks
-  (M4). Tested per path, including direct API calls. `twoFactor` with `allowPasswordless: true`, trusted devices
-  off, backup codes; enabling 2FA revokes other sessions and refresh tokens. A passkey sign-in counts as both
+  (M4). **Mechanism:** one after-hook, in a plugin registered *before* `oauthProvider` (as is `twoFactor`), fires on
+  any response that sets a session cookie for a user with 2FA on and turns it into the challenge (session and
+  Set-Cookie dropped), so the provider's after-hook never sees a session and mints no code. Allow-list: the
+  `/two-factor/verify-*` endpoints, passkey sign-in with user verification, admin impersonation. Tested per path,
+  including direct API calls. `twoFactor` with `allowPasswordless: true` and backup codes. **Trusted devices off:**
+  1.7.26 has no switch, so a before-hook rejects `trustDevice: true` on `/two-factor/*` and no trust cookie is
+  honored; enabling 2FA revokes other sessions and refresh tokens. A passkey sign-in counts as both
   factors only with `authenticatorSelection.userVerification: "required"` checked on the server; adding a passkey to
   an account with 2FA needs a fresh 2FA check. The signed OAuth request survives the social redirect, the 2FA page
   and the passkey ceremony (this also closes the M1 follow-up: offer magic link during an OAuth sign-in).
-- **M2, account linking is enforced in code**, one choke point for implicit and explicit linking, `trustedProviders`
-  empty: a provider account links only when the provider asserts a verified email. If the local account's email is
-  unverified (possibly pre-registered by someone else, Risk 8), linking behaves like magic link: the email becomes
-  verified, the unproven password is removed, and every session and refresh token is revoked. Google/GitHub are on
+- **M2, account linking**, `trustedProviders` empty: a provider account links only when the provider asserts a
+  verified email *and* the local email is verified (1.7.26's default `requireLocalEmailVerified: true` for implicit
+  linking; our check adds it for explicit linking). An unverified local account (possibly pre-registered, Risk 8) is
+  refused, and the page points to magic link, which already does the verified takeover. Google/GitHub are on
   only when their credentials are set. Passkeys need a small client script and a CSP change on hosted pages. Tests
   use an in-process mock OAuth server and a software WebAuthn authenticator.
 - **M3, one ban operation** for HTTP and MCP: revokes sessions and refresh tokens, and the provider rejects refresh
-  and code exchange for banned users; introspection reports their tokens inactive (a JWKS-only API keeps the
+  and code exchange for banned users (issuance re-checks the ban, so a concurrent ban can't race it);
+  `/admin/update-user` ban fields go through the same operation; introspection reports their tokens inactive (a JWKS-only API keeps the
   15-minute window, documented). Tested against a concurrent ban. `/admin/revoke-user-session(s)`,
   `/admin/set-user-password` and `/admin/remove-user` also revoke refresh tokens. The first admin is set with a
   `set_role` MCP tool (write scope). **Impersonation:** short, audited, can't target admins or org owners/admins,
-  and an impersonated session can't use `/oauth2/authorize`, `/oauth2/consent` or change credentials. **Org claims**
-  (`org_id`, `roles`) sit behind an `organization` scope and are bound to the grant at sign-in (provider `postLogin` +
-  `consentReferenceId`), never read from the live session; refresh re-checks membership and role, and leaves the
-  claims out when there's no authorized org. A hosted page accepts invitations. MCP: `list_orgs` (read), `create_org`,
+  and an impersonated session gets no authorization code (enforced at the provider's shared authorization step, so
+  `/oauth2/authorize`, `/oauth2/consent` and `/oauth2/continue` are all covered) and can't change credentials.
+  **Org claims** (`org_id`, `roles`) sit behind an `organization` scope, in the **access token and userinfo only**
+  (`customAccessTokenClaims` gets the grant's `referenceId` and runs again on refresh; ID-token claims can't see the
+  grant in 1.7.26, so ID tokens carry none). The org is bound to the grant at sign-in (provider `postLogin` +
+  `consentReferenceId`) and shown at consent, never read from the live session; refresh re-checks membership and
+  role, and leaves the claims out when there's no authorized org. Tested: org switch before consent and before
+  refresh. A hosted page accepts invitations. MCP: `list_orgs` (read), `create_org`,
   `invite_member`, `ban_user`, `unban_user`, `set_role` (write), all audited.
 - **M4a, SSO trust.** Providers are registered only by a write MCP tool `register_sso_provider` (org-scoped) or the
-  CLI; HTTP registration is off (`providersLimit: 0`). Explicit endpoints (`skipDiscovery`), so `trustedOrigins`
+  CLI, which call Better Auth as the org's owner. The HTTP routes are closed with `disabledPaths` (`/sso/register`,
+  `/sso/update-provider`, `/sso/delete-provider`, `/sso/request-domain-verification`, `/sso/verify-domain`);
+  `providersLimit` stays above 0 because 0 also blocks server-side calls. Provider IDs get their own prefix. Explicit endpoints (`skipDiscovery`), so `trustedOrigins`
   doesn't widen. **No linking by email or domain:** domains only route users to their org's provider, are unique
   across orgs, and are never "verified" (Better Auth would then link any verified user by email). An SSO identity
-  resolves only through its (org, issuer, subject) binding; an existing user is linked only if already a member of
-  that org or when linking explicitly while signed in. Deleting a provider revokes its users' sessions and tokens.
-  Local 2FA applies after SSO sign-in. Tests: an org claiming `gmail.com` gets no one else's account, cross-org,
+  resolves only through its (org, issuer, subject) binding. An existing account is linked only by a pre-provisioned
+  subject binding (operator) or explicit linking while freshly signed in; org membership alone isn't enough. SSO
+  sign-in provisions new users as members of the provider's org. **Reverse pre-hijack:** an SSO-created user's email
+  is stored unverified; when the mailbox owner first proves the address (magic link, Google), the SSO identities are
+  detached and every session and token is revoked (the Risk 8 rule). Deleting a provider revokes its users' sessions and tokens.
+  Local 2FA applies after SSO sign-in. Tests: an org claiming `gmail.com` gets no one else's account, existing or future, cross-org,
   unverified email, replay, wrong audience, bad signature. IdP in tests: a second AuthWAPI instance.
-- **M4b, SAML.** IdP-initiated sign-in stays off (Better Auth's switch is global). `wantAssertionsSigned: true`,
-  `requireTimestamps: true`, `algorithms.onDeprecated: "reject"`, InResponseTo and replay checks on. Document that
+- **M4b, SAML.** IdP-initiated sign-in stays off (Better Auth's switch is global). `wantAssertionsSigned: true` on every
+  provider's `samlConfig` (it's per provider), `requireTimestamps: true`, `algorithms.onDeprecated: "reject"`, InResponseTo and replay checks on. Document that
   SAML keys sit unencrypted in SQLite. Round trip against a real IdP container on Fedora/CI, plus negative tests
   (unsigned, wrong audience, replay, another provider's assertion).
 - **M5, users' MCP servers on the current provider:** `cimd()` plus the provider's resource registry; not
   `@better-auth/mcp`, which would replace the provider. The operator registers each MCP server as a resource
-  (`authwapi resource add`); CIMD clients get only resources that exist; `isMetadataDocumentUrlAllowed` policy and
+  (`authwapi resource add`) and links clients to it (`authwapi resource link <client_id> <resource>`, which also takes a
+  CIMD client's URL); per-client resource enforcement stays on, so a client with no link gets no token; `isMetadataDocumentUrlAllowed` policy and
   the bundled SSRF-safe fetch; the consent page shows the `client_id` host (a client name is self-asserted). Refresh
   rotation stays strict. Tested with two external MCP resources through discovery, code exchange and refresh: a
-  token for one is rejected by the other, and a client can't get a token for a resource it wasn't granted. OAuth
+  token for one is rejected by the other, and a client can't get a token for a resource that exists but isn't linked to it. OAuth
   tokens are never accepted by the admin MCP.
 - **M6.** M6a above. M6b: tag-triggered multi-arch (amd64/arm64) GHCR workflow that this plan never triggers;
   semantic versions; `UPGRADING.md`.
@@ -220,11 +238,11 @@ Retrospective and cross-project learning (`solofounder:conversation-analysis`).
 - DNS domain verification
 
 ## Risks
-1. **Better Auth ships its own server image, or Pocket ID / Casdoor add an MCP admin surface.** Mitigation: G1 right after M1 tests the only edge before the expensive work.
+1. **Better Auth ships its own server image, or Pocket ID / Casdoor add an MCP admin surface.** Mitigation was G1 before the expensive work; the owner overrode it on 2026-11-20, so this risk is accepted.
 2. **OAuth provider and SSO correctness.** This is where auth bugs become breaches. Mitigation: the contract in D9, negative tests, and a security review round per milestone.
 3. **SQLite durability on bind mounts.** Mitigation: DELETE journal, single writer, the 50-cycle kill test, export/import, backup before every migration.
 4. **Better Auth churn** (the `@better-auth/cli` → `auth` rename already happened). Mitigation: exact pins; CI checks that the generated `schema.sql` matches the committed one.
-5. **Scope.** "WorkOS" is 30+ products. Mitigation: nothing after M1 is committed before G1, the out-of-scope list holds, and every council round fights additions.
+5. **Scope.** "WorkOS" is 30+ products. Mitigation: the out-of-scope list holds and every council round fights additions (G1 was overridden on 2026-11-20).
 6. **Sign-in racing a password reset** (council M1 slice 1, GPT-6.2 Sol): a sign-in that verified the old password just before a reset commits can still create a session. It lives inside Better Auth's sign-in, needs the old password, and the window is the ~100ms hash check. Accepted for now; revisit with an upstream fix or a credential-version check in a session-create hook if M2/M3 touch this path.
 7. **Magic-link login CSRF** (M1 slice 2): someone can request a link for *their own* account and get a victim to open it, signing the victim's browser into the attacker's account. Inherent to links that work on any device; hosted pages (slice 3) could add a "you're signing in as X, continue?" confirmation step. Accepted for now.
 8. **Account pre-hijack through the verification link** (found during M1 slice 2 review, confirmed live): someone signs up with *your* email and their password; if you click "Verify your email", their password works on what is now your verified account. Mitigation now: the email says not to open the link if you didn't sign up, and a `todo` test records the gap. **Fix in slice 3 (high priority):** verification requires the sign-up password **at the verification endpoint itself** (council: a hosted page alone could be bypassed by opening the link directly); whoever doesn't know it gets "forgot password", which replaces it and ends every session. Magic-link sign-in already locks the attacker out (tested). **Blocks any release or real-user deployment**, and the `todo` test passing is an M1 exit criterion. Unauthenticated `/send-verification-email` lets an attacker re-send the email to the victim (rate-limited per IP), which raises the odds of a click.
