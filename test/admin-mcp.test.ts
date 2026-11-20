@@ -79,7 +79,8 @@ test('first boot writes a 0600 bootstrap key that only mint_agent_key accepts, o
   await boot.close();
 
   assert.equal(await mcpStatus(key), 401, 'the bootstrap key worked twice');
-  assert.equal(existsSync(s.paths.bootstrapKey), false, 'the spent bootstrap key file was left behind');
+  // The spent key's file stays (deleting it would race with a reissue); the key in it no longer works.
+  assert.equal(bootstrapKey(), key);
   assert.equal(await mcpStatus(minted.data.key), 200);
 });
 
@@ -184,6 +185,7 @@ test('end to end: an agent mints a write key, creates a user who can sign in, an
   assert.equal(created.isError, false);
   assert.equal(created.data.user.email, 'new.user@example.com');
   assert.equal(created.data.user.emailVerified, true);
+  assert.equal(created.data.verificationEmail, 'not needed');
   const dup = await call(agent, 'create_user', { email: 'new.user@example.com', name: 'Again', password: 'correct horse' });
   assert.deepEqual([dup.isError, dup.data.error], [true, 'email_taken']);
 
@@ -214,6 +216,7 @@ test('end to end: an agent mints a write key, creates a user who can sign in, an
   const again = await connect(writeKey.key);
   const plain = await call(again, 'create_user', { email: 'plain@example.com', name: 'Plain', password: 'correct horse' });
   assert.equal(plain.data.user.emailVerified, false);
+  assert.equal(plain.data.verificationEmail, 'queued'); // delivered after the response; failures go to app.jsonl
   await again.close();
   assert.equal((await signIn('plain@example.com')).status, 403);
   // ...and the verification email is on its way: the link asks for the password the agent set (Risk 8 fix).
@@ -398,8 +401,9 @@ test('the operator CLI reissues the bootstrap key: the old one stops working, an
   assert.equal(await mcpStatus(first), 401);
 
   // Spend it, then lose the write key: a reissue still works.
+  const spent = bootstrapKey();
   await mintWriteKey();
-  assert.equal(existsSync(s.paths.bootstrapKey), false);
+  assert.equal(await mcpStatus(spent), 401);
   await cli();
   const boot = await connect(bootstrapKey());
   assert.equal((await call(boot, 'mint_agent_key', { scope: 'write' })).isError, false);
@@ -444,15 +448,6 @@ test('a mint whose commit fails after its audit line was written is followed by 
   await boot.close();
 });
 
-test('minting leaves a bootstrap key file alone if it no longer holds the key that was spent (a concurrent reissue)', async () => {
-  const old = bootstrapKey();
-  writeFileSync(s.paths.bootstrapKey, 'awk_reissued-by-the-cli\n'); // as if the CLI reissued between commit and delete
-  const boot = await connect(old);
-  assert.equal((await call(boot, 'mint_agent_key', { scope: 'write' })).isError, false);
-  await boot.close();
-  assert.equal(readFileSync(s.paths.bootstrapKey, 'utf8'), 'awk_reissued-by-the-cli\n');
-});
-
 test('a reissue that cannot be audited keeps the old bootstrap key and its file', async () => {
   const old = bootstrapKey();
   mkdirSync(s.paths.audit); // appending to a directory fails
@@ -463,4 +458,55 @@ test('a reissue that cannot be audited keeps the old bootstrap key and its file'
   assert.equal(bootstrapKey(), old);
   assert.equal(await mcpStatus(old), 200);
   assert.deepEqual(readdirSync(s.paths.root).filter((f) => f.includes('bootstrap')), ['bootstrap-admin-key']);
+});
+
+const reissue = () =>
+  promisify(execFile)(process.execPath, ['src/cli.ts', 'bootstrap-key'], { env: { PATH: process.env.PATH, DATA_DIR: s.paths.root, BASE_URL: s.base } });
+
+test('a reissue whose final rename fails keeps the new key in a named temp file, without printing it', async () => {
+  rmSync(s.paths.bootstrapKey);
+  mkdirSync(s.paths.bootstrapKey); // renaming a file over a directory fails
+  writeFileSync(path.join(s.paths.bootstrapKey, 'keep'), '');
+  const err = (await reissue().then(
+    () => null,
+    (e: { code: number; stderr: string; stdout: string }) => e
+  ))!;
+  assert.ok(err, 'the CLI succeeded although the rename failed');
+  assert.notEqual(err.code, 0);
+  const tmp = /(\S*bootstrap-admin-key\.[0-9a-f]+\.tmp)/.exec(err.stderr)?.[1];
+  assert.ok(tmp, err.stderr);
+  assert.match(err.stderr, /move it to/);
+  const key = readFileSync(tmp, 'utf8').trim();
+  assert.ok(!err.stderr.includes(key) && !err.stdout.includes(key), 'the CLI printed the key');
+  assert.equal(statSync(tmp).mode & 0o777, 0o600);
+  assert.equal(await mcpStatus(key), 200);
+});
+
+test('a reissue whose commit fails after its audit line adds a rolled_back line and keeps the old key', async () => {
+  const old = bootstrapKey();
+  const db = new Database(s.paths.db);
+  db.exec(`CREATE TABLE trap_parent (id INTEGER PRIMARY KEY);
+    CREATE TABLE trap_child (pid INTEGER REFERENCES trap_parent (id) DEFERRABLE INITIALLY DEFERRED);
+    CREATE TRIGGER trap AFTER INSERT ON adminKey BEGIN INSERT INTO trap_child VALUES (1); END;`);
+  await assert.rejects(reissue());
+  db.exec('DROP TRIGGER trap; DROP TABLE trap_child; DROP TABLE trap_parent;');
+  db.close();
+  const [ok, rolledBack] = audit().slice(-2);
+  assert.deepEqual([ok.who, ok.tool, ok.outcome], ['operator-cli', 'bootstrap-key', 'ok']);
+  assert.deepEqual([rolledBack.outcome, rolledBack.reason, rolledBack.minted, rolledBack.tool], ['error', 'rolled_back', ok.minted, 'bootstrap-key']);
+  assert.equal(bootstrapKey(), old);
+  assert.equal(await mcpStatus(old), 200);
+  assert.deepEqual(readdirSync(s.paths.root).filter((f) => f.includes('bootstrap')), ['bootstrap-admin-key']);
+});
+
+test('create_user enforces exactly the name constraints it advertises', async () => {
+  const agent = await connect((await mintWriteKey()).key);
+  const { tools } = await agent.listTools();
+  const schema = tools.find((t) => t.name === 'create_user')!.inputSchema as { properties: Record<string, unknown> };
+  assert.deepEqual(schema.properties.name, { type: 'string', minLength: 1, maxLength: 200, pattern: '\\S' });
+  const user = (name: string) => ({ email: `n${name.length}@example.com`, name, password: 'correct horse', emailVerified: true });
+  assert.equal((await call(agent, 'create_user', user('   '))).data.error, 'invalid_arguments');
+  assert.equal((await call(agent, 'create_user', user(` ${'x'.repeat(199)} `))).data.error, 'invalid_arguments');
+  assert.equal((await call(agent, 'create_user', user(` ${'x'.repeat(198)} `))).isError, false);
+  await agent.close();
 });

@@ -1,6 +1,7 @@
 // The admin MCP server at /mcp (plan D10): an AI agent administers AuthWAPI with no human.
 // - The bootstrap key (<data>/bootstrap-admin-key, valid 24h) is accepted only by mint_agent_key, mints only a
-//   write key, and is spent by its first success. `node src/cli.ts bootstrap-key` issues a new one (recovery).
+//   write key, and is spent by its first success. Its file stays (deleting it would race with a reissue), but the
+//   key in it stops working. `node src/cli.ts bootstrap-key` issues a new one (recovery).
 // - Agent keys are `read` or `write` scoped and revocable. A write key can mint and revoke keys.
 // - Keys are stored only as SHA-256 hashes (they are 256 random bits, so a slow hash adds nothing). A new key is
 //   shown once, in the mint_agent_key result, and nowhere else: not in logs, the audit log or any other output.
@@ -10,7 +11,7 @@
 // - Tool results are JSON data, never prose: user names and emails are attacker-chosen text, and an agent reading
 //   them must see fields, not sentences that could pass for instructions.
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, chmodSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, openSync, readFileSync, readSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { runWithTransaction } from '@better-auth/core/context';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createMcpHandler, ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
@@ -80,17 +81,31 @@ const appendAudit = (file: string, entry: AuditEntry) =>
   }); // the leading newline ends a line torn by a crash, so it can't swallow this entry
 
 /**
- * Issues a bootstrap key: the key goes to a temp file, its row (and whatever `alsoInTransaction` does) commits, and
- * only then does the temp file replace bootstrap-admin-key. A failure leaves the old file and key as they were.
+ * For a write whose ok line was its last step inside a transaction: the commit then failed and the change was rolled
+ * back, so a second line says so under the same ids.
  */
-function issueBootstrapKey(db: Database.Database, file: string, alsoInTransaction: (newId: string) => void = () => {}): string {
+const appendRolledBack = (file: string, okEntry: AuditEntry) => appendAudit(file, { ...okEntry, outcome: 'error', reason: 'rolled_back' });
+
+/**
+ * Issues a bootstrap key. The key goes to a fresh temp file (unique name, 0600, fsynced); its row commits (for a
+ * reissue, with the revocation of unspent earlier keys and the audit line); only then does the temp file become
+ * bootstrap-admin-key. A failure before the commit leaves the old key and file as they were. A failed rename keeps
+ * the new key in the temp file and says where, so the committed key is never lost.
+ */
+function issueBootstrapKey(db: Database.Database, file: string, reissue?: { auditFile: string }): string {
   const key = newKey();
   const id = newKeyId();
   const now = Date.now();
   const expiresAt = new Date(now + BOOTSTRAP_TTL_MS).toISOString();
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, key + '\n', { mode: 0o600 });
-  chmodSync(tmp, 0o600); // the mode above only applies when the file is new
+  const tmp = `${file}.${randomBytes(8).toString('hex')}.tmp`;
+  const fd = openSync(tmp, 'wx', 0o600);
+  try {
+    writeSync(fd, key + '\n');
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  let okEntry: AuditEntry | undefined;
   try {
     db.transaction(() => {
       db.prepare('INSERT INTO adminKey (id, keyHash, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)').run(
@@ -100,17 +115,30 @@ function issueBootstrapKey(db: Database.Database, file: string, alsoInTransactio
         new Date(now).toISOString(),
         expiresAt
       );
-      alsoInTransaction(id);
+      if (reissue) {
+        db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE scope = 'bootstrap' AND revokedAt IS NULL AND id != ?`).run(new Date(now).toISOString(), id);
+        const entry: AuditEntry = { who: 'operator-cli', scope: 'operator', tool: 'bootstrap-key', outcome: 'ok', minted: id };
+        appendAudit(reissue.auditFile, entry); // last, so a line that can't be written rolls the reissue back
+        okEntry = entry;
+      }
     })();
   } catch (err) {
     rmSync(tmp, { force: true });
+    if (okEntry) appendRolledBack(reissue!.auditFile, okEntry);
     throw err;
   }
-  renameSync(tmp, file);
+  try {
+    renameSync(tmp, file);
+  } catch (err) {
+    throw new Error(`The new bootstrap key is in ${tmp}; move it to ${file}.`, { cause: err });
+  }
   return expiresAt;
 }
 
-/** First boot: writes the bootstrap key when none was ever issued. Restarts never replace or reissue it. */
+/**
+ * First boot: writes the bootstrap key when none was ever issued. Restarts never replace or reissue it. If its file
+ * can't be written, boot stops; the operator then recovers with `node src/cli.ts bootstrap-key`.
+ */
 export function ensureBootstrapKey(db: Database.Database, file: string, log: Logger): void {
   if (db.prepare(`SELECT 1 FROM adminKey WHERE scope = 'bootstrap'`).get()) return;
   log('info', 'bootstrap admin key written', { file, expiresAt: issueBootstrapKey(db, file) });
@@ -121,10 +149,7 @@ export function ensureBootstrapKey(db: Database.Database, file: string, log: Log
  * revokes any unspent bootstrap key and writes a new one-time file.
  */
 export function reissueBootstrapKey(db: Database.Database, paths: DataPaths): string {
-  return issueBootstrapKey(db, paths.bootstrapKey, (newId) => {
-    db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE scope = 'bootstrap' AND revokedAt IS NULL AND id != ?`).run(new Date().toISOString(), newId);
-    appendAudit(paths.audit, { who: 'operator-cli', scope: 'operator', tool: 'bootstrap-key', outcome: 'ok' });
-  });
+  return issueBootstrapKey(db, paths.bootstrapKey, { auditFile: paths.audit });
 }
 
 /** A refusal the caller can act on. `denied` ones are audited as denied (reason = the code), others as errors. */
@@ -164,7 +189,6 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
   // Expiry is checked again here: a request admitted just before the deadline can't mint after it.
   const spendBootstrap = db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE id = ? AND revokedAt IS NULL AND expiresAt > ?`);
   const revokeAgentKey = db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE id = ? AND scope != 'bootstrap' AND revokedAt IS NULL`);
-  const keyHashOf = db.prepare('SELECT keyHash FROM adminKey WHERE id = ?').pluck();
   const rateLimit = memoryRateLimit();
   const refusalLogLimit = memoryRateLimit(); // one "refused a key" warning per peer IP per minute
 
@@ -195,17 +219,6 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
           insertKey.run(keyId, hash(secret), scope, now);
           ok({ minted: keyId });
         })();
-        if (key.scope === 'bootstrap') {
-          // Best effort: the key's hash is already revoked, so a file left behind is harmless. Only the spent key's
-          // file is deleted: the operator CLI may have just written a new one.
-          try {
-            if (existsSync(paths.bootstrapKey) && hash(readFileSync(paths.bootstrapKey, 'utf8').trim()) === keyHashOf.get(key.id)) {
-              rmSync(paths.bootstrapKey);
-            }
-          } catch (err) {
-            log('warn', "couldn't delete the spent bootstrap key file", { file: paths.bootstrapKey, error: err instanceof Error ? err.message : 'unknown' });
-          }
-        }
         return { keyId, scope, key: secret };
       },
     },
@@ -256,7 +269,7 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
       scopes: ['write'],
       input: z.object({
         email: z.email().max(254),
-        name: z.string().trim().min(1).max(200),
+        name: z.string().min(1).max(200).regex(/\S/), // all expressible in JSON Schema, so tools/list advertises exactly this
         password: z.string().min(8).max(128),
         emailVerified: z.boolean().optional(),
       }),
@@ -273,10 +286,11 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
           return created;
         });
         // After the commit. The user exists either way, so a failure here is reported in the result, not as an error.
-        let verificationEmail: 'sent' | 'failed' | 'not needed' = 'not needed';
+        // 'queued': delivery runs after the response (so timing can't reveal accounts); failures go to app.jsonl.
+        let verificationEmail: 'queued' | 'failed' | 'not needed' = 'not needed';
         if (!emailVerified) {
           verificationEmail = await sendVerificationEmail(address).then(
-            () => 'sent' as const,
+            () => 'queued' as const,
             (err: unknown) => {
               log('error', 'create_user: verification email failed', { error: err instanceof Error ? redactUrls(err.message) : 'unknown error' });
               return 'failed' as const;
@@ -323,10 +337,11 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
       const name = request.params.name;
       const tool = Object.hasOwn(available, name) ? available[name] : undefined;
       const base = { who: key.id, scope: key.scope, tool: tool ? name : 'unknown' };
-      let okExtra: Record<string, string> | undefined; // set once the ok line is written
+      let okEntry: AuditEntry | undefined; // set once the ok line is written
       const record = (outcome: AuditEntry['outcome'], extra: Record<string, string> = {}) => {
-        appendAudit(paths.audit, { ...base, outcome, ...extra });
-        if (outcome === 'ok') okExtra = extra;
+        const entry = { ...base, outcome, ...extra };
+        appendAudit(paths.audit, entry);
+        if (outcome === 'ok') okEntry = entry;
       };
 
       const limit = await rateLimit.consume(key.id, RATE_LIMIT);
@@ -349,13 +364,13 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
       }
       try {
         const data = await tool.run(args.data, (extra) => record('ok', extra));
-        if (!okExtra) record('ok'); // read tools: nothing to roll back if this fails
+        if (!okEntry) record('ok'); // read tools: nothing to roll back if this fails
         return json(data);
       } catch (err) {
         // A write tool writes its ok line last inside its transaction, so a throw after it means the commit failed
         // and the change was rolled back: say so under the same ids. If this write fails too, the SDK answers with a
         // protocol error.
-        if (okExtra) record('error', { reason: 'rolled_back', ...okExtra });
+        if (okEntry) appendRolledBack(paths.audit, okEntry);
         else if (err instanceof ToolError && err.outcome === 'denied') record('denied', { reason: err.message });
         else record('error');
         if (err instanceof ToolError) return json({ error: err.message, ...err.details }, true);
