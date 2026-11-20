@@ -126,18 +126,19 @@ async function challenge(ctx: HookContext, token: string, userId: string) {
 
 /**
  * The check Better Auth's verify-totp makes (twoFactor/totp: the stored secret, decrypted, 6 digits, 30 s, one step
- * either side; `from`/`to` widen it), returning the 30-second step the code matches, newest first, or null.
+ * either side; `from`/`to` widen it), returning every 30-second step the code matches, oldest first.
  */
-async function totpStep(ctx: HookContext, encryptedSecret: string, code: unknown, from = -1, to = 1): Promise<number | null> {
-  if (typeof code !== 'string' || !/^[0-9]{6}$/.test(code)) return null;
+async function totpSteps(ctx: HookContext, encryptedSecret: string, code: unknown, from = -1, to = 1): Promise<number[]> {
+  if (typeof code !== 'string' || !/^[0-9]{6}$/.test(code)) return [];
   const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: encryptedSecret });
   const secret = raw.startsWith('base32:') ? base32.decode(raw.slice(7).toUpperCase()) : raw;
   const otp = createOTP(secret, { digits: 6, period: 30 });
   const now = Math.floor(Date.now() / 30_000);
-  for (let step = now + to; step >= now + from; step--) {
-    if (timingSafeEqual(Buffer.from(code), Buffer.from(await otp.hotp(step)))) return step;
+  const steps: number[] = [];
+  for (let step = now + from; step <= now + to; step++) {
+    if (timingSafeEqual(Buffer.from(code), Buffer.from(await otp.hotp(step)))) steps.push(step);
   }
-  return null;
+  return steps;
 }
 
 /** The user's TOTP row, if any. */
@@ -229,36 +230,30 @@ function mfaGlue(): BetterAuthPlugin {
         },
         {
           // RFC 6238 §5.2: a TOTP code works once. Before Better Auth checks it, a right code claims its step in one
-          // conditional UPDATE, and a code whose step isn't newer than the last one claimed is refused, so a replay
-          // never reaches Better Auth (no session, no reset of its failure count; a sign-in keeps its challenge). The
-          // code is checked against each user Better Auth may verify: the signed-in session's, and the sign-in
-          // challenge's (it falls back to that if the session is gone by then), unless that challenge is past use for
-          // good (expired, or out of attempts). Nothing that can still change before Better Auth looks (a lock that
-          // ends, an attempts row it is re-writing) skips the claim; a code claimed and then refused is used up. The
-          // search is two steps wider than Better Auth's window and takes the newest match: its check comes a moment
-          // later, maybe in the next step, and the clock can step back.
+          // conditional UPDATE; a code with any matching step not newer than the last one claimed is refused, so a
+          // replay never reaches Better Auth. Checked for each user Better Auth may verify (the session's, and the
+          // challenge's it falls back to), skipping only a challenge past use for good (expired, out of attempts): a
+          // code claimed and then refused for anything else is used up. The search covers Better Auth's window at its
+          // own, later moment: a step further back (the clock can step back), and further ahead in a step's last second.
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
-            const users: string[] = [];
-            const s = arrived(ctx);
-            if (s) users.push(s.userId);
             const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
             const challenged = cookie ? await ctx.context.internalAdapter.findVerificationValue(cookie) : null;
             const attempts = cookie ? await ctx.context.internalAdapter.findVerificationValue(`2fa-attempts-${cookie}`) : null;
             const live = challenged && new Date(challenged.expiresAt) > new Date() && !(attempts && Number(attempts.value) >= 5);
-            for (const userId of new Set([...users, ...(live ? [challenged.value] : [])])) {
+            for (const userId of new Set([arrived(ctx)?.userId, live ? challenged.value : undefined].filter((u) => u !== undefined))) {
               const row = await totpRow(ctx, userId);
               if (!row) continue;
-              const step = await totpStep(ctx, row.secret, ctx.body?.code, -2, 2);
-              if (step === null) continue;
+              const steps = await totpSteps(ctx, row.secret, ctx.body?.code, -2, Date.now() % 30_000 >= 29_000 ? 2 : 1);
+              if (steps.length === 0) continue;
               const claimed = await ctx.context.adapter.updateMany({
                 model: 'twoFactor',
                 where: [
                   { field: 'userId', value: userId },
-                  { field: 'lastUsedStep', operator: 'lt', value: step, connector: 'OR' },
+                  { field: 'lastUsedStep', operator: 'lt', value: steps[0], connector: 'OR' },
                   { field: 'lastUsedStep', value: null, connector: 'OR' },
                 ],
-                update: { lastUsedStep: step },
+                update: { lastUsedStep: steps.at(-1) },
               });
               if (!claimed) {
                 throw new APIError('UNAUTHORIZED', {
@@ -277,7 +272,7 @@ function mfaGlue(): BetterAuthPlugin {
             const s = arrived(ctx);
             if (!s || s.twoFactorEnabled) return;
             const row = await totpRow(ctx, s.userId);
-            if (!row || (await totpStep(ctx, row.secret, ctx.body?.code)) === null) return;
+            if (!row || (await totpSteps(ctx, row.secret, ctx.body?.code)).length === 0) return;
             await sweep(ctx, s.userId, s.token);
           }),
         },

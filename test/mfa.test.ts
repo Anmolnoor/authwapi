@@ -171,6 +171,28 @@ test("a used code is refused even while the challenge's attempts row is being re
   assert.equal(r.json().code, 'TOTP_CODE_ALREADY_USED');
 });
 
+test("a code from two steps ahead (a phone clock running fast) doesn't block the codes before it", async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const jar = await challenged();
+  while (Date.now() % 30_000 >= 28_000) await new Promise((r) => setTimeout(r, 100)); // not near a step's end
+  const ahead = await verifyTotp(jar, totp(secret, Date.now() + 60_000));
+  assert.equal(ahead.status, 401);
+  assert.equal(ahead.json().code, 'INVALID_CODE');
+  assert.equal((await verifyTotp(jar, totp(secret))).status, 200);
+});
+
+test("a claimed code touches only its own user's row", async () => {
+  s = await startTestServer();
+  const ada = await twoFactorUser('ada@example.com');
+  const bob = await twoFactorUser('bob@example.com');
+  const lastStep = (userId: string) => one('SELECT lastUsedStep FROM twoFactor WHERE userId = ?', userId);
+  const bobBefore = lastStep(bob.userId);
+  assert.equal((await verifyTotp(await challenged(), totp(ada.secret))).status, 200);
+  assert.ok((lastStep(ada.userId) as number) > (bobBefore as number), "ada's code was not claimed");
+  assert.equal(lastStep(bob.userId), bobBefore, "ada's code moved bob's step");
+});
+
 test('two requests confirming a new 2FA secret with the same code: one succeeds', async () => {
   s = await startTestServer();
   await verifiedUser(s, 'ada@example.com');
