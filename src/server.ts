@@ -7,7 +7,7 @@ import { loadConfig } from './config.ts';
 import { loadOrCreateSecret, prepareDataDir, type DataPaths } from './data.ts';
 import { openDb } from './db.ts';
 import { createLogger } from './log.ts';
-import { createMailer } from './mailer.ts';
+import { createMailer, sweepOutbox, type SendMail } from './mailer.ts';
 import { migrate, MIGRATIONS_DIR } from './migrate.ts';
 
 export interface Running {
@@ -16,7 +16,8 @@ export interface Running {
   close: () => Promise<void>;
 }
 
-export async function start(env: NodeJS.ProcessEnv): Promise<Running> {
+/** `sendMail` is for tests (a slow or failing mailer); the server always builds its own. */
+export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: SendMail } = {}): Promise<Running> {
   process.umask(0o077); // every file AuthWAPI creates is private to its user
   const config = loadConfig(env);
   const paths = prepareDataDir(config.dataDir);
@@ -24,8 +25,10 @@ export async function start(env: NodeJS.ProcessEnv): Promise<Running> {
   const secret = loadOrCreateSecret(paths.secret);
   const db = openDb(paths.db);
   await migrate(db, MIGRATIONS_DIR, paths, log);
+  await sweepOutbox(paths.outbox); // at boot, in either email mode
 
-  const auth = betterAuth(authOptions({ config, db, secret, sendMail: createMailer(config.email, paths.outbox, log) }));
+  const sendMail = overrides.sendMail ?? createMailer(config.email, paths.outbox, log);
+  const auth = betterAuth(authOptions({ config, db, secret, sendMail, log }));
   const app = createApp(auth, config);
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port });

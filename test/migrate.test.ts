@@ -35,7 +35,7 @@ test('committed migrations match the schema Better Auth expects (run scripts/new
   const db = openDb(paths.db);
   await migrate(db, MIGRATIONS_DIR, paths, silent);
   const plan = await getMigrations(
-    authOptions({ config: loadConfig({ DATA_DIR: paths.root }), db, secret: 'x'.repeat(32), sendMail: async () => {} })
+    authOptions({ config: loadConfig({ DATA_DIR: paths.root }), db, secret: 'x'.repeat(32), sendMail: async () => {}, log: () => {} })
   );
   assert.deepEqual(
     { create: plan.toBeCreated.length, add: plan.toBeAdded.length, indexes: plan.toBeAddedIndexes.length },

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { freePort } from './helpers.ts';
 import { start } from '../src/server.ts';
 import { createMailer } from '../src/mailer.ts';
+import { createLogger } from '../src/log.ts';
 import { memoryRateLimit } from '../src/auth.ts';
 
 test('a restored, world-readable data folder is made private on boot, and stale outbox mail is swept', async () => {
@@ -54,18 +55,31 @@ test('a symlink where AuthWAPI keeps its files stops the server before it opens 
   }
 });
 
-test('Resend mode still sweeps stale outbox mail left from outbox mode', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'authwapi-sweep-'));
+test('Resend mode still sweeps stale outbox mail left from outbox mode, at boot', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'authwapi-sweep-'));
   try {
-    const stale = path.join(dir, 'old.json');
+    mkdirSync(path.join(root, 'outbox'));
+    const stale = path.join(root, 'outbox', 'old.json');
     writeFileSync(stale, '{}');
     const dayAgo = (Date.now() - 25 * 60 * 60 * 1000) / 1000;
     utimesSync(stale, dayAgo, dayAgo);
-    createMailer({ mode: 'resend', apiKey: 're_test', from: 'a@example.com' }, dir, () => {});
-    assert.deepEqual(readdirSync(dir), []);
+    const port = await freePort();
+    const running = await start({
+      BASE_URL: `http://127.0.0.1:${port}`, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: root,
+      RESEND_API_KEY: 're_test', EMAIL_FROM: 'auth@example.com',
+    });
+    await running.close();
+    assert.deepEqual(readdirSync(path.join(root, 'outbox')), []);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('logging never throws, even when the log folder is gone', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'authwapi-logs-'));
+  const log = createLogger(dir);
+  rmSync(dir, { recursive: true, force: true });
+  assert.doesNotThrow(() => log('error', 'still alive'));
 });
 
 test('the rate-limit store stays bounded: the oldest bucket is evicted past the cap', async () => {
@@ -95,12 +109,13 @@ test('a symlinked data folder is refused even with a trailing slash, and nothing
   }
 });
 
-test('an hourly outbox sweep that fails is logged and does not crash the server', (t) => {
+test('an hourly outbox sweep that fails is logged and does not crash the server', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const dir = mkdtempSync(path.join(tmpdir(), 'authwapi-gone-'));
   const logged: string[] = [];
   createMailer({ mode: 'outbox' }, dir, (_level, msg) => logged.push(msg));
   rmSync(dir, { recursive: true, force: true });
   assert.doesNotThrow(() => t.mock.timers.tick(60 * 60 * 1000));
+  for (let i = 0; i < 50 && logged.length === 0; i++) await new Promise((r) => setTimeout(r, 10)); // the sweep is async
   assert.deepEqual(logged, ['outbox sweep failed']);
 });

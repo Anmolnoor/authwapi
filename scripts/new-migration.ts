@@ -27,6 +27,7 @@ try {
     db,
     secret: 'x'.repeat(32),
     sendMail: async () => {},
+    log: () => {},
   });
   const plan = await getMigrations(options);
   const changes = plan.toBeCreated.length + plan.toBeAdded.length + plan.toBeAddedIndexes.length;

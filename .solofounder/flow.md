@@ -61,7 +61,7 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
 - **Remaining:** commit and tag `v0.1-learning`.
 
 ### Stage 1: Thin release (M1)
-**Progress:** slice 1 built on branch `m1-foundation` (config, data folder, SQLite, migrations runner, Better Auth email + password with verification and reset, outbox/Resend, Host check, Docker entrypoint, 13 tests, container run and 10-cycle kill test). Next slices: magic link → OAuth/OIDC provider + hosted pages → admin MCP → export/import → agent test.
+**Progress:** slice 1 built on branch `m1-foundation` (config, data folder, SQLite, migrations runner, Better Auth email + password with verification and reset, outbox/Resend, Host check, Docker entrypoint, 13 tests, container run and 10-cycle kill test). Slice 2 (magic links) built: 5-minute single-use links, stored hashed, existing accounts only (Better Auth would email any address; we skip unknown ones), callbackURL limited to BASE_URL. Review fixes (2 rounds): every email is sent after the response via `setImmediate`, including Better Auth's resend-verification route, which awaits its callback; refused callback values are blanked in the log and other URLs cut to their origin; the outbox uses non-blocking file calls; logging never throws; (same answer and timing for known and unknown accounts; failures logged), links go to the stored address, one link per address per minute, Better Auth's warnings/errors go to app.jsonl. Next slices: OAuth/OIDC provider + hosted pages (including the Risk 8 fix) → admin MCP → export/import → agent test.
 
 **Goal:** the smallest thing that proves the agent-first idea. An agent starts AuthWAPI, administers it over MCP, and a real app signs a user in.
 
@@ -93,6 +93,7 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
   - A wrong Host or Origin is rejected.
   - No token, link or key appears in `logs/` or in MCP output, except the one-time result of `mint_agent_key` (a test greps for them).
 - [ ] **Config.** A non-loopback `BASE_URL` without Resend config fails at boot with a clear message. With `RESEND_API_KEY` set on localhost, a real email reaches the account's own address.
+- [ ] **Risk 8 closed:** the `todo` test "someone who signed up with your email loses access once you verify it" passes. Nothing is tagged or merged to `main` before this.
 - [ ] Browser QA clicks through every hosted page and email link.
 - [ ] Council review passes.
 
@@ -146,8 +147,10 @@ Retrospective and cross-project learning (`solofounder:conversation-analysis`).
 2. **OAuth provider and SSO correctness.** This is where auth bugs become breaches. Mitigation: the contract in D9, negative tests, and a security review round per milestone.
 3. **SQLite durability on bind mounts.** Mitigation: DELETE journal, single writer, the 50-cycle kill test, export/import, backup before every migration.
 4. **Better Auth churn** (the `@better-auth/cli` → `auth` rename already happened). Mitigation: exact pins; CI checks that the generated `schema.sql` matches the committed one.
-6. **Sign-in racing a password reset** (council M1 slice 1, GPT-6.2 Sol): a sign-in that verified the old password just before a reset commits can still create a session. It lives inside Better Auth's sign-in, needs the old password, and the window is the ~100ms hash check. Accepted for now; revisit with an upstream fix or a credential-version check in a session-create hook if M2/M3 touch this path.
 5. **Scope.** "WorkOS" is 30+ products. Mitigation: nothing after M1 is committed before G1, the out-of-scope list holds, and every council round fights additions.
+6. **Sign-in racing a password reset** (council M1 slice 1, GPT-6.2 Sol): a sign-in that verified the old password just before a reset commits can still create a session. It lives inside Better Auth's sign-in, needs the old password, and the window is the ~100ms hash check. Accepted for now; revisit with an upstream fix or a credential-version check in a session-create hook if M2/M3 touch this path.
+7. **Magic-link login CSRF** (M1 slice 2): someone can request a link for *their own* account and get a victim to open it, signing the victim's browser into the attacker's account. Inherent to links that work on any device; hosted pages (slice 3) could add a "you're signing in as X, continue?" confirmation step. Accepted for now.
+8. **Account pre-hijack through the verification link** (found during M1 slice 2 review, confirmed live): someone signs up with *your* email and their password; if you click "Verify your email", their password works on what is now your verified account. Mitigation now: the email says not to open the link if you didn't sign up, and a `todo` test records the gap. **Fix in slice 3 (high priority):** verification requires the sign-up password **at the verification endpoint itself** (council: a hosted page alone could be bypassed by opening the link directly); whoever doesn't know it gets "forgot password", which replaces it and ends every session. Magic-link sign-in already locks the attacker out (tested). **Blocks any release or real-user deployment**, and the `todo` test passing is an M1 exit criterion. Unauthenticated `/send-verification-email` lets an attacker re-send the email to the victim (rate-limited per IP), which raises the odds of a click.
 
 ## Evidence (fetched 2026-11-19)
 - Better Auth: better-auth.com/docs/adapters/sqlite, /docs/concepts/cli, /docs/integrations/{hono,express}, /docs/plugins/{magic-link,sso,sso/saml,organization,admin,api-key,mcp,oauth-provider,jwt,2fa,passkey,agent-auth}, /blog/1-7; npm `better-auth`@1.7.26, `auth`@1.7.26

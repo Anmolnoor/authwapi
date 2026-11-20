@@ -2,10 +2,10 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 1 of the [plan](.solofounder/flow.md)).** Works today: email + password
-sign-up with email verification, sign-in, sign-out, password reset, sessions, the data folder, migrations
-and Docker. **Not built yet:** magic links, hosted login pages, the OAuth/OIDC provider for apps, the
-admin MCP server, export/import. Don't put real users on it yet.
+**Status: early (M1, slice 2 of the [plan](.solofounder/flow.md)).** Works today: email + password
+sign-up with email verification, sign-in, sign-out, password reset, magic links, sessions, the data folder,
+migrations and Docker. **Not built yet:** hosted login pages, the OAuth/OIDC provider for apps, the admin MCP
+server, export/import. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -66,8 +66,20 @@ database while the server runs.
 
 Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`:
 `POST /sign-up/email`, `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `GET /verify-email`,
-`POST /request-password-reset`, `POST /reset-password`. Browser-style requests must send an `Origin` equal to
-`BASE_URL`.
+`POST /request-password-reset`, `POST /reset-password`, `POST /sign-in/magic-link`, `GET /magic-link/verify`.
+Browser-style requests must send an `Origin` equal to `BASE_URL`.
+
+**Magic links** (`POST /api/auth/sign-in/magic-link` with `{"email", "callbackURL"}`): sign in an existing
+account only, never create one. The link works once, for 5 minutes, and is stored hashed. For an email with no
+account the answer is the same but nothing is sent, and one address gets at most one link a minute. A magic link
+also verifies the email; any password set before it was verified is removed (use password reset to set one).
+`callbackURL` (and `newUserCallbackURL`, `errorCallbackURL`) must be on `BASE_URL` or an `ALLOWED_HOSTS` name.
+
+**Email delivery** runs in the background, so a request never waits on the mail provider, and the answer is the
+same whether or not the account exists. A failed send is written to `logs/app.jsonl`.
+
+**Known gap (fixed in the next slice):** if someone signs up with your email and you open the verification
+email, their password works. The verification email warns about this; don't open one you didn't ask for.
 
 ## Development
 

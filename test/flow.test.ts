@@ -21,12 +21,11 @@ const post = (p: string, body: unknown, { cookie = '', origin = s.base, headers 
 const session = async (cookie: string) =>
   (await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie } })).json();
 const cookieOf = (res: Response) => res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
-const mailFor = (to: string, subject: string) => s.outbox().find((m) => m.to === to && m.subject === subject);
 
 /** Sign up, open the verification link, sign in. Returns the session cookie. */
 async function verifiedUser(email: string, password = 'correct horse') {
   assert.equal((await post('/api/auth/sign-up/email', { email, password, name: 'User' })).status, 200);
-  await fetch(linkIn(mailFor(email, 'Verify your email')!.text), { redirect: 'manual' });
+  await fetch(linkIn((await s.mail(email, 'Verify your email')).text), { redirect: 'manual' });
   const res = await post('/api/auth/sign-in/email', { email, password });
   assert.equal(res.status, 200);
   return cookieOf(res);
@@ -47,7 +46,7 @@ test('sign up → sign-in refused until verified → verify → sign in → sign
   assert.equal((await post('/api/auth/sign-up/email', { email, password: 'correct horse', name: 'Ada' })).status, 200);
   assert.equal((await post('/api/auth/sign-in/email', { email, password: 'correct horse' })).status, 403);
 
-  const verify = await fetch(linkIn(mailFor(email, 'Verify your email')!.text), { redirect: 'manual' });
+  const verify = await fetch(linkIn((await s.mail(email, 'Verify your email')).text), { redirect: 'manual' });
   assert.ok([200, 302].includes(verify.status), `verify status ${verify.status}`);
 
   const signIn = await post('/api/auth/sign-in/email', { email, password: 'correct horse' });
@@ -61,7 +60,7 @@ test('sign up → sign-in refused until verified → verify → sign in → sign
 test("opening someone else's verification link does not switch your session", async () => {
   const mine = await verifiedUser('me@example.com');
   await post('/api/auth/sign-up/email', { email: 'them@example.com', password: 'their password', name: 'Them' });
-  const res = await fetch(linkIn(mailFor('them@example.com', 'Verify your email')!.text), {
+  const res = await fetch(linkIn((await s.mail('them@example.com', 'Verify your email')).text), {
     redirect: 'manual',
     headers: { cookie: mine },
   });
@@ -73,7 +72,7 @@ test('password reset revokes existing sessions', async () => {
   const email = 'grace@example.com';
   const cookie = await verifiedUser(email, 'first password');
   assert.equal((await post('/api/auth/request-password-reset', { email, redirectTo: '/' })).status, 200);
-  const token = linkIn(mailFor(email, 'Reset your password')!.text).pathname.split('/').pop();
+  const token = linkIn((await s.mail(email, 'Reset your password')).text).pathname.split('/').pop();
   assert.equal((await post('/api/auth/reset-password', { token, newPassword: 'second password' })).status, 200);
   assert.equal(await session(cookie), null);
   assert.equal((await post('/api/auth/sign-in/email', { email, password: 'second password' })).status, 200);
@@ -85,6 +84,7 @@ test('a request from an untrusted Origin is refused before anything happens', as
   const before = s.outbox().length;
   const res = await post('/api/auth/request-password-reset', { email, redirectTo: '/' }, { origin: 'https://evil.example' });
   assert.equal(res.status, 403);
+  await new Promise((r) => setTimeout(r, 200)); // give a background send time to land, if one were queued
   assert.equal(s.outbox().length, before, 'an email was sent');
 });
 
@@ -123,4 +123,10 @@ test('nothing in the data folder is readable by other users, and no link or toke
       if (value.length >= 16) assert.ok(!log.includes(value), 'token in log');
     }
   }
+});
+
+test('someone who signed up with your email loses access once you verify it', { todo: 'slice 3: verification asks for the sign-up password on a hosted page (plan Risk 8)' }, async () => {
+  await post('/api/auth/sign-up/email', { email: 'victim@example.com', password: 'attacker pass', name: 'A' });
+  await fetch(linkIn((await s.mail('victim@example.com', 'Verify your email')).text), { redirect: 'manual' });
+  assert.equal((await post('/api/auth/sign-in/email', { email: 'victim@example.com', password: 'attacker pass' })).status, 401);
 });
