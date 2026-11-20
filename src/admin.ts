@@ -10,10 +10,10 @@
 // - Tool results are JSON data, never prose: user names and emails are attacker-chosen text, and an agent reading
 //   them must see fields, not sentences that could pass for instructions.
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { runWithTransaction } from '@better-auth/core/context';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { createMcpHandler, Server } from '@modelcontextprotocol/server';
+import { createMcpHandler, ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
 import type { AuthContext, BetterAuthPlugin } from 'better-auth';
 import type Database from 'better-sqlite3';
 import { Hono } from 'hono';
@@ -60,24 +60,53 @@ const newKeyId = () => `key_${randomBytes(8).toString('hex')}`;
 
 type AuditEntry = { who: string; scope: string; tool: string; outcome: 'ok' | 'denied' | 'invalid' | 'error' } & Record<string, string>;
 
+/** Whether the file is missing, empty, or ends with a newline. */
+function endsCleanly(file: string): boolean {
+  if (!existsSync(file)) return true;
+  const fd = openSync(file, 'r');
+  try {
+    const { size } = fstatSync(fd);
+    const last = Buffer.alloc(1);
+    return size === 0 || (readSync(fd, last, 0, 1, size - 1) === 1 && last[0] === 0x0a);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Throws if the line can't be written: callers rely on that to roll back or refuse what they were doing. */
 const appendAudit = (file: string, entry: AuditEntry) =>
-  appendFileSync(file, JSON.stringify({ time: new Date().toISOString(), ...entry }) + '\n', { mode: 0o600 });
+  appendFileSync(file, (endsCleanly(file) ? '' : '\n') + JSON.stringify({ time: new Date().toISOString(), ...entry }) + '\n', {
+    mode: 0o600,
+  }); // the leading newline ends a line torn by a crash, so it can't swallow this entry
 
-/** Writes a fresh bootstrap key file (before its row: a crash in between leaves a useless file, not a lockout). */
-function issueBootstrapKey(db: Database.Database, file: string): string {
+/**
+ * Issues a bootstrap key: the key goes to a temp file, its row (and whatever `alsoInTransaction` does) commits, and
+ * only then does the temp file replace bootstrap-admin-key. A failure leaves the old file and key as they were.
+ */
+function issueBootstrapKey(db: Database.Database, file: string, alsoInTransaction: (newId: string) => void = () => {}): string {
   const key = newKey();
+  const id = newKeyId();
   const now = Date.now();
   const expiresAt = new Date(now + BOOTSTRAP_TTL_MS).toISOString();
-  writeFileSync(file, key + '\n', { mode: 0o600 });
-  chmodSync(file, 0o600); // the mode above only applies when the file is new
-  db.prepare('INSERT INTO adminKey (id, keyHash, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)').run(
-    newKeyId(),
-    hash(key),
-    'bootstrap',
-    new Date(now).toISOString(),
-    expiresAt
-  );
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, key + '\n', { mode: 0o600 });
+  chmodSync(tmp, 0o600); // the mode above only applies when the file is new
+  try {
+    db.transaction(() => {
+      db.prepare('INSERT INTO adminKey (id, keyHash, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)').run(
+        id,
+        hash(key),
+        'bootstrap',
+        new Date(now).toISOString(),
+        expiresAt
+      );
+      alsoInTransaction(id);
+    })();
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  renameSync(tmp, file);
   return expiresAt;
 }
 
@@ -92,19 +121,20 @@ export function ensureBootstrapKey(db: Database.Database, file: string, log: Log
  * revokes any unspent bootstrap key and writes a new one-time file.
  */
 export function reissueBootstrapKey(db: Database.Database, paths: DataPaths): string {
-  return db.transaction(() => {
-    db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE scope = 'bootstrap' AND revokedAt IS NULL`).run(new Date().toISOString());
-    const expiresAt = issueBootstrapKey(db, paths.bootstrapKey);
+  return issueBootstrapKey(db, paths.bootstrapKey, (newId) => {
+    db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE scope = 'bootstrap' AND revokedAt IS NULL AND id != ?`).run(new Date().toISOString(), newId);
     appendAudit(paths.audit, { who: 'operator-cli', scope: 'operator', tool: 'bootstrap-key', outcome: 'ok' });
-    return expiresAt;
-  })();
+  });
 }
 
+/** A refusal the caller can act on. `denied` ones are audited as denied (reason = the code), others as errors. */
 class ToolError extends Error {
   details: Record<string, unknown>;
-  constructor(code: string, details: Record<string, unknown> = {}) {
+  outcome: 'denied' | 'error';
+  constructor(code: string, details: Record<string, unknown> = {}, outcome: 'denied' | 'error' = 'error') {
     super(code);
     this.details = details;
+    this.outcome = outcome;
   }
 }
 
@@ -118,13 +148,15 @@ interface Tool {
 
 export interface AdminDeps {
   authContext: Promise<AuthContext>;
+  /** Better Auth's send-verification-email for an existing, unverified user (delivered after the response). */
+  sendVerificationEmail: (email: string) => Promise<unknown>;
   config: Config;
   db: Database.Database;
   log: Logger;
   paths: DataPaths;
 }
 
-export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps): Hono {
+export function adminRoutes({ authContext, sendVerificationEmail, config, db, log, paths }: AdminDeps): Hono {
   const findKey = db.prepare(
     'SELECT id, scope FROM adminKey WHERE keyHash = ? AND revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > ?)'
   );
@@ -132,7 +164,9 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
   // Expiry is checked again here: a request admitted just before the deadline can't mint after it.
   const spendBootstrap = db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE id = ? AND revokedAt IS NULL AND expiresAt > ?`);
   const revokeAgentKey = db.prepare(`UPDATE adminKey SET revokedAt = ? WHERE id = ? AND scope != 'bootstrap' AND revokedAt IS NULL`);
+  const keyHashOf = db.prepare('SELECT keyHash FROM adminKey WHERE id = ?').pluck();
   const rateLimit = memoryRateLimit();
+  const refusalLogLimit = memoryRateLimit(); // one "refused a key" warning per peer IP per minute
 
   // Better Auth runs async transactions on this same connection; a better-sqlite3 transaction started during one
   // would nest inside it as a savepoint and be undone by its rollback, after we had answered. Refuse instead.
@@ -149,7 +183,7 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
       input: z.object({ scope: z.enum(['read', 'write']) }),
       run: ({ scope }, ok) => {
         // A read key from the bootstrap would leave nothing able to mint or revoke.
-        if (key.scope === 'bootstrap' && scope !== 'write') throw new ToolError('bootstrap_mints_write_only');
+        if (key.scope === 'bootstrap' && scope !== 'write') throw new ToolError('bootstrap_mints_write_only', {}, 'denied');
         notInsideAnotherTransaction();
         const keyId = newKeyId();
         const secret = newKey();
@@ -162,9 +196,12 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
           ok({ minted: keyId });
         })();
         if (key.scope === 'bootstrap') {
-          // Best effort: the key's hash is already revoked, so a file left behind is harmless.
+          // Best effort: the key's hash is already revoked, so a file left behind is harmless. Only the spent key's
+          // file is deleted: the operator CLI may have just written a new one.
           try {
-            rmSync(paths.bootstrapKey, { force: true });
+            if (existsSync(paths.bootstrapKey) && hash(readFileSync(paths.bootstrapKey, 'utf8').trim()) === keyHashOf.get(key.id)) {
+              rmSync(paths.bootstrapKey);
+            }
           } catch (err) {
             log('warn', "couldn't delete the spent bootstrap key file", { file: paths.bootstrapKey, error: err instanceof Error ? err.message : 'unknown' });
           }
@@ -213,8 +250,9 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
     },
     create_user: {
       description:
-        'Create a user with an email and password. The email starts unverified (the user verifies it on first sign-in), ' +
-        'unless you pass emailVerified: true to attest that the address belongs to this user.',
+        'Create a user with an email and password. The email starts unverified: AuthWAPI emails the user a verification link, ' +
+        'which asks for this password, and they can sign in once verified. Pass emailVerified: true instead to attest that ' +
+        'the address belongs to this user; they can then sign in at once and no email is sent.',
       scopes: ['write'],
       input: z.object({
         email: z.email().max(254),
@@ -227,13 +265,25 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
         const address = email.toLowerCase();
         const passwordHash = await ctx.password.hash(password); // slow, so outside the transaction
         // User and credential account commit together, or neither does.
-        return runWithTransaction(ctx.adapter, async () => {
+        const user = await runWithTransaction(ctx.adapter, async () => {
           if (await ctx.internalAdapter.findUserByEmail(address)) throw new ToolError('email_taken');
-          const user = await ctx.internalAdapter.createUser({ email: address, name, emailVerified }, { method: 'admin' });
-          await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: passwordHash });
-          ok({ target: user.id });
-          return { user: { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified } };
+          const created = await ctx.internalAdapter.createUser({ email: address, name, emailVerified }, { method: 'admin' });
+          await ctx.internalAdapter.linkAccount({ userId: created.id, providerId: 'credential', accountId: created.id, password: passwordHash });
+          ok({ target: created.id });
+          return created;
         });
+        // After the commit. The user exists either way, so a failure here is reported in the result, not as an error.
+        let verificationEmail: 'sent' | 'failed' | 'not needed' = 'not needed';
+        if (!emailVerified) {
+          verificationEmail = await sendVerificationEmail(address).then(
+            () => 'sent' as const,
+            (err: unknown) => {
+              log('error', 'create_user: verification email failed', { error: err instanceof Error ? redactUrls(err.message) : 'unknown error' });
+              return 'failed' as const;
+            }
+          );
+        }
+        return { user: { id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified }, verificationEmail };
       },
     },
     read_audit: {
@@ -263,7 +313,9 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
     const server = new Server({ name: 'authwapi-admin', version: VERSION }, { capabilities: { tools: {} } });
     const available = tools(key);
     server.setRequestHandler('tools/list', () => ({
-      tools: Object.entries(available).map(([name, t]) => ({ name, description: t.description, inputSchema: z.toJSONSchema(t.input) as never })),
+      tools: Object.entries(available)
+        .filter(([, t]) => t.scopes.includes(key.scope)) // only what this key can call; tools/call still checks
+        .map(([name, t]) => ({ name, description: t.description, inputSchema: z.toJSONSchema(t.input, { io: 'input' }) as never })),
     }));
     // The one dispatch point, so every call is audited exactly once, in this order: rate limit, known tool, scope
     // (before arguments, so a refused call is recorded as denied), arguments, then the tool.
@@ -271,10 +323,10 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
       const name = request.params.name;
       const tool = Object.hasOwn(available, name) ? available[name] : undefined;
       const base = { who: key.id, scope: key.scope, tool: tool ? name : 'unknown' };
-      let recorded = false;
+      let okExtra: Record<string, string> | undefined; // set once the ok line is written
       const record = (outcome: AuditEntry['outcome'], extra: Record<string, string> = {}) => {
         appendAudit(paths.audit, { ...base, outcome, ...extra });
-        recorded = true;
+        if (outcome === 'ok') okExtra = extra;
       };
 
       const limit = await rateLimit.consume(key.id, RATE_LIMIT);
@@ -284,7 +336,7 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
       }
       if (!tool) {
         record('invalid');
-        return json({ error: 'unknown_tool' }, true);
+        throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Unknown tool'); // never echo the name sent
       }
       if (!tool.scopes.includes(key.scope)) {
         record('denied', { reason: 'scope' });
@@ -297,11 +349,15 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
       }
       try {
         const data = await tool.run(args.data, (extra) => record('ok', extra));
-        if (!recorded) record('ok'); // read tools: nothing to roll back if this fails
+        if (!okExtra) record('ok'); // read tools: nothing to roll back if this fails
         return json(data);
       } catch (err) {
-        // If this write fails too, the SDK answers with a protocol error; any write was already rolled back.
-        if (!recorded) record('error');
+        // A write tool writes its ok line last inside its transaction, so a throw after it means the commit failed
+        // and the change was rolled back: say so under the same ids. If this write fails too, the SDK answers with a
+        // protocol error.
+        if (okExtra) record('error', { reason: 'rolled_back', ...okExtra });
+        else if (err instanceof ToolError && err.outcome === 'denied') record('denied', { reason: err.message });
+        else record('error');
         if (err instanceof ToolError) return json({ error: err.message, ...err.details }, true);
         log('error', 'admin MCP tool failed', { tool: name, error: err instanceof Error ? redactUrls(err.message) : 'unknown error' });
         return json({ error: 'internal_error' }, true);
@@ -320,7 +376,8 @@ export function adminRoutes({ authContext, config, db, log, paths }: AdminDeps):
     const bearer = /^Bearer (\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1];
     const key = bearer ? (findKey.get(hash(bearer), new Date().toISOString()) as Key | undefined) : undefined;
     if (!key) {
-      log('warn', 'admin MCP refused a key', { ip: getConnInfo(c).remote.address ?? 'unknown' }); // never the value sent
+      const ip = getConnInfo(c).remote.address ?? 'unknown';
+      if ((await refusalLogLimit.consume(ip, { window: 60, max: 1 })).allowed) log('warn', 'admin MCP refused a key', { ip }); // never the value sent
       return c.json(
         {
           error: 'invalid_key',

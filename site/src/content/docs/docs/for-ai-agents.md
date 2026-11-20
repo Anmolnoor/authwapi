@@ -92,8 +92,9 @@ Connect an MCP client to `http://localhost:4000/mcp` (Streamable HTTP) with `Aut
 3. Tools: `get_status`, `list_users`, `read_audit` (read or write key); `create_user`, `revoke_agent_key`,
    `mint_agent_key` (write key). Every call is written to `logs/audit.jsonl` by key id. Each key may make 60
    calls a minute.
-4. `create_user` makes an unverified user unless you pass `emailVerified: true`, which attests that the address
-   is theirs.
+4. `create_user` makes an unverified user and emails them a verification link (it asks for the password you set);
+   they can sign in once verified. Passing `emailVerified: true` instead attests that the address is theirs: they
+   can sign in at once and no email is sent.
 
 If the bootstrap key is lost or expired, or no write key is left, the operator runs
 `docker exec authwapi node src/cli.ts bootstrap-key` for a new one-time key.
