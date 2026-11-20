@@ -14,6 +14,8 @@ follow the system light or dark theme, can't be framed by another site, and are 
 | `/forgot-password` | Ask for a reset link |
 | `/reset-password` | Choose a new password (opened from the reset email) |
 | `/consent` | An app asking for access: lists what it wants in plain words, with Allow and Deny |
+| `/select-org` | An app asked for the `organization` scope: pick which of your organizations it's for, or none |
+| `/accept-invitation` | The link in an organization invitation email: accept it while signed in with that address |
 | `/signed-out` | After signing out |
 | `/api/auth/verify-email` | The link in the verification email |
 | `/api/auth/magic-link/verify` | The link in the magic-link email |
@@ -39,4 +41,5 @@ When an app sends a user to sign in, the consent page names the app and lists, i
 | `openid` | Confirm who you are |
 | `email` | See your email address and whether it is verified |
 | `offline_access` | Stay signed in to the app while you're away |
+| `organization` | See which organization you sign in for and your role in it (plus the organization picked) |
 | `resource=<api>` | Access *&lt;api&gt;* on your behalf |

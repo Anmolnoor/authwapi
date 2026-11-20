@@ -159,8 +159,9 @@ and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_U
    id, and `reason` says why a call was refused or rolled back. Every tool call is written, refused or not;
    `initialize` and `tools/list` aren't tool calls and aren't written.
 
-Tools: `get_status`, `list_users`, `read_audit` (read or write key); `create_user`, `revoke_agent_key`,
-`mint_agent_key` (write key). `tools/list` shows only the ones your key can call; the
+Tools: `get_status`, `list_users`, `list_orgs`, `read_audit` (read or write key); `create_user`, `create_org`,
+`invite_member`, `ban_user`, `unban_user`, `set_role`, `revoke_agent_key`, `mint_agent_key` (write key).
+`set_role` with `{"role": "admin"}` makes the first admin. `tools/list` shows only the ones your key can call; the
 [README](https://github.com/Anmolnoor/authwapi#admin-mcp-for-ai-agents) lists their arguments. Each key may make
 60 tool calls a minute. An unknown, revoked or expired key gets HTTP 401, which the script reports as an error.
 

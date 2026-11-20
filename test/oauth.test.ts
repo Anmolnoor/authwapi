@@ -686,7 +686,7 @@ test('PKCE is required, and an unregistered redirect URI is refused without redi
   }
 });
 
-test('only the M1 scopes exist: profile is refused', async () => {
+test('only the M1 scopes and M3\'s organization exist: profile is refused', async () => {
   const client = await createClient();
   const user = await signedInUser();
   const { challenge } = pkce();
@@ -697,7 +697,7 @@ test('only the M1 scopes exist: profile is refused', async () => {
   const at = new URL(res.location ?? 'http://none/', s.base);
   assert.equal(`${at.origin}${at.pathname}`, REDIRECT, `${res.status} ${res.location}`);
   assert.equal(at.searchParams.get('error'), 'invalid_scope');
-  assert.deepEqual((await discovery()).scopes_supported, ['openid', 'email', 'offline_access']);
+  assert.deepEqual((await discovery()).scopes_supported, ['openid', 'email', 'offline_access', 'organization']);
 });
 
 test('CLI: create prints the secret once and stores only a hash; list shows the client without it; bad input fails', async () => {
