@@ -1,6 +1,6 @@
 {
   "name": "authwapi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "WorkOS-style auth for localhost: one docker run, one portable data folder, MCP built in.",
   "repository": "https://github.com/Anmolnoor/authwapi.git",
   "author": "Anmol Noor",

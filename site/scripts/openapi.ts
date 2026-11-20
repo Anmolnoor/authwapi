@@ -12,6 +12,7 @@ import { loadConfig } from '../../src/config.ts';
 
 const OUT = new URL('../public/openapi.json', import.meta.url);
 const MIGRATIONS = new URL('../../migrations/', import.meta.url);
+const VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 const SESSION = [{ sessionCookie: [] }];
 const CLIENT = [{ clientSecretBasic: [] }];
@@ -249,7 +250,7 @@ async function generate(): Promise<string> {
     openapi: '3.1.1',
     info: {
       title: 'AuthWAPI',
-      version: '0.2.0',
+      version: VERSION,
       description:
         'Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. ' +
         'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that sends any cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +

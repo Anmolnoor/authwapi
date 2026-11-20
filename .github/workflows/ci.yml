@@ -29,6 +29,9 @@ jobs:
       - run: npm ci
       - run: npx tsc
       - run: npm test
+      - name: The site's API reference matches the code
+        if: matrix.os == 'ubuntu-latest'
+        run: node site/scripts/openapi.ts --check
 
   # The image's data-folder, rootless podman and kill-during-write checks. Check 3 (SELinux) needs an enforcing
   # host, which GitHub's Ubuntu runners aren't; it runs on Fedora before a release instead. Then upgrades, the app
