@@ -57,11 +57,10 @@ on the new folder.
 a new or empty folder (0700, files 0600). It works while the server runs; writes pause briefly while it copies:
 
 ```bash
-d=$(date +%Y%m%d)
-src=authwapi-export
-docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d   # -u: your PUID if not 1000
-# It lands inside the mounted folder; move it out, never into (or over) an existing folder.
-if [ -e "$src" ]; then echo "$src already exists; move it away first" >&2; else mv "authwapi-data/export-$d" "$src"; fi
+d=$(date +%Y%m%d-%H%M%S)   # a new name every run, so nothing old can be picked up by mistake
+src=authwapi-export-$d
+docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d \
+  && mv "authwapi-data/export-$d" "$src" && echo "export ready: $src"   # -u: your PUID if not 1000
 ```
 
 An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
@@ -70,11 +69,11 @@ running one):
 
 ```bash
 docker stop authwapi
-d=$(date +%Y%m%d)
-src=authwapi-export-final
+d=$(date +%Y%m%d-%H%M%S)
+src=authwapi-export-final-$d
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
-  --entrypoint node authwapi src/cli.ts export /data/export-$d
-if [ -e "$src" ]; then echo "$src already exists; move it away first" >&2; else mv "authwapi-data/export-$d" "$src"; fi
+  --entrypoint node authwapi src/cli.ts export /data/export-$d \
+  && mv "authwapi-data/export-$d" "$src" && echo "export ready: $src"
 ```
 
 `import` restores an export into a data folder that has no database or secret yet. It first checks the export
@@ -83,7 +82,7 @@ new server starts, then start the server on that folder (it applies any newer mi
 host, remove the old container first, since the new one takes its name and port:
 
 ```bash
-# $src is the folder the export above moved out (authwapi-export, or authwapi-export-final after a cutover).
+# Only after the export above printed "export ready: <folder>"; $src is that folder (same shell).
 docker rm -f authwapi    # same host only; on a new host, skip this
 mkdir new-data           # a fresh, empty folder
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
