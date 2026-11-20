@@ -94,8 +94,12 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
   API (the client must be registered for it); verify signature, `iss` and `aud` against the JWKS. Refresh tokens
   rotate.
 - A JWT stays valid until it expires even after sign-out; use the introspection endpoint when revocation must be
-  instant. Signing out, ending the session through the OIDC end-session endpoint, revoking sessions or resetting
-  the password revokes every refresh token the user has, for every app.
+  instant (it reports tokens issued before the revocation inactive; so does userinfo). Signing out, ending the
+  session through the OIDC end-session endpoint (`id_token_hint` works for CLI clients), revoking sessions,
+  changing the password with `revokeOtherSessions`, or resetting the password revokes every refresh token the
+  user has, for every app.
+- Send `resource` on the token request only if it was on the authorization request (`invalid_target` otherwise).
+  A `claims` request may name `email`/`email_verified` only with the `email` scope.
 
 ## API
 
