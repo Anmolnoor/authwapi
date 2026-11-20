@@ -335,10 +335,8 @@ for (const [name, signOut] of Object.entries(otherSignOuts)) {
   });
 }
 
-test('an expired session being cleared does not revoke offline_access tokens', async () => {
-  const client = await createClient();
-  const user = await signedInUser();
-  const tokens = await codeForTokens(client, user.cookie);
+/** Expires the user's sessions in the database and lets a request with the old cookie clear them. */
+async function expireAndClearSessions(user: { cookie: string; userId: string }) {
   const db = new Database(s.paths.db);
   db.prepare('UPDATE session SET expiresAt = ? WHERE userId = ?').run(Date.now() - 1000, user.userId);
   db.close();
@@ -346,6 +344,138 @@ test('an expired session being cleared does not revoke offline_access tokens', a
   const db2 = new Database(s.paths.db, { readonly: true });
   assert.equal(db2.prepare('SELECT count(*) FROM session WHERE userId = ?').pluck().get(user.userId), 0, 'the expired session was not cleared');
   db2.close();
+}
+
+test('a password reset revokes tokens even when the user has no session rows left', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  await expireAndClearSessions(user);
+  await otherSignOuts['password reset'](user);
+  assert.equal((await introspect(client, tokens.access_token)).active, false);
+  const res = await refresh(client, tokens.refresh_token!);
+  assert.equal(res.status, 400, await res.clone().text());
+});
+
+test('revoke-other-sessions revokes tokens even when there is no other session to delete', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  assert.equal((await postJson('/api/auth/revoke-other-sessions', {}, user.cookie)).status, 200);
+  assert.equal((await refresh(client, tokens.refresh_token!)).status, 400);
+});
+
+test('change-password revokes tokens only when it signs out other sessions', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const kept = await codeForTokens(client, user.cookie);
+  const change = (from: string, to: string, revokeOtherSessions: boolean) =>
+    postJson('/api/auth/change-password', { currentPassword: from, newPassword: to, revokeOtherSessions }, user.cookie);
+  assert.equal((await change('correct horse', 'second password', false)).status, 200);
+  const keptRes = await refresh(client, kept.refresh_token!);
+  assert.equal(keptRes.status, 200, await keptRes.clone().text());
+
+  const tokens = await codeForTokens(client, user.cookie);
+  const res = await change('second password', 'third password', true);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await refresh(client, tokens.refresh_token!)).status, 400);
+});
+
+test('if revoking fails, sign-out fails and the session stays', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  const db = new Database(s.paths.db);
+  db.exec("CREATE TRIGGER fail_revoke BEFORE UPDATE ON oauthRefreshToken BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
+  try {
+    const res = await postJson('/api/auth/sign-out', {}, user.cookie);
+    assert.ok(res.status >= 500, `${res.status} ${await res.text()}`);
+  } finally {
+    db.exec('DROP TRIGGER fail_revoke');
+    db.close();
+  }
+  const session = (await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } }).then((r) => r.json())) as { user?: { id: string } } | null;
+  assert.equal(session?.user?.id, user.userId, 'the session was deleted although its tokens were not revoked');
+  assert.equal((await refresh(client, tokens.refresh_token!)).status, 200);
+});
+
+test('a resource that was not in the authorization request is refused at the token endpoint', async () => {
+  const client = await createClient('--resource', API);
+  const user = await signedInUser();
+  // Code exchange: authorized without resource, exchanged with one.
+  const { code, verifier } = await authorize(client, user.cookie);
+  const exchange = await token(client, { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, code_verifier: verifier, resource: API });
+  assert.equal(exchange.status, 400, await exchange.clone().text());
+  assert.equal(((await exchange.json()) as { error: string }).error, 'invalid_target');
+  // Refresh: granted without resource, refreshed with one.
+  const tokens = await codeForTokens(client, user.cookie);
+  const res = await token(client, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token!, resource: API });
+  assert.equal(res.status, 400, await res.clone().text());
+  assert.equal(((await res.json()) as { error: string }).error, 'invalid_target');
+  // A resource that was authorized still works on refresh.
+  const withApi = await codeForTokens(client, user.cookie, { resource: API });
+  const ok = await token(client, { grant_type: 'refresh_token', refresh_token: withApi.refresh_token!, resource: API });
+  assert.equal(ok.status, 200, await ok.clone().text());
+});
+
+test('introspection and userinfo refuse a refresh-minted JWT (no sid) once the user signs out', async () => {
+  const client = await createClient('--resource', API);
+  const user = await signedInUser();
+  const first = await codeForTokens(client, user.cookie, { resource: API });
+  // Once the browser session is gone, the offline refresh token outlives it and mints JWTs with no sid, which
+  // Better Auth's session-liveness check can't cut off.
+  await expireAndClearSessions(user);
+  const res = await token(client, { grant_type: 'refresh_token', refresh_token: first.refresh_token!, resource: API });
+  assert.equal(res.status, 200, await res.clone().text());
+  const jwt = ((await res.json()) as Tokens).access_token;
+  assert.equal(decodeJwt(jwt).sid, undefined, 'the refresh-minted JWT is bound to a session');
+  assert.equal((await introspect(client, jwt)).active, true);
+  assert.equal((await fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: `Bearer ${jwt}` } })).status, 200);
+
+  const again = await postJson('/api/auth/sign-in/email', { email: user.email, password: 'correct horse' });
+  assert.equal((await postJson('/api/auth/sign-out', {}, cookieOf(again))).status, 200);
+  assert.equal((await introspect(client, jwt)).active, false);
+  const info = await fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: `Bearer ${jwt}` } });
+  assert.equal(info.status, 401, await info.text());
+});
+
+test('a claims request for email needs the email scope', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const { challenge } = pkce();
+  const base = { response_type: 'code', client_id: client.id, redirect_uri: REDIRECT, state: 's', code_challenge: challenge, code_challenge_method: 'S256', prompt: 'consent' };
+  for (const claims of [{ userinfo: { email: null } }, { id_token: { email_verified: { essential: true } } }]) {
+    const res = await navigate({ ...base, scope: 'openid', claims: JSON.stringify(claims) }, user.cookie);
+    const at = new URL(res.location ?? 'http://none/', s.base);
+    assert.equal(at.searchParams.get('error'), 'invalid_request', `${res.status} ${res.location} ${res.body}`);
+    assert.match(at.searchParams.get('error_description') ?? '', /email/);
+  }
+  // With the email scope the same request goes to consent.
+  const ok = await navigate({ ...base, scope: 'openid email', claims: JSON.stringify({ userinfo: { email: null } }) }, user.cookie);
+  assert.equal(new URL(ok.location!, s.base).pathname, '/consent', `${ok.status} ${ok.location}`);
+  // Accepting only openid at consent while the claims ask for email is refused too.
+  const consent = new URL(ok.location!, s.base);
+  const narrowed = await postJson('/api/auth/oauth2/consent', { accept: true, scope: 'openid', oauth_query: consent.search.slice(1) }, user.cookie);
+  assert.equal(narrowed.status, 400, await narrowed.clone().text());
+  assert.equal(((await narrowed.json()) as { error: string }).error, 'invalid_request');
+});
+
+test('RP-initiated logout with a real id_token_hint ends the session and revokes refresh tokens', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  assert.ok(decodeJwt(tokens.id_token!).sid, 'the ID token carries sid');
+  const res = await fetch(`${s.base}/api/auth/oauth2/end-session?${new URLSearchParams({ id_token_hint: tokens.id_token! })}`);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal(await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } }).then((r) => r.json()), null);
+  assert.equal((await refresh(client, tokens.refresh_token!)).status, 400);
+});
+
+test('an expired session being cleared does not revoke offline_access tokens', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  await expireAndClearSessions(user);
   assert.equal((await refresh(client, tokens.refresh_token!)).status, 200);
 });
 
@@ -483,6 +613,34 @@ test('clients and resources can only be created by the CLI: dynamic registration
   assert.equal(db.prepare('SELECT count(*) FROM oauthResource').pluck().get(), 0);
   db.close();
   assert.equal((await discovery()).registration_endpoint, undefined);
+});
+
+test('session-based client endpoints refuse a signed-in user: get, list, update, delete, rotate-secret', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const q = `client_id=${encodeURIComponent(client.id)}`;
+  const calls: [string, () => Promise<Response>][] = [];
+  for (const cookie of [user.cookie, '']) {
+    const headers: Record<string, string> = cookie ? { cookie } : {};
+    const label = cookie ? 'with session' : 'without session';
+    calls.push(
+      [`get-client ${label}`, () => fetch(`${s.base}/api/auth/oauth2/get-client?${q}`, { headers })],
+      [`get-clients ${label}`, () => fetch(`${s.base}/api/auth/oauth2/get-clients`, { headers })],
+      [`update-client ${label}`, () => postJson('/api/auth/oauth2/update-client', { client_id: client.id, update: { client_name: 'pwned' } }, cookie)],
+      [`delete-client ${label}`, () => postJson('/api/auth/oauth2/delete-client', { client_id: client.id }, cookie)],
+      [`rotate-secret ${label}`, () => postJson('/api/auth/oauth2/client/rotate-secret', { client_id: client.id }, cookie)]
+    );
+  }
+  for (const [label, call] of calls) {
+    const res = await call();
+    const body = await res.text();
+    assert.ok([401, 403].includes(res.status), `${label} → ${res.status} ${body}`);
+    assert.equal(body.includes(client.id), false, `${label} leaked the client`);
+  }
+  const list = await cli('clients', 'list');
+  assert.match(list.stdout, new RegExp(`${client.id}\\s+Test App`), 'the client was changed or deleted');
+  const wrong = await token(client, { grant_type: 'refresh_token', refresh_token: 'x' });
+  assert.equal(wrong.status, 400, 'the client secret was rotated'); // right secret, bad refresh token
 });
 
 test('no session JWTs: GET /api/auth/token is gone and get-session sets no JWT header', async () => {
