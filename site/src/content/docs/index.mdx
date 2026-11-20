@@ -1,0 +1,63 @@
+---
+title: AuthWAPI
+description: Self-hosted auth server in one container. Sign-up, sign-in, magic links and an OAuth 2.1 / OpenID Connect provider, with all its data in one folder.
+template: splash
+hero:
+  tagline: Auth for your apps from one docker run. Sign-up, sign-in, magic links and an OAuth 2.1 / OpenID Connect provider, with everything it keeps in one folder you can move.
+  actions:
+    - text: Quick start
+      link: /docs/quick-start/
+      icon: right-arrow
+    - text: For AI agents
+      link: /docs/for-ai-agents/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/Anmolnoor/authwapi
+      icon: external
+      variant: minimal
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Early release (M1)">
+Sign-up, sign-in, magic links, password reset, hosted pages and the OAuth provider work today. The admin MCP server and export/import are not built yet. Don't put real users on it yet. See [Status and roadmap](/docs/status/).
+</Aside>
+
+```bash
+git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi
+docker build -t authwapi .
+docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
+curl http://localhost:4000/health        # {"status":"ok"}
+```
+
+## What you get
+
+<CardGrid>
+  <Card title="Accounts" icon="seti:lock">
+    Email and password sign-up with email verification, sign-in, sessions, password reset, and magic links (one use, 5 minutes).
+  </Card>
+  <Card title="Hosted pages" icon="laptop">
+    Server-rendered sign-in, sign-up, reset and consent pages with no JavaScript. Your app redirects to them; you build no login UI.
+  </Card>
+  <Card title="OAuth 2.1 / OpenID Connect" icon="puzzle">
+    AuthWAPI is the identity provider for your apps: authorization code with PKCE, ID tokens, JWT access tokens for your APIs, JWKS, introspection, refresh-token rotation.
+  </Card>
+  <Card title="One folder" icon="document">
+    The SQLite database, the instance secret, logs and migrations all live in the folder you mount. To move it, stop the container and copy the folder.
+  </Card>
+  <Card title="Safe by default" icon="approve-check">
+    Every example publishes the port on 127.0.0.1 only. It refuses unknown Host and Origin headers, rate-limits sign-in and the API, and keeps tokens and links out of its logs.
+  </Card>
+  <Card title="Docs agents can use" icon="rocket">
+    An [llms.txt](/llms.txt) entry point, the whole docs as [one text file](/llms-full.txt), and an [OpenAPI 3.1 file](/openapi.json) generated from the server's own config.
+  </Card>
+</CardGrid>
+
+## Pick your path
+
+<CardGrid>
+  <LinkCard title="Run it" description="Start the container, sign up, find the verification email in the outbox." href="/docs/quick-start/" />
+  <LinkCard title="Sign users in to your app" description="Register a client, run the authorization code flow, verify tokens." href="/docs/integrate-an-app/" />
+  <LinkCard title="Call the API" description="Sign-up, sign-in and sessions over HTTP with a cookie." href="/docs/http-api/" />
+  <LinkCard title="Point an agent at it" description="What an AI agent should read first, and the rules it must follow." href="/docs/for-ai-agents/" />
+</CardGrid>

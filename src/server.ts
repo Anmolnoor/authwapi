@@ -1,104 +1,63 @@
-// Must be the first import: modules below read process.env when they load.
-import 'dotenv/config';
-import app from './app';
-import Logger from './utils/logger';
-import mongoose from 'mongoose';
+import { serve } from '@hono/node-server';
+import { betterAuth } from 'better-auth';
+import type { AddressInfo } from 'node:net';
+import { createApp } from './app.ts';
+import { authOptions } from './auth.ts';
+import { loadConfig } from './config.ts';
+import { loadOrCreateSecret, prepareDataDir, type DataPaths } from './data.ts';
+import { openDb } from './db.ts';
+import { createLogger } from './log.ts';
+import { createMailer, sweepOutbox, type SendMail } from './mailer.ts';
+import { migrate, MIGRATIONS_DIR } from './migrate.ts';
 
-let server: any;
+export interface Running {
+  port: number;
+  paths: DataPaths;
+  close: () => Promise<void>;
+}
 
-// ---- handling uncaught exceptions ----
-process.on('uncaughtException', (err: Error) => {
-  Logger.error(
-    '🔥🔥🔥 Uncaught Exception!!! 🔥🔥🔥 Shutting Down The Server ...'
-  );
-  Logger.error(`Name: ${err.name}`);
-  Logger.error(`Message: ${err.message}`);
-  Logger.error(`Stack: ${err.stack}`);
+/** `sendMail` is for tests (a slow or failing mailer); the server always builds its own. */
+export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: SendMail } = {}): Promise<Running> {
+  process.umask(0o077); // every file AuthWAPI creates is private to its user
+  const config = loadConfig(env);
+  const paths = prepareDataDir(config.dataDir);
+  const log = createLogger(paths.logs);
+  const secret = loadOrCreateSecret(paths.secret);
+  const db = openDb(paths.db);
+  await migrate(db, MIGRATIONS_DIR, paths, log);
+  await sweepOutbox(paths.outbox); // at boot, in either email mode
 
-  // Attempt to close the server gracefully
-  server.close(() => {
-    Logger.info('Server closed gracefully.');
-    process.exit(1); // Exit with a failure code
+  const sendMail = overrides.sendMail ?? createMailer(config.email, paths.outbox, log);
+  const auth = betterAuth(authOptions({ config, db, secret, sendMail, log }));
+  const app = createApp({ auth, config, db, log, secret });
+
+  const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port });
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
   });
+  const port = (server.address() as AddressInfo).port;
+  log('info', 'listening', { port, baseUrl: config.baseUrl.origin, email: config.email.mode, data: paths.root });
 
-  // Forcefully shut down the server after a timeout if it doesn't close gracefully
-  setTimeout(() => {
-    Logger.error('Forcing server shutdown due to uncaught exception.');
-    process.exit(1);
-  }, 10000).unref(); // 10 seconds timeout
-});
-
-// ---- setting strictQuery to false ----
-mongoose.set('strictQuery', false);
-
-const port = process.env.PORT ?? 8000;
-
-const startServer = async () => {
-  try {
-    // Validate environment variables
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      throw new Error('DATABASE_URL is not defined');
-    }
-
-    // Connect to the database
-    await mongoose.connect(databaseUrl);
-    Logger.info('DB is Connected!!');
-
-    // Start the server
-    server = app.listen(port, () => {
-      Logger.info(
-        `App is running in ${
-          process.env.NODE_ENV ?? '{Not Defined environment}'
-        } mode | Server is running on Port : ${port} `
-      );
-    });
-
-    // Graceful shutdown
-    const gracefulShutdown = () => {
-      Logger.info('Shutting down gracefully...');
+  const close = () =>
+    new Promise<void>((resolve) =>
       server.close(() => {
-        Logger.info('Server closed.');
-        mongoose.connection.close(false);
-        Logger.info('Db connection closed.');
-        process.exit(0); // Exit with a success code
-      });
+        db.close();
+        resolve();
+      })
+    );
+  return { port, paths, close };
+}
 
-      // Force shutdown after a timeout
-      setTimeout(() => {
-        Logger.error('Forcing shutdown due to timeout.');
-        process.exit(1);
-      }, 10000).unref(); // 10 seconds timeout
-    };
-
-    process.on('SIGTERM', gracefulShutdown);
-    process.on('SIGINT', gracefulShutdown);
-  } catch (error) {
-    Logger.error('Failed to start the server:', error);
-    process.exit(1); // Exit with a failure code
-  }
-};
-
-startServer();
-
-// ---- handling unhandled rejections ----
-process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-  Logger.error(
-    '🔥🔥🔥  Unhandled Rejection!!! 🔥🔥🔥 Shutting Down The Server ...'
-  );
-  Logger.error('Reason:', reason);
-  Logger.error('Promise:', promise);
-
-  server.close(() => {
-    Logger.info('Server closed gracefully.');
-    process.exit(1); // Exit with a failure code
-  });
-
-  // Forcefully shut down the server after a timeout if it doesn't close gracefully
-  setTimeout(() => {
-    Logger.error('Forcing server shutdown due to unhandled rejection.');
+if (import.meta.main) {
+  try {
+    const running = await start(process.env);
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      process.once(signal, () => void running.close().then(() => process.exit(0)));
+    }
+  } catch (err) {
+    process.stderr.write(`AuthWAPI failed to start: ${err instanceof Error ? err.message : String(err)}\n`);
+    if (err instanceof Error && err.cause) process.stderr.write(`  cause: ${String(err.cause)}\n`);
     process.exit(1);
-  }, 10000).unref(); // 10 seconds timeout
-});
-
-export default startServer;
+  }
+}

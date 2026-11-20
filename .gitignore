@@ -42,3 +42,7 @@ logs/*.log_*               # logs
 app.log
 exceptions.log
 rejections.log
+# local dev data folder
+.data/
+# data folder from the README quick start (holds the instance secret)
+/authwapi-data/
