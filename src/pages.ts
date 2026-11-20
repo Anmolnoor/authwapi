@@ -71,7 +71,9 @@ const socialError = (code: string) =>
     ? "An account with this email already exists but its address isn't verified, so it can't be joined to that sign-in yet. Use 'Email me a link' below: it verifies the address, then that sign-in works too."
     : code === 'email_not_verified'
       ? "That provider didn't confirm your email address is verified. Verify it there, or sign in another way."
-      : `That sign-in didn't work (${code}). Try again or sign in another way.`;
+      : code === 'account_exists'
+        ? 'An account with this email already exists, so this SSO sign-in was refused. Sign in as before, or ask the operator to connect it to SSO.'
+        : `That sign-in didn't work (${code}). Try again or sign in another way.`;
 
 /** Plain-words descriptions for the consent page. Unknown scopes are shown by name. */
 const SCOPE_WORDS: Record<string, string> = {
@@ -285,6 +287,13 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
             <button class="secondary">Continue with ${PROVIDER_NAMES[provider]}</button>
           </form>`
         )}
+        <form method="post" action="/sign-in">
+          <input type="hidden" name="method" value="sso">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <label for="sso-email">Or sign in with your organization (SSO)</label>
+          <input id="sso-email" name="email" type="email" autocomplete="email" required>
+          <button class="secondary">Sign in with SSO</button>
+        </form>
         <hr>
         <form method="post" action="/sign-in">
           <input type="hidden" name="method" value="magic-link">
@@ -324,6 +333,17 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       });
       const url = (r.data as { url?: string } | null)?.url;
       if (r.status !== 200 || !url) return signInPage(c, query, errorText('/sign-in/social', r), undefined, 400);
+      return c.redirect(url, 303);
+    }
+    if (f('method') === 'sso') {
+      // The email's domain picks the organization's provider; like magic link, the callback lands on resumeUrl.
+      const r = await ba(c, 'POST', '/sign-in/sso', {
+        email: f('email'),
+        callbackURL: resumeUrl(query),
+        errorCallbackURL: query ? `/sign-in?${query}` : '/sign-in',
+      });
+      const url = (r.data as { url?: string } | null)?.url;
+      if (r.status !== 200 || !url) return signInPage(c, query, r.status === 404 ? 'No organization signs in with SSO at that address.' : errorText('/sign-in/sso', r), undefined, 400);
       return c.redirect(url, 303);
     }
     const r = await ba(c, 'POST', '/sign-in/email', {

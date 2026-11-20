@@ -108,6 +108,8 @@ const IMPERSONATION_REFUSED = new Set([
   '/account-info',
 ]);
 const refusedWhenImpersonated = (p: string) => IMPERSONATION_REFUSED.has(p) || p.startsWith('/two-factor/') || p.startsWith('/passkey/');
+// Server-side calls that run as the organization owner (asUser): MCP invitations, SSO provider changes (src/sso.ts).
+const AS_USER_PATHS = new Set(['/organization/invite-member', '/sso/register', '/sso/delete-provider']);
 // Admin routes that end a user's sessions or replace their password: their OAuth tokens go too (by body.userId).
 // /admin/remove-user needs nothing: deleting the user deletes their tokens (foreign keys cascade).
 const REVOKES_TOKENS = new Set(['/admin/revoke-user-sessions', '/admin/set-user-password']);
@@ -169,7 +171,7 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
         },
         {
           // Never reachable over HTTP: the router always passes the request.
-          matcher: (ctx) => ctx.path === '/organization/invite-member' && ctx.request === undefined,
+          matcher: (ctx) => ctx.path !== undefined && AS_USER_PATHS.has(ctx.path) && ctx.request === undefined,
           handler: createAuthMiddleware(async (ctx) => {
             const userId = await actingAs.get();
             const user = userId ? await ctx.context.internalAdapter.findUserById(userId) : null;

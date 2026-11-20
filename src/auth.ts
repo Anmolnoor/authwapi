@@ -6,6 +6,7 @@ import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
 import { orgAdminPlugins } from './orgs.ts';
 import { linkingPolicy, signInPlugins, socialProviders } from './signin.ts';
+import { SSO_DISABLED_PATHS, ssoPlugins } from './sso.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -89,13 +90,15 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     secret,
     database: db,
     trustedOrigins: config.trustedOrigins,
+    disabledPaths: SSO_DISABLED_PATHS, // M4a: SSO providers change only in-process (src/sso.ts)
     session: { freshAge: SESSION_FRESH_AGE_SECONDS },
     // Better Auth's warnings and errors go to our log (app.jsonl), not only the console. Errors are
     // recorded by message, without stack traces.
     logger: {
       level: 'warn',
       log: (level, message, ...args) =>
-        log(level === 'error' ? 'error' : 'warn', `better-auth: ${scrub(message)}`, {
+        // `message` is sometimes an Error (the SSO plugin logs a failed ID-token check that way).
+        log(level === 'error' ? 'error' : 'warn', `better-auth: ${scrub((message as unknown) instanceof Error ? (message as unknown as Error).message : String(message))}`, {
           detail: scrub(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' ')),
         }),
     },
@@ -157,6 +160,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
       // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
       ...signInPlugins(config),
       ...orgAdminPlugins(deps, deliver), // M3: src/orgs.ts
+      ...ssoPlugins(), // M4a: src/sso.ts
       ...oauthPlugins(deps), // lane A
       adminKeySchema,
     ],

@@ -6,6 +6,7 @@
 //   node src/cli.ts resource link <client_id> <resource>
 //   node src/cli.ts resource unlink <client_id> <resource>
 //   node src/cli.ts bootstrap-key
+//   node src/cli.ts sso register|list|delete|bind ...   (SSO providers per organization, src/sso.ts)
 //   node src/cli.ts export <dir>    (safe while the server runs)
 //   node src/cli.ts import <dir>    (into a data folder with no database; then start the server)
 // In the container: docker exec authwapi node src/cli.ts ...
@@ -14,16 +15,17 @@ import { validateClientIdUrl } from '@better-auth/cimd';
 import type { oauthProvider } from '@better-auth/oauth-provider';
 import { betterAuth, type InferAPI } from 'better-auth';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { reissueBootstrapKey } from './admin.ts';
+import { appendAudit, reissueBootstrapKey } from './admin.ts';
 import { authOptions } from './auth.ts';
 import { loadConfig } from './config.ts';
 import { dataPaths, exportData, importData, loadOrCreateSecret, prepareDataDir, type DataPaths } from './data.ts';
 import { openDb } from './db.ts';
 import { createLogger } from './log.ts';
 import { MIGRATIONS_DIR } from './migrate.ts';
+import { bindSsoIdentity, deleteSsoProvider, listSsoProviders, registerSsoProvider, ssoProviderInput } from './sso.ts';
 
 const USAGE = `Usage:
   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
@@ -32,6 +34,11 @@ const USAGE = `Usage:
   node src/cli.ts resource link <client_id> <resource>
   node src/cli.ts resource unlink <client_id> <resource>
   node src/cli.ts bootstrap-key
+  node src/cli.ts sso register --org <id> --slug <slug> --domain <domain> --issuer <url> --client-id <id>
+      --authorization-endpoint <url> --token-endpoint <url> --jwks-endpoint <url>   (client secret on stdin)
+  node src/cli.ts sso list
+  node src/cli.ts sso delete <providerId>
+  node src/cli.ts sso bind --provider <providerId> --subject <sub> --user <userId>
   node src/cli.ts export <dir>
   node src/cli.ts import <dir>
 
@@ -46,6 +53,10 @@ resource link lets a client get tokens for it. For an MCP client the client_id i
 Client ID Metadata Document; AuthWAPI fetches that document only after it is linked, when a user signs in.
 resource unlink takes that away: an MCP client linked to no resource gets no new sign-in or refresh from then on.
 Access tokens it already holds stay valid at the resource server until they expire (at most 15 minutes).
+
+sso register adds an organization's OIDC identity provider (provider ID sso-<slug>); register the printed
+redirect URI with the identity provider. sso bind lets a subject at a provider sign in as an existing, verified
+user (SSO never joins accounts by email). sso delete also ends its users' sessions and OAuth tokens.
 
 bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
 and revokes any unused earlier one. Use it when the bootstrap key is lost or expired, or no write key is left.`;
@@ -77,6 +88,7 @@ async function main(argv: string[]): Promise<void> {
     console.log(`Exported ${path.resolve(dataDir)} to ${out}. It holds the instance secret: keep it private.`);
     return;
   }
+  if (group === 'sso') return sso(command, rest);
   const bootstrap = group === 'bootstrap-key';
   if (bootstrap && argv.length > 1) throw new UsageError('bootstrap-key takes no options');
   const resource = group === 'resource';
@@ -99,18 +111,8 @@ async function main(argv: string[]): Promise<void> {
     if (!values['redirect-uri']?.length) throw new UsageError('at least one --redirect-uri is required');
   }
 
-  process.umask(0o077);
-  const config = loadConfig(process.env);
-  findDataFolder(config.dataDir);
-  const paths = prepareDataDir(config.dataDir);
-  const db = openDb(paths.db);
+  const { config, paths, db } = openDataFolder();
   try {
-    const applied = new Set(db.prepare('SELECT name FROM _authwapi_migrations').pluck().all() as string[]);
-    const pending = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && !applied.has(f));
-    if (pending.length > 0) {
-      throw new Error(`This database hasn't had ${pending.join(', ')} applied. Start the server (it applies migrations), then run this again.`);
-    }
-
     if (bootstrap) {
       const expiresAt = reissueBootstrapKey(db, paths);
       createLogger(paths.logs)('info', 'bootstrap admin key reissued by the operator CLI', { file: paths.bootstrapKey, expiresAt });
@@ -136,10 +138,7 @@ async function main(argv: string[]): Promise<void> {
     }
 
     const log = createLogger(paths.logs);
-    const sendMail = async () => {
-      throw new Error('The CLI does not send email');
-    };
-    const auth = betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log }));
+    const auth = cliAuth(config, paths, db);
     const api = auth.api as unknown as OAuthAdminApi;
     const headers = new Headers(); // Better Auth's admin endpoints require a headers object
     const context = await auth.$context;
@@ -214,6 +213,80 @@ async function main(argv: string[]): Promise<void> {
     console.log(`client_id:     ${client.client_id}`);
     console.log(`client_secret: ${client.client_secret}`);
     if (resources.length > 0) console.log(`resources:     ${resources.join(' ')}`);
+  } finally {
+    db.close();
+  }
+}
+
+/** The server's database, once every migration the server would apply has been applied. */
+function openDataFolder() {
+  process.umask(0o077);
+  const config = loadConfig(process.env);
+  findDataFolder(config.dataDir);
+  const paths = prepareDataDir(config.dataDir);
+  const db = openDb(paths.db);
+  const applied = new Set(db.prepare('SELECT name FROM _authwapi_migrations').pluck().all() as string[]);
+  const pending = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && !applied.has(f));
+  if (pending.length > 0) {
+    db.close();
+    throw new Error(`This database hasn't had ${pending.join(', ')} applied. Start the server (it applies migrations), then run this again.`);
+  }
+  return { config, paths, db };
+}
+
+/** A Better Auth instance on the data folder, for in-process calls. It sends no email. */
+function cliAuth(config: ReturnType<typeof loadConfig>, paths: DataPaths, db: ReturnType<typeof openDb>) {
+  const sendMail = async () => {
+    throw new Error('The CLI does not send email');
+  };
+  return betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log: createLogger(paths.logs) }));
+}
+
+/** `sso register|list|delete|bind`. Each change writes an audit line (who: operator-cli). */
+async function sso(command: string | undefined, args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: command === 'delete',
+    options: Object.fromEntries(
+      ['org', 'slug', 'domain', 'issuer', 'client-id', 'authorization-endpoint', 'token-endpoint', 'jwks-endpoint', 'provider', 'subject', 'user'].map((o) => [o, { type: 'string' as const }])
+    ),
+    strict: true,
+  });
+  if (!['register', 'list', 'delete', 'bind'].includes(command ?? '')) throw new UsageError('unknown sso command');
+  if (command === 'delete' && positionals.length !== 1) throw new UsageError('sso delete takes one provider ID');
+  const { config, paths, db } = openDataFolder();
+  try {
+    const auth = cliAuth(config, paths, db);
+    const context = await auth.$context;
+    const audit = (tool: string, target: string) => appendAudit(paths.audit, { who: 'operator-cli', scope: 'operator', tool, outcome: 'ok', target });
+    if (command === 'list') {
+      const providers = await listSsoProviders(context);
+      if (providers.length === 0) console.log('No SSO providers. Add one with: node src/cli.ts sso register ...');
+      for (const p of providers) console.log(`${p.providerId}  ${p.domain}  organization ${p.organizationId}\n  issuer: ${p.issuer}\n  redirect URI: ${p.redirectUri}`);
+    } else if (command === 'delete') {
+      await deleteSsoProvider(context, auth.api, positionals[0], () => audit('sso delete', positionals[0]));
+      console.log(`Deleted ${positionals[0]}; its users' sessions and OAuth tokens are revoked.`);
+    } else if (command === 'bind') {
+      if (!values.provider || !values.subject || !values.user) throw new UsageError('sso bind needs --provider, --subject and --user');
+      await bindSsoIdentity(context, values.provider, values.subject, values.user, () => audit('sso bind', values.provider!));
+      console.log(`Bound subject ${values.subject} at ${values.provider} to user ${values.user}.`);
+    } else {
+      const input = ssoProviderInput.safeParse({
+        organizationId: values.org,
+        slug: values.slug,
+        domain: values.domain,
+        issuer: values.issuer,
+        clientId: values['client-id'],
+        clientSecret: readFileSync(0, 'utf8').trim(), // stdin: never in the process list or shell history
+        authorizationEndpoint: values['authorization-endpoint'],
+        tokenEndpoint: values['token-endpoint'],
+        jwksEndpoint: values['jwks-endpoint'],
+      });
+      if (!input.success) throw new UsageError(input.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
+      const p = await registerSsoProvider(context, auth.api, input.data, (providerId) => audit('sso register', providerId));
+      console.log(`Registered ${p.providerId} for organization ${p.organizationId}, domain ${p.domain}.`);
+      console.log(`Redirect URI (register it with the identity provider): ${p.redirectUri}`);
+    }
   } finally {
     db.close();
   }
