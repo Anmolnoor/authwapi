@@ -17,10 +17,9 @@ first link below; it leads to everything else.
 
 ## Runbook: start AuthWAPI and create a verified user, no human needed
 
-Every step is a shell command whose output you can check. The steps share shell variables (`BASE_URL`, later
-`BOOT` and `KEY`), so run them in one shell; if your tool starts a new shell for each command, set them again
-first. `docker exec -u 1000` runs as the server's user: 1000 is the default `PUID`, so use yours if you set one.
-With rootless podman and `--userns=keep-id`, use `podman exec -u "$(id -u)"` instead. If your shell runs in a
+Every step is a shell command whose output you can check. The steps share the shell variable `BASE_URL`, so run
+them in one shell; if your tool starts a new shell for each command, set it again first. `docker exec -u 1000`
+runs as the server's user: 1000 is the default `PUID`, so use yours if you set one. With rootless podman and `--userns=keep-id`, use `podman exec -u "$(id -u)"` instead. If your shell runs in a
 container, read [Agent in another container](#agent-in-another-container) first.
 
 1. **Build and start.**
@@ -71,50 +70,71 @@ container, read [Agent in another container](#agent-in-another-container) first.
 ## Agent in another container
 
 When your shell runs in its own container, `localhost` is that container, there is no `docker` command, and on
-Linux a port published on `127.0.0.1` can't be reached from it. Whoever runs Docker on the host (the operator, or
-you before you move in) starts the server and your container on one user-defined network:
+Linux a port published on `127.0.0.1` can't be reached from it. Instead of runbook step 1, whoever runs Docker on
+the host starts the server and your container on one user-defined network, each with its own name and data folder
+(other people's containers may share the machine), then pipes the bootstrap key into your container:
 
 ```bash
-ID=$(openssl rand -hex 3)   # unique names: other people's containers may share this machine
+ID=$(openssl rand -hex 3)
 docker network create "authwapi-net-$ID"
 docker run -d --name "authwapi-$ID" --network "authwapi-net-$ID" --network-alias authwapi \
-  -e ALLOWED_HOSTS=authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
-docker run -d --name "agent-$ID" --network "authwapi-net-$ID" node:26-slim sleep infinity   # your agent's container
+  -e ALLOWED_HOSTS=authwapi -v "$PWD/authwapi-data-$ID:/data" authwapi
+docker run -d --name "agent-$ID" --user node --network "authwapi-net-$ID" node:26-slim sleep infinity   # your agent's container
+for i in $(seq 60); do docker exec "authwapi-$ID" test -s /data/bootstrap-admin-key && break; sleep 1; done
+docker exec -u 1000 "authwapi-$ID" cat /data/bootstrap-admin-key \
+  | docker exec -i "agent-$ID" sh -c 'umask 077; k=$(cat) && [ -n "$k" ] && set -C && printf "%s\n" "$k" > "$HOME/boot.key"'
 ```
 
+- The last command writes `~/boot.key` (mode 0600) in your container and prints nothing. The key passes only
+  through the pipe, never a command line, an environment variable or output. If it fails, no file is written:
+  `docker logs "authwapi-$ID"` says why. It refuses to overwrite an existing `boot.key`; delete a spent one first.
+- `docker exec -i` runs as the container's user (`node` here). If your agent runs as another user, add
+  `-u <that user>` so the key lands in its home.
 - `--network-alias authwapi` names the server `authwapi` on that network, so the Host stays the same while the
-  container names stay unique.
-- `ALLOWED_HOSTS=authwapi` makes the server accept `Host: authwapi:4000`. Keep `BASE_URL` at its default,
-  `http://localhost:4000`: a `BASE_URL` that isn't localhost refuses to start without Resend
-  (`RESEND_API_KEY and EMAIL_FROM are required when BASE_URL is not localhost`).
-- `-p 127.0.0.1:4000:4000` is only for people on the host (`http://localhost:4000`). Drop it if the port is taken.
+  container names stay unique. `ALLOWED_HOSTS=authwapi` makes the server accept `Host: authwapi:4000`.
+- Without Resend, keep `BASE_URL` on a loopback name and use `ALLOWED_HOSTS`: a `BASE_URL` whose host isn't a
+  loopback name (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) refuses to start without Resend. `*.localhost`
+  names do start, but curl and browsers resolve them to loopback, so they don't reach the server from another
+  container.
+- To use the server from the host too, add `-p 127.0.0.1:4000:4000` (port 4000 must be free; on another port,
+  `BASE_URL` must match it).
+- Rootless podman: write `podman` for `docker`, run `mkdir -p "authwapi-data-$ID"` first, add `--userns=keep-id`
+  to the server's `run` and `:Z` to its volume, and use `-u "$(id -u)"` for the server's `cat`.
+- Don't pass a key as `-e BOOT=…` on `docker run`: it is stored in the container's config, and `docker inspect`
+  shows it to anyone with Docker access. After a reissue
+  (`docker exec -u 1000 "authwapi-$ID" node src/cli.ts bootstrap-key`), pipe the new key the same way.
 
-Inside your container the server is `http://authwapi:4000` and the MCP URL is `http://authwapi:4000/mcp`: set
-`BASE_URL=http://authwapi:4000` there, and runbook steps 3 and 5 and the [admin MCP runbook](#admin-mcp) from step
-2 work as written. `node:*-slim` images have no `curl`: install it as root (`apt-get update && apt-get install -y
-curl`) or use Node's fetch: `node -e 'fetch(process.argv[1]).then(r => r.text()).then(console.log)' http://authwapi:4000/health`.
-
-**The bootstrap key.** The host pipes it straight into a private file in your container, so it never appears on a
-command line, in an environment variable or in output:
+Then, in your container, set up the client folder and do [admin MCP](#admin-mcp) step 1 there (install the client,
+save `admin.mjs`):
 
 ```bash
-until docker exec "authwapi-$ID" test -s /data/bootstrap-admin-key; do sleep 1; done   # written on first boot
-docker exec -u 1000 "authwapi-$ID" cat /data/bootstrap-admin-key \
-  | docker exec -i "agent-$ID" sh -c 'umask 077; set -C; cat > "$HOME/boot.key"'
+export BASE_URL=http://authwapi:4000   # the MCP URL is http://authwapi:4000/mcp
+mkdir -p ~/authwapi-agent && cd ~/authwapi-agent
 ```
 
-You then read it with `BOOT=$(cat ~/boot.key)`. Don't pass a key as `-e BOOT=…` on `docker run`: it is stored in the
-container's config, and `docker inspect` shows it to anyone with Docker access. After a reissue
-(`docker exec -u 1000 "authwapi-$ID" node src/cli.ts bootstrap-key`), the host pipes the new key the same way;
-`set -C` refuses to overwrite, so delete the spent `boot.key` first. With podman, write `podman` for `docker`, and
-`-u "$(id -u)"` with `--userns=keep-id`.
+Mint a write key, create a verified test user, and sign in as that user. `node:*-slim` has no `curl`, so the sign-in
+uses Node's `fetch` (or install curl as root and use runbook step 5):
+
+```bash
+(umask 077; set -C; KEY_FILE="$HOME/boot.key" node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json)
+node admin.mjs create_user '{"email":"agent-made@example.com","name":"Agent Made","password":"a-long-test-password","emailVerified":true}'
+node --input-type=module -e '
+const url = (path) => new URL(path, process.env.BASE_URL);
+const r = await fetch(url("/api/auth/sign-in/email"), { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "agent-made@example.com", password: "a-long-test-password" }) });
+const cookie = r.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+const session = await (await fetch(url("/api/auth/get-session"), { headers: { cookie } })).text();
+console.log(r.status, session.match(/"emailVerified":true/)?.[0]);'
+```
+
+The sign-in prints `200 "emailVerified":true`; the session cookie stays inside the script.
 
 **Verified users.** You can't do runbook step 4 from your container: only the host can read the outbox, and the
-link starts with the server's `BASE_URL`, `http://localhost:4000`, which in your container is your container. For
-test users, call `create_user` with `"emailVerified": true`: you attest that the address is theirs, they can sign in
+link starts with the server's `BASE_URL`, `http://localhost:4000`, which in your container is your container. So
+create test users with `"emailVerified": true`, as above: you attest that the address is theirs, they can sign in
 at once, and no email is sent. A user who signed up is verified by a person on the server's host: they read the
-link from the outbox (step 4) and open it there, where `localhost:4000` is the published port. A link works only
-where its host reaches the server; links that work elsewhere need `BASE_URL` set to that name, and so need Resend.
+link from the outbox (step 4) and open it there, through a published port. A link works only where its host
+reaches the server; links that work elsewhere need `BASE_URL` set to that name, and so need Resend.
 
 ## Rules for agents
 
@@ -126,9 +146,10 @@ where its host reaches the server; links that work elsewhere need `BASE_URL` set
   needs HTTPS and Resend, which isn't documented yet.
 - **Match the Host.** If you reach the server under another name, every request except `GET /health` gets
   `421 unknown_host` until the server accepts that name. On another port of the host, set `BASE_URL` to match. From
-  another container, only `ALLOWED_HOSTS` works: a `BASE_URL` that isn't localhost refuses to start without Resend.
+  another container, use `ALLOWED_HOSTS`: without Resend, `BASE_URL` must stay on a loopback name
+  ([details](#agent-in-another-container)).
 - **Send `Origin` with the cookie.** A `POST` to a Better Auth route that sends any cookie, such as the session cookie (sign-out, change-password,
-  revoking sessions) must send `-H 'origin: http://localhost:4000'` (your `BASE_URL`), or it fails with
+  revoking sessions) must send `-H "origin: $BASE_URL"` (the address you reach the server at), or it fails with
   `403 MISSING_OR_NULL_ORIGIN` and changes nothing. Any other `Origin` gets `403 untrusted_origin`; the only others accepted are `ALLOWED_HOSTS` names with `BASE_URL`'s scheme and the listening port (or the port given with the name), such as `http://authwapi:4000`.
 - **Respect `429`.** Wait the number of seconds in `X-Retry-After`. Sign-in and sign-up allow 3 requests per 10
   seconds per IP; [other limits](/docs/configuration/#rate-limits). The hosted forms answer an error page
@@ -141,29 +162,29 @@ where its host reaches the server; links that work elsewhere need `BASE_URL` set
 
 An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP). Every request sends
 `Authorization: Bearer <key>`. This runbook continues from the one above, in the same shell (same `BASE_URL`),
-and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_URL` again, read `BOOT` again
-(step 1), and after step 3 set `KEY` from `agent-key.json`.
+and needs Node 22 or later. Keys stay in 0600 files: `admin.mjs` reads the key from the file `KEY_FILE` names, so
+no key is ever in an environment variable or on a command line. If your shell didn't keep `BASE_URL`, set it again
+and `cd` back into `authwapi-agent`.
 
-1. **Read the bootstrap key** without printing it. It works for 24 hours after first boot, only with
-   `mint_agent_key`, and only once. The file ends with a newline: `$(…)` drops it, but trim it if you read the
-   file in code.
-   ```bash
-   BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)
-   ```
-   In a container, the host pipes it in instead ([Agent in another container](#agent-in-another-container)).
-2. **Install the official MCP TypeScript SDK client** in a folder outside the AuthWAPI checkout, since it will
-   hold your key:
+1. **Install the official MCP TypeScript SDK client** in a folder outside the AuthWAPI checkout, since it will
+   hold your keys (in a container: `~/authwapi-agent`, [above](#agent-in-another-container)):
    ```bash
    mkdir -p ../authwapi-agent && cd ../authwapi-agent && npm init -y >/dev/null && npm install @modelcontextprotocol/client@2.4.0
    ```
    Save this as `admin.mjs`. It calls one tool and prints its JSON result:
    ```js
-   // Usage: KEY=... BASE_URL=... node admin.mjs <tool> ['<json arguments>']
+   // Usage: BASE_URL=... [KEY_FILE=agent-key.json] node admin.mjs <tool> ['<json arguments>']
+   // KEY_FILE is agent-key.json (a minted key, the default) or the bootstrap key file.
+   import { readFileSync } from 'node:fs';
    import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
+   const file = process.env.KEY_FILE ?? 'agent-key.json';
+   const text = readFileSync(file, 'utf8');
+   const key = text.trimStart().startsWith('{') ? JSON.parse(text).key : text.trim(); // the bootstrap key file ends with a newline
+   if (!key) throw new Error(`no key in ${file}`);
    const client = new Client({ name: 'my-agent', version: '1.0.0' });
    const transport = new StreamableHTTPClientTransport(new URL('/mcp', process.env.BASE_URL), {
-     requestInit: { headers: { Authorization: `Bearer ${process.env.KEY.trim()}` } }, // the key file ends with a newline
+     requestInit: { headers: { Authorization: `Bearer ${key}` } },
    });
    await client.connect(transport);
    const result = await client.callTool({ name: process.argv[2], arguments: JSON.parse(process.argv[3] ?? '{}') });
@@ -174,20 +195,25 @@ and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_U
    With the older `@modelcontextprotocol/sdk` 1.x package, import `Client` from
    `@modelcontextprotocol/sdk/client/index.js` and `StreamableHTTPClientTransport` from
    `@modelcontextprotocol/sdk/client/streamableHttp.js`; the rest is the same.
+2. **Copy the bootstrap key** into `boot.key` (mode 0600) without printing it. It works for 24 hours after first
+   boot, only with `mint_agent_key`, and only once. The command writes nothing if the read fails, and refuses to
+   overwrite an existing `boot.key`. In a container, the host pipes it in instead
+   ([Agent in another container](#agent-in-another-container)).
+   ```bash
+   docker exec -u 1000 authwapi cat /data/bootstrap-admin-key | sh -c 'umask 077; k=$(cat) && [ -n "$k" ] && set -C && printf "%s\n" "$k" > boot.key'
+   ```
 3. **Mint a write key** with the bootstrap key (it mints only write keys). The result `{"keyId", "scope", "key"}`
-   is the only place the key ever appears, so send it straight to a private file and read the key from there.
-   `set -C` refuses to overwrite an existing `agent-key.json`, so a rerun can't destroy the only copy, and `KEY`
-   is set only if the mint worked. If `set -C` refuses because `agent-key.json` already exists, keep that file: it
-   may hold the only copy of your write key. If the mint itself fails, the new file holds the error, or is empty with
-   the error on stderr: remove that file only and try again; if the bootstrap key is spent or expired, reissue it
-   first (below).
+   is the only place the key ever appears, so send it straight to a private file; `admin.mjs` reads it from there.
+   `set -C` refuses to overwrite an existing `agent-key.json`, so a rerun can't destroy the only copy. If `set -C`
+   refuses because `agent-key.json` already exists, keep that file: it may hold the only copy of your write key. If
+   the mint itself fails, the new file holds the error, or is empty with the error on stderr: remove that file only
+   and try again; if the bootstrap key is spent or expired, reissue it first (below).
    ```bash
    export BASE_URL
-   (umask 077; set -C; KEY="$BOOT" node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json) \
-     && export KEY=$(node -p 'require("./agent-key.json").key')
+   (umask 077; set -C; KEY_FILE=boot.key node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json)
    ```
-   The bootstrap key is now spent: its file stays, but the key in it gets HTTP 401. Mint `read` keys with the
-   write key.
+   The bootstrap key is now spent: the key in `boot.key` gets HTTP 401, so you can delete that file. Mint `read`
+   keys with the write key.
 4. **Create a user.**
    ```bash
    node admin.mjs create_user '{"email":"agent-made@example.com","name":"Agent Made","password":"a-long-test-password"}'

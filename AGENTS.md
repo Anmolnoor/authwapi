@@ -16,43 +16,50 @@ git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi
 docker build -t authwapi .
 docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
 until curl -s http://localhost:4000/health | grep -q '"ok"'; do sleep 1; done   # if it never ends: docker logs authwapi
-BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)
+mkdir -p ../authwapi-agent   # outside the checkout: it will hold your keys
+docker exec -u 1000 authwapi cat /data/bootstrap-admin-key \
+  | sh -c 'umask 077; k=$(cat) && [ -n "$k" ] && set -C && printf "%s\n" "$k" > ../authwapi-agent/boot.key'
 ```
 
 `-u 1000` is the server's user, the default `PUID`: use yours if you set one. With rootless podman and
 `--userns=keep-id`, use `podman exec -u "$(id -u)"`. `/health` answers on any Host, but every other route
 refuses a Host that isn't `BASE_URL`'s (or listed in `ALLOWED_HOSTS`) with `421 unknown_host`. On another port of
 the host, set `BASE_URL` to match (`-p 127.0.0.1:8080:4000 -e BASE_URL=http://localhost:8080`). From another
-container, only `ALLOWED_HOSTS` works (below): a `BASE_URL` that isn't localhost refuses to start without Resend. Podman, SELinux, other user IDs and Docker Desktop file sharing:
+container, use `ALLOWED_HOSTS` (below). Podman, SELinux, other user IDs and Docker Desktop file sharing:
 [Configuration](site/src/content/docs/docs/configuration.md#running-on-other-setups).
 
 ## Agent in another container
 
-If your shell runs in its own container, `localhost` is that container and you have no `docker`. The host puts the
-server and your container on one user-defined network, with unique container names (others may share the machine)
-and a network alias so the server's name stays `authwapi`:
+If your shell runs in its own container, `localhost` is that container and you have no `docker`. Instead of
+"Start it", the host runs the server and your container on one user-defined network, with unique names and a data
+folder of their own (others may share the machine) and a network alias so the server's name stays `authwapi`:
 
 ```bash
 ID=$(openssl rand -hex 3)
 docker network create "authwapi-net-$ID"
 docker run -d --name "authwapi-$ID" --network "authwapi-net-$ID" --network-alias authwapi \
-  -e ALLOWED_HOSTS=authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
-docker run -d --name "agent-$ID" --network "authwapi-net-$ID" node:26-slim sleep infinity   # your agent's container
-until docker exec "authwapi-$ID" test -s /data/bootstrap-admin-key; do sleep 1; done   # written on first boot
+  -e ALLOWED_HOSTS=authwapi -v "$PWD/authwapi-data-$ID:/data" authwapi
+docker run -d --name "agent-$ID" --user node --network "authwapi-net-$ID" node:26-slim sleep infinity   # your agent's container
+for i in $(seq 60); do docker exec "authwapi-$ID" test -s /data/bootstrap-admin-key && break; sleep 1; done
 docker exec -u 1000 "authwapi-$ID" cat /data/bootstrap-admin-key \
-  | docker exec -i "agent-$ID" sh -c 'umask 077; set -C; cat > "$HOME/boot.key"'
+  | docker exec -i "agent-$ID" sh -c 'umask 077; k=$(cat) && [ -n "$k" ] && set -C && printf "%s\n" "$k" > "$HOME/boot.key"'
 ```
 
-- Keep `BASE_URL=http://localhost:4000` (the default); `ALLOWED_HOSTS=authwapi` lets the server answer
-  `http://authwapi:4000`. The `-p` is only for people on the host.
-- In your container: `BASE_URL=http://authwapi:4000`, MCP at `http://authwapi:4000/mcp`, `BOOT=$(cat ~/boot.key)`.
-  `node:*-slim` has no `curl`: install it or use Node's `fetch`.
-- Never pass a key with `-e KEY=…`: `docker inspect` shows it. Pipe a reissued key the same way (delete the spent
-  `boot.key` first).
+- The last command writes `~/boot.key` (0600) as the agent container's user (add `-u <user>` if your agent runs as
+  another). If it fails, nothing is written: `docker logs "authwapi-$ID"` says why. Delete a spent `boot.key`
+  before piping a reissued key the same way. Never pass a key with `-e KEY=…`: `docker inspect` shows it.
+- Without Resend, keep `BASE_URL` on a loopback name and use `ALLOWED_HOSTS`: a `BASE_URL` whose host isn't a
+  loopback name (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) refuses to start without Resend (`*.localhost`
+  names start, but resolve to loopback in curl and browsers, so they don't reach the server from another
+  container). `ALLOWED_HOSTS=authwapi` lets the server answer `http://authwapi:4000`. Add `-p 127.0.0.1:4000:4000`
+  only if people on the host need it.
+- In your container: `BASE_URL=http://authwapi:4000`, MCP at `http://authwapi:4000/mcp`, client folder
+  `~/authwapi-agent`, `KEY_FILE="$HOME/boot.key"` to mint. `node:*-slim` has no `curl`: use Node's `fetch`.
 - You can't read the outbox, and its links start with `http://localhost:4000`, so create test users with
   `"emailVerified": true`. A person on the server's host can read a link from the outbox and open it there.
+- Rootless podman: `mkdir -p "authwapi-data-$ID"`, `--userns=keep-id` and `:Z` on the server, `podman exec -u "$(id -u)"`.
 
-Details: [Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container).
+Full flow: [Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container).
 
 ## The bootstrap key
 

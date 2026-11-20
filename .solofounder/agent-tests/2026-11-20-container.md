@@ -36,7 +36,10 @@ own MCP client in a second container on a shared podman network, and administere
 7. `node:*-slim` images have no `curl`, which the runbook uses. The docs now say to install it or use Node's
    `fetch`.
 
-The documented commands were then run on macOS with Docker Desktop: a server and a `node:26-slim` client on a
-fresh network with the alias, the key piped in (0600, nothing in `inspect`), the runbook's `admin.mjs` minting a
-write key, `create_user` with `"emailVerified": true`, `read_audit`, a sign-in from the client container (200,
-`"emailVerified":true`), a reissued key piped in and used, and a non-localhost `BASE_URL` refusing to start.
+The documented commands were then run on macOS with Docker Desktop: a server (its own data folder, no published
+port) and a `node:26-slim` client running as `node` on a fresh network with the alias; the key piped into the
+client's home (0600, not in `inspect`; an empty pipe writes nothing, a second pipe refuses to overwrite); the
+runbook's `admin.mjs`, reading keys from files, minting a write key; `create_user` with `"emailVerified": true`;
+`read_audit`; a sign-in from the client container (`200 "emailVerified":true`); a cookie-bearing sign-out with
+`Origin: $BASE_URL` (200; 403 without it); a `*.localhost` alias failing from curl (loopback); and a non-loopback
+`BASE_URL` refusing to start without Resend.
