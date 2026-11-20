@@ -307,8 +307,11 @@ test('a failed export removes only what it wrote: a file someone else adds meanw
   lock.exec('BEGIN EXCLUSIVE'); // the export waits 5s on it, then fails
   const out = path.join(tmp(), 'export');
   try {
-    const running = cli(s.paths.root, 'export', out);
-    while (!existsSync(path.join(out, 'authwapi.db'))) await new Promise((r) => setTimeout(r, 20));
+    let exited = false;
+    const running = cli(s.paths.root, 'export', out).finally(() => (exited = true));
+    const deadline = Date.now() + 4000; // well inside export's 5s busy wait
+    while (!exited && Date.now() < deadline && !existsSync(path.join(out, 'authwapi.db'))) await new Promise((r) => setTimeout(r, 20));
+    if (!existsSync(path.join(out, 'authwapi.db'))) assert.fail(`export never created its copy: ${(await running).stderr}`);
     writeFileSync(path.join(out, 'theirs.txt'), 'not the export');
     const r = await running;
     assert.equal(r.code, 1);
@@ -340,9 +343,40 @@ test('two imports into the same folder at once: exactly one succeeds and the fol
     const target = path.join(tmp(), 'new');
     const results = await Promise.all([cli(target, 'import', out), cli(target, 'import', out)]);
     assert.deepEqual(results.map((r) => r.code).sort(), [0, 1], results.map((r) => r.stderr).join('\n'));
-    assert.match(results.find((r) => r.code === 1)!.stderr, /another import|already has a database/);
+    const loser = results.find((r) => r.code === 1)!.stderr;
+    assert.match(loser, /another import|already has a database/);
+    assert.doesNotMatch(loser, /delete the folder/); // that would destroy the winner's result
+    if (/another import/.test(loser)) assert.match(loser, /fresh, empty folder/);
     assert.ok(readFileSync(path.join(target, 'secret')).equals(secret), 'the secret is missing or wrong');
     assert.equal(integrity(path.join(target, 'authwapi.db')), 'ok');
     assert.deepEqual(readdirSync(target).filter((f) => f.startsWith('.import')), []);
   }
+});
+
+test('import never reads the whole database into memory (a large database would not fit in one buffer)', async () => {
+  const out = await freshExport();
+  const target = path.join(tmp(), 'new');
+  // Make any whole-file read of a .db fail inside the CLI process.
+  const guard = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';
+    const readFileSync = fs.readFileSync;
+    fs.readFileSync = (file, ...rest) => {
+      if (String(file).endsWith('.db')) throw new Error('read a whole database into memory');
+      return readFileSync(file, ...rest);
+    };
+    syncBuiltinESMExports();`;
+  const r = await run(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(guard)}`, 'src/cli.ts', 'import', out], { DATA_DIR: target });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(integrity(path.join(target, 'authwapi.db')), 'ok');
+});
+
+test('export refuses the data folder\'s own files however the path is spelled: ..names and symlinks', async () => {
+  const s = await server();
+  const link = path.join(tmp(), 'link');
+  symlinkSync(s.paths.logs, link);
+  for (const target of [path.join(s.paths.logs, '..snapshot'), path.join(link, 'export')]) {
+    const r = await cli(s.paths.root, 'export', target);
+    assert.equal(r.code, 1, target);
+    assert.match(r.stderr, /data folder/, target);
+  }
+  assert.deepEqual(readdirSync(s.paths.logs).filter((f) => f !== 'app.jsonl'), []);
 });

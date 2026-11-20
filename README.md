@@ -63,14 +63,15 @@ mv authwapi-data/export-$d ./authwapi-export    # it lands inside the mounted fo
 ```
 
 An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
-the old server first and take the final export with a one-off container (`docker exec` needs a running one):
+the old server first and take the final export, to its own path, with a one-off container (`docker exec` needs a
+running one):
 
 ```bash
 docker stop authwapi
 d=$(date +%Y%m%d)
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
   --entrypoint node authwapi src/cli.ts export /data/export-$d
-mv authwapi-data/export-$d ./authwapi-export
+mv authwapi-data/export-$d ./authwapi-export-final
 ```
 
 `import` restores an export into a data folder that has no database or secret yet. It first checks the export
@@ -80,8 +81,9 @@ host, remove the old container first, since the new one takes its name and port:
 
 ```bash
 docker rm -f authwapi    # same host only; on a new host, skip this
-mkdir -p new-data
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/authwapi-export:/import:ro" \
+src=authwapi-export      # authwapi-export-final after a cutover
+mkdir new-data           # a fresh, empty folder
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
   --entrypoint node authwapi src/cli.ts import /import
 docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/new-data:/data" authwapi
 ```
@@ -96,8 +98,9 @@ boot), `backups/` (this instance's pre-upgrade copies), `logs/` (this instance's
 links that expire; an export shouldn't carry working credentials). Import refuses a folder that already has a
 database or secret, so it never overwrites data or runs under a live server. An export or import that fails with
 an error removes what it wrote, so you can retry. An import that was interrupted (killed, or the machine went down)
-can leave a database without its secret: delete the destination folder and import again before starting the
-server on it.
+can leave a database without its secret. Don't start a server on that folder: import again into a fresh, empty
+folder, or (with no import running) remove only that import's `authwapi.db`, `secret` and `.import.*` files from
+it and import again.
 
 ## Email
 

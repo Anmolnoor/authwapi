@@ -2,8 +2,8 @@
 import Database from 'better-sqlite3';
 import { randomBytes } from 'node:crypto';
 import {
-  accessSync, chmodSync, closeSync, constants, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
-  rmdirSync, rmSync, unlinkSync, writeFileSync,
+  accessSync, chmodSync, closeSync, constants, copyFileSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync,
+  readFileSync, realpathSync, rmdirSync, rmSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 
@@ -99,9 +99,14 @@ function readSecret(file: string): string {
  */
 export async function exportData(p: DataPaths, dir: string): Promise<string> {
   const out = path.resolve(dir);
-  const within = (parent: string) => !path.relative(parent, out).startsWith('..') && !path.isAbsolute(path.relative(parent, out));
   // A new folder at the top of the data folder is fine (docker exec can only write under /data); its own files aren't.
-  if (out === p.root || [p.logs, p.outbox, p.migrations, p.backups].some(within)) {
+  // Compared as real paths, component by component, so neither a symlink nor a name like "..x" disguises them.
+  const target = realPath(out);
+  const within = (dir: string) => {
+    const rel = path.relative(realPath(dir), target);
+    return rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel);
+  };
+  if (target === realPath(p.root) || [p.logs, p.outbox, p.migrations, p.backups].some(within)) {
     throw new Error(`${out} is among the data folder's own files; export to a new folder such as ${path.join(p.root, 'export-<date>')}`);
   }
   if (existsSync(out) && readdirSync(out).length > 0) throw new Error(`${out} is not empty; export into a new or empty folder`);
@@ -187,8 +192,9 @@ export function importData(dataDir: string, dir: string): DataPaths {
     for (const file of created) rmSync(file, { force: true });
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new Error(
-        `${p.root} is taken by another import running now, or by one that was interrupted. ` +
-          'If none is running, delete the folder and import again.',
+        `${p.root} is taken by another import running now, or by one that was interrupted. Import into a fresh, ` +
+          'empty folder instead. To reuse this one after an interrupted import (with none running), remove only ' +
+          'its authwapi.db, secret and .import.* files.',
         { cause: err }
       );
     }
@@ -199,14 +205,22 @@ export function importData(dataDir: string, dir: string): DataPaths {
 
 /** Copies src to a new file dst (fails if dst exists), mode 0600, on disk before it returns. */
 function copyExclusive(src: string, dst: string, created: string[]): void {
-  const fd = openSync(dst, 'wx', 0o600);
+  closeSync(openSync(dst, 'wx', 0o600)); // claims the name; nobody else can create it now
   created.push(dst);
-  try {
-    writeFileSync(fd, readFileSync(src));
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
+  copyFileSync(src, dst); // into the claimed file, without buffering the whole database in memory
+  chmodSync(dst, 0o600); // copyFileSync gives dst the source's mode
+  fsync(dst);
+}
+
+/** realpath of a path whose last parts may not exist yet: the existing part resolved, the rest appended. */
+function realPath(target: string): string {
+  const rest: string[] = [];
+  let dir = target;
+  while (!existsSync(dir)) {
+    rest.unshift(path.basename(dir));
+    dir = path.dirname(dir);
   }
+  return path.join(realpathSync(dir), ...rest);
 }
 
 function fsync(file: string): void {
