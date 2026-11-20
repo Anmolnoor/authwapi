@@ -503,6 +503,57 @@ test('/admin/update-user refuses an emailVerified that is not a boolean, and pur
   await intact(userId, attacker);
 });
 
+test('a magic link whose token consumption fails gets the error redirect and changes nothing; a retry works', async () => {
+  const { write } = await agents();
+  const { attacker, idpJar, userId } = await squatted(write);
+  await send(sp, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'future@gmail.com', callbackURL: '/' } });
+  const link = linkIn((await sp.mail('future@gmail.com', 'Your sign-in link')).text);
+  const d = db(sp);
+  d.exec('CREATE TRIGGER skip_consume BEFORE DELETE ON verification BEGIN SELECT RAISE(IGNORE); END'); // the token is never consumed
+  const owner = new Jar();
+  await send(sp, owner, 'POST', link.pathname + link.search, { form: {} });
+  assert.equal(await currentUser(sp, owner), null);
+  await intact(userId, attacker);
+  d.exec('DROP TRIGGER skip_consume');
+  d.close();
+  assert.ok((await send(sp, owner, 'POST', link.pathname + link.search, { form: {} })).status < 400);
+  assert.equal(await currentUser(sp, owner), 'future@gmail.com');
+  await purged(userId, attacker, idpJar);
+});
+
+test('an organization with SSO providers keeps an owner: removing, leaving or demoting its last owner is refused', async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const v = row("SELECT u.id AS user, m.id AS member FROM user u JOIN member m ON m.userId = u.id WHERE u.email = 'owner@a.test'")!;
+  // V2, verified, becomes a second owner; V2 demotes V. V2 is now the last owner.
+  const v2 = await verifiedUser(sp, 'v2@a.test');
+  const d = db(sp);
+  d.prepare("INSERT INTO member (id, organizationId, userId, role, createdAt) VALUES ('m-v2', ?, ?, 'owner', ?)").run(a.organizationId, v2, new Date().toISOString());
+  d.close();
+  const v2Jar = new Jar();
+  assert.equal((await passwordSignIn(sp, v2Jar, 'v2@a.test')).status, 200);
+  const demoteV = await send(sp, v2Jar, 'POST', '/api/auth/organization/update-member-role', { json: { memberId: v.member, role: 'member', organizationId: a.organizationId } });
+  assert.equal(demoteV.status, 200, demoteV.body);
+
+  const needsOwner = /needs an owner: add another owner or delete its SSO providers first/;
+  const admin = await signedInAdmin(write);
+  const removed = await send(sp, admin, 'POST', '/api/auth/admin/remove-user', { json: { userId: v2 } });
+  assert.equal(removed.status, 400, removed.body);
+  assert.match(removed.body, needsOwner);
+  const left = await send(sp, v2Jar, 'POST', '/api/auth/organization/leave', { json: { organizationId: a.organizationId } });
+  assert.equal(left.status, 400, left.body);
+  assert.match(left.body, needsOwner);
+  const selfDemoted = await send(sp, v2Jar, 'POST', '/api/auth/organization/update-member-role', { json: { memberId: 'm-v2', role: 'member', organizationId: a.organizationId } });
+  assert.equal(selfDemoted.status, 400, selfDemoted.body);
+  assert.match(selfDemoted.body, needsOwner);
+  const removedMember = await send(sp, v2Jar, 'POST', '/api/auth/organization/remove-member', { json: { memberIdOrEmail: 'v2@a.test', organizationId: a.organizationId } });
+  assert.equal(removedMember.status, 400, removedMember.body);
+  assert.match(removedMember.body, needsOwner);
+  assert.equal(count("SELECT count(*) FROM member WHERE organizationId = ? AND role = 'owner'", a.organizationId), 1);
+  assert.equal(count('SELECT count(*) FROM user WHERE id = ?', v2), 1);
+  await ok(call(write, 'delete_sso_provider', { providerId: a.providerId }));
+});
+
 test("cross-org: org B's provider can't sign in an identity bound to org A's", async () => {
   const { write } = await agents();
   await ssoOrg(write, 'a', 'a.example');

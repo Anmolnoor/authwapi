@@ -263,7 +263,8 @@ How it's kept safe:
   users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets. An
   organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
   database enforces it too). An organization's owner needs a verified email: to register a provider, and to be
-  made an owner at all (`create_org`, or a role change to `owner`).
+  made an owner at all (`create_org`, or a role change to `owner`). An organization with SSO providers always keeps
+  an owner: removing, leaving or demoting its last owner is refused.
 - Client secrets are stored unencrypted in the SQLite database, like everything in the data folder: keep it private.
 
 ## Apps (OAuth 2.1 / OpenID Connect)

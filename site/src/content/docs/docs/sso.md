@@ -113,7 +113,7 @@ becomes verified and their SSO binding and membership go. The operator can bind 
 - **2FA still applies.** A user who turned on TOTP is asked for a code after the SSO sign-in, before any session.
 - **Deleting a provider** ends its users' sessions and revokes their OAuth tokens, in the same transaction. An
   organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
-  database enforces it too).
+  database enforces it too). It always keeps an owner: removing, leaving or demoting its last owner is refused.
 - **Client secrets** are stored unencrypted in SQLite, like everything else in the data folder: keep it private.
 - **Endpoints must be `https://` and publicly routable** (no `localhost`, private or link-local addresses), and they
   are given explicitly: AuthWAPI doesn't fetch the discovery document.
