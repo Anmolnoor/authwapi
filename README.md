@@ -138,6 +138,19 @@ DATA_DIR=./.data BASE_URL=http://localhost:4000 HOST=127.0.0.1 npm start
 whatever Better Auth still needs as the next `migrations/NNNN_<name>.sql`. A test fails if the committed
 migrations don't match the config.
 
+### M1 container checks
+
+Run on Linux with rootless Podman, Python 3, `curl`, and `jq`. The checks build the image and use temporary
+data under `$TMPDIR` (default `/tmp`).
+
+- `scripts/upgrade-check.sh [--from <git-ref>]` upgrades a populated data folder and checks backups and
+  rollback. The default is `v0.2.0` if tagged, otherwise the parent of the commit that added the latest
+  migration. The previous image must support the OAuth client CLI and precede at least one current migration.
+- `scripts/app-check.sh` runs [the sample app](examples/sample-app/) and AuthWAPI on separate hostnames on
+  the private `authwapi-net` network. It checks hosted sign-in, PKCE, ID and access token verification, audience
+  and cookie rejection, refresh rotation, and revocation on sign-out. It needs the network name and the
+  `authwapi` and `app` container names available.
+
 ## License
 
 MIT
