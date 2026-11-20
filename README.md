@@ -502,7 +502,9 @@ match"`), `500` on a duplicate `email`/`username` (Mongo `E11000`).
 ```
 
 The same generic message is returned whether the user doesn't exist or the
-password is wrong, so the endpoint doesn't leak account existence.
+password is wrong, so the endpoint doesn't leak account existence. It is also
+returned when `username` or `password` is not a string (for example
+`{"$regex": ".*"}`), before any database query.
 
 ---
 
@@ -529,10 +531,12 @@ second.
 { "status": "success", "data": { "msg": "Token sent to email!" } }
 ```
 
-**Failure modes:** `404` `"There is no user with this E-mail address."`; `500`
-`"There was an error while sending the email. Try again later!"` — in which case
-the stored token is scrambled and expired so the half-finished attempt can't be
-replayed.
+**Failure modes:** `400` `"Please provide an email address."` when `email` is
+missing or not a string; `404` `"There is no user with this E-mail address."`;
+`500` `"There was an error while sending the email. Try again later!"` — in
+which case the stored token is scrambled and expired so the half-finished
+attempt can't be replayed. A misconfigured `EMAIL_URL` also returns `500`,
+before the database is touched (see [Create your `.env`](#3-create-your-env)).
 
 ---
 
@@ -869,7 +873,8 @@ for batch operations — neither is wired to a route yet.
 | **Generic auth failures** | `"Incorrect email or password"` for both branches | No account-existence oracle on login |
 | **Error sanitization** | `error.controller.ts` splits dev/prod output | Stack traces and internals never reach production clients |
 | **`trust proxy`** | `app.set('trust proxy', 1)` | Correct client IPs behind one reverse proxy, so rate limiting isn't bypassed |
-| **Field projection** | `getUserDetails` excludes `password`, `__v`, `passwordConfirm`, … | Hashes aren't returned to clients |
+| **Secrets stripped from responses** | `toJSON` transform on the `User` schema deletes `password`, `passwordConfirm`, `resetToken`, `resetTokenTimer` and `tokenVersion` | No response can carry a password or reset-token hash, whichever controller sends the user |
+| **NoSQL injection guard** | `login` and `forgotPassword` reject `username` / `password` / `email` unless they are strings | An object such as `{"$regex": ".*"}` never reaches a Mongo filter, so it can't match or enumerate accounts |
 
 ### Hardening checklist before you go to production
 
@@ -944,9 +949,10 @@ recommended · ❌ optional
 
 Documented honestly so you know what you're adopting:
 
-- **No request-body validation.** `register`, `login`, `forgotPassword` and
-  `resetPassword` all carry `// TODO: validate` comments. Malformed bodies
-  currently surface as Mongoose validation errors or `500`s. Adding Zod (or
+- **Little request-body validation.** `login` and `forgotPassword` only check
+  that their fields are strings (the NoSQL injection guard); `register` still
+  carries a `// TODO: validate` comment, and `resetPassword` has no type check.
+  Malformed bodies surface as Mongoose validation errors or `500`s. Adding Zod (or
   `express-validator`) at the router boundary is the highest-value next change.
 - **No RBAC.** `restrictTo(role)` is written but commented out in
   `auth.controller.ts`, and the `User` schema has no `role` field.
@@ -1009,7 +1015,7 @@ Contributions are welcome — issues, bug reports, and pull requests all help.
    [API Documentation](#api-documentation) table in this README in the same PR.
 
 Picking something up? The [Known Gaps](#known-gaps--roadmap) list is a
-ready-made backlog — request validation and a test suite are the most useful
+ready-made backlog — request validation and a broader test suite are the most useful
 places to start.
 
 ---
