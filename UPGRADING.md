@@ -41,17 +41,23 @@ than 0.3.0 won't start on the upgraded folder; restore the backup to go back.
 
 **New, all optional:** `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` and `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`
 turn on "Continue with Google/GitHub". Set both of a pair or neither: half a pair stops the server. See the README
-for the redirect URIs.
+for the redirect URIs. A Google or GitHub sign-in joins an existing account with the same email only
+if the provider says the email is verified and the AuthWAPI account's email is verified too; otherwise it's refused.
 
 **What changes for an operator:**
 
 - **Admin MCP at `BASE_URL/mcp`.** The first 0.3.0 boot writes a one-time `bootstrap-admin-key` (mode 0600, valid
   24 hours) into the data folder. Use it to mint a write key, or ignore it. If it's lost or expired:
   `docker exec -u 1000 authwapi node src/cli.ts bootstrap-key`. Admin calls are logged to `logs/audit.jsonl`.
+  `/mcp` is served wherever `BASE_URL` is reachable: block it at your reverse proxy if you don't use it.
+- **Site admins.** No user is an admin after the upgrade; the `set_role` MCP tool (write key) makes one. An admin
+  uses Better Auth's routes under `/api/auth/admin/` to ban users (a banned user can't sign in), impersonate (never
+  an admin or an organization owner or admin; written to `logs/audit.jsonl`), set passwords, revoke sessions and
+  remove users.
 - **New CLI commands:** `bootstrap-key`, `export <dir>` / `import <dir>` (move a data folder), and
   `resource add|link|unlink` (protect your own MCP servers).
 - **Two-factor authentication** is opt-in per user. On an account that has it, every first step (password, magic
-  link, Google, GitHub) needs the second factor before any session, consent or authorization code; API clients that
+  link, Google, GitHub, SSO) needs the second factor before any session, consent or authorization code; API clients that
   sign users in must handle `{"twoFactorRedirect": true}`. Turning it on signs out the user's other sessions,
   revokes their refresh tokens and removes their passkeys.
 - **Passkeys** need `BASE_URL` on a hostname: `http://localhost:4000` works, `http://127.0.0.1:4000` doesn't.
@@ -83,6 +89,7 @@ for the redirect URIs.
 - The first proof that someone holds an unverified account's mailbox (a magic link, a password reset, the verify
   page, or an admin setting `emailVerified: true`) removes, in the same transaction, everything set up before it:
   linked sign-ins (SSO, Google/GitHub, any other password), sessions, 2FA, passkeys, OAuth tokens and consents,
-  unused authorization codes and organization memberships. This matters most for accounts SSO created, whose email
+  unused authorization codes and organization memberships, except a sole owner's membership in an organization
+  that has SSO providers, so it keeps an owner. This matters most for accounts SSO created, whose email
   stays unverified.
 - `/admin/update-user` refuses an `emailVerified` that isn't `true` or `false` (`INVALID_EMAIL_VERIFIED`).

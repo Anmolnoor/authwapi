@@ -178,7 +178,7 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   signs out every other session, revokes the user's refresh tokens and removes their passkeys (a passkey counts as
   both factors, so one added by someone else who knew the password must not survive). Add passkeys again afterwards.
   Backup codes are shown once.
-- **Enforced on the server after every first step**: password, magic link, Google, GitHub. Until the second
+- **Enforced on the server after every first step**: password, magic link, Google, GitHub, SSO. Until the second
   factor, there's no session, no consent and no authorization code. The first step answers with
   `{"twoFactorRedirect": true}` (API) or a redirect to `/two-factor` (browser), plus a short-lived `two_factor`
   cookie; finish with `POST /api/auth/two-factor/verify-totp` or `/verify-backup-code` and `{"code"}`. There are no
@@ -437,10 +437,14 @@ Versions are semantic; `version` in `package.json` is the source of truth. To re
 
 1. Bump the version: `npm version --no-git-tag-version 0.3.0` (updates `package.json` and `package-lock.json`).
 2. Fill in the section for this version in [UPGRADING.md](UPGRADING.md).
-3. Merge to `main`, then tag that commit and push the tag: `git tag v0.3.0 && git push origin v0.3.0`.
+3. Merge to `main`, then tag `main` explicitly and push the tag:
+   `git fetch origin && git tag -a v0.3.0 origin/main -m "AuthWAPI 0.3.0" && git push origin v0.3.0`.
+4. After the first publish only: in the GHCR package's settings, set its visibility to Public. A new package starts
+   private, so `docker pull ghcr.io/anmolnoor/authwapi` fails for everyone else until then.
 
-The tag runs `.github/workflows/release.yml`, which fails unless the tag is `v` + the `package.json` version, then
-pushes the amd64 + arm64 image to `ghcr.io/anmolnoor/authwapi` as `0.3.0`, `0.3` and `latest`.
+The tag runs `.github/workflows/release.yml`, which fails unless the tagged commit is on `main` and the tag is `v` +
+the `package.json` version, then pushes the amd64 + arm64 image, with provenance and an SBOM, to
+`ghcr.io/anmolnoor/authwapi` as `0.3.0`, `0.3` and `latest`.
 
 ## License
 

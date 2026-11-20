@@ -19,14 +19,14 @@ permissions:
 env:
   IMAGE: ghcr.io/anmolnoor/authwapi
 
-# Third-party actions are pinned by commit SHA: the publish job hands them a packages: write token.
+# Actions are pinned by commit SHA: the publish job runs them with a packages: write token.
 jobs:
   build:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -45,9 +45,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the next step needs origin/main
           persist-credentials: false
+      - name: Tagged commit must be on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which isn't on main"
+            exit 1
+          fi
       - name: Tag must be v + package.json version
         run: |
           expected="v$(jq -r .version package.json)"
@@ -77,3 +84,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
