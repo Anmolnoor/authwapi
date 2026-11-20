@@ -32,6 +32,7 @@ export async function startTestServer(env: NodeJS.ProcessEnv = {}, sendMail?: Se
   const running = await start({ BASE_URL: base, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, ...env }, { sendMail });
   const outbox = (): Mail[] =>
     readdirSync(running.paths.outbox)
+      .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
       .sort()
       .map((f) => JSON.parse(readFileSync(path.join(running.paths.outbox, f), 'utf8')));
   return {

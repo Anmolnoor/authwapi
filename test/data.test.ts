@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -118,4 +118,28 @@ test('an hourly outbox sweep that fails is logged and does not crash the server'
   assert.doesNotThrow(() => t.mock.timers.tick(60 * 60 * 1000));
   for (let i = 0; i < 50 && logged.length === 0; i++) await new Promise((r) => setTimeout(r, 10)); // the sweep is async
   assert.deepEqual(logged, ['outbox sweep failed']);
+});
+
+test('outbox emails appear whole: a reader never sees a half-written file', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'authwapi-atomic-'));
+  try {
+    const send = createMailer({ mode: 'outbox' }, dir, () => {});
+    const big = 'x'.repeat(2_000_000); // large enough that a non-atomic write is visible mid-way
+    const sends = Array.from({ length: 20 }, (_, i) => send({ to: `r${i}@example.com`, subject: 's', text: big }));
+    let reads = 0;
+    const reader = (async () => {
+      for (let n = 0; n < 400; n++) {
+        for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+          JSON.parse(readFileSync(path.join(dir, f), 'utf8')); // throws on a partial file
+          reads++;
+        }
+        await new Promise((r) => setImmediate(r));
+      }
+    })();
+    await Promise.all([...sends, reader]);
+    assert.equal(readdirSync(dir).filter((f) => f.endsWith('.json')).length, 20);
+    assert.ok(reads > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

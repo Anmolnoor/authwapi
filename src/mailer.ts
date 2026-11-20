@@ -1,7 +1,7 @@
 // Email goes to Resend, or (localhost without Resend) to <data>/outbox as 0600 JSON files kept 24h.
 // Emails carry sign-in links, so they never go to the logs.
 import { randomBytes } from 'node:crypto';
-import { lstat, readdir, unlink, writeFile } from 'node:fs/promises';
+import { lstat, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Resend } from 'resend';
 import type { EmailConfig } from './config.ts';
@@ -54,9 +54,10 @@ export function createMailer(email: EmailConfig, outboxDir: string, log: Logger)
     const now = Date.now();
     await sweepOutbox(outboxDir, now);
     const name = `${new Date(now).toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}.json`;
-    await writeFile(path.join(outboxDir, name), JSON.stringify({ ...mail, sentAt: new Date(now).toISOString() }, null, 2), {
-      mode: 0o600,
-      flag: 'wx',
-    });
+    // Written to a hidden temp file, then renamed: a rename is atomic, so anyone reading the outbox sees a whole
+    // email or none, never a half-written file.
+    const tmp = path.join(outboxDir, `.${name}.tmp`);
+    await writeFile(tmp, JSON.stringify({ ...mail, sentAt: new Date(now).toISOString() }, null, 2), { mode: 0o600, flag: 'wx' });
+    await rename(tmp, path.join(outboxDir, name));
   };
 }
