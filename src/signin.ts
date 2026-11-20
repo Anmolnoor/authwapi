@@ -196,7 +196,9 @@ function mfaGlue(): BetterAuthPlugin {
           matcher: (ctx) => ctx.path !== undefined && NEEDS_FRESH_CHECK.has(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const s = arrived(ctx);
-            if (!s || (s.twoFactorEnabled && !isFresh(s.sessionId))) {
+            // 2FA as it is now (it may have been turned on since the request arrived, e.g. mid passkey registration).
+            const user = s && ((await ctx.context.internalAdapter.findUserById(s.userId)) as { twoFactorEnabled?: boolean | null } | null);
+            if (!s || ((user?.twoFactorEnabled || s.twoFactorEnabled) && !isFresh(s.sessionId))) {
               throw new APIError('FORBIDDEN', {
                 code: 'TWO_FACTOR_CHECK_REQUIRED',
                 message: 'Enter a code from your authenticator app first (POST /two-factor/verify-totp while signed in).',
@@ -265,9 +267,25 @@ function mfaGlue(): BetterAuthPlugin {
           }),
         },
         {
+          // A passkey sign-in reads the passkey, then creates the session; if turning 2FA on removed the passkey in
+          // between, the session is undone.
+          matcher: (ctx) => ctx.path === '/passkey/verify-authentication' && !isAPIError(ctx.context.returned),
+          handler: createAuthMiddleware(async (ctx) => {
+            const credentialID = (ctx.body?.response as { id?: unknown } | undefined)?.id;
+            const still = typeof credentialID === 'string' && (await ctx.context.adapter.findOne({ model: 'passkey', where: [{ field: 'credentialID', value: credentialID }] }));
+            if (still) return;
+            const token = ctx.context.newSession?.session.token;
+            if (token) await ctx.context.internalAdapter.deleteSession(token);
+            ctx.context.setNewSession(null);
+            dropSessionCookies(ctx);
+            throw new APIError('UNAUTHORIZED', { code: 'PASSKEY_NOT_FOUND', message: 'That passkey was removed. Sign in another way.' });
+          }),
+        },
+        {
           // Any response that hands out a new session: a first factor (password, magic link, social callback, ... and
           // whatever else creates one) is not enough for a 2FA user, even one already signed in. Only a renewal of
-          // the session the request arrived with, or the password change that replaces it, is not a sign-in.
+          // the session the request arrived with, or the password change that replaces a session already past 2FA
+          // (not one that 2FA was turned on for meanwhile), is not a sign-in.
           matcher: (ctx) => newSessionToken(ctx) !== undefined && !PROVES_BOTH_FACTORS.has(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {
             const token = ctx.context.newSession?.session.token;
@@ -278,7 +296,7 @@ function mfaGlue(): BetterAuthPlugin {
             if (!user.twoFactorEnabled) return;
             const s = arrived(ctx);
             const rotation = ctx.path === '/change-password' && ctx.body?.revokeOtherSessions === true;
-            if (s?.userId === user.id && (s.token === token || rotation)) return;
+            if (s?.userId === user.id && (s.token === token || (rotation && s.twoFactorEnabled))) return;
             return challenge(ctx, token, user.id);
           }),
         },

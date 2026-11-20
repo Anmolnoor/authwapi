@@ -14,6 +14,7 @@ import {
   enableTotp,
   exchange,
   Jar,
+  liveSessionCookie,
   passkeySignIn as passkeySignInAs,
   passwordSignIn,
   send,
@@ -161,4 +162,35 @@ test('a passkey registration in flight while 2FA is turned on is undone', async 
   const d2 = new Database(s.paths.db);
   assert.equal(d2.prepare('SELECT count(*) FROM passkey').pluck().get(), 0);
   d2.close();
+});
+
+test('a passkey registration for an account that turned 2FA on since the options were fetched is refused before anything is stored', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options');
+  const d = new Database(s.paths.db);
+  d.exec(`UPDATE user SET twoFactorEnabled = 1;
+    CREATE TABLE inserted (id TEXT); CREATE TRIGGER log_insert AFTER INSERT ON passkey BEGIN INSERT INTO inserted VALUES (new.id); END`);
+  d.close();
+  const r = await send(s, jar, 'POST', '/api/auth/passkey/verify-registration', { json: { response: softAuthenticator(s.base).register(options.json()) } });
+  assert.equal(r.status, 403, r.body);
+  const d2 = new Database(s.paths.db);
+  assert.equal(d2.prepare('SELECT count(*) FROM inserted').pluck().get(), 0, 'a passkey row was written, even if later removed');
+  d2.close();
+});
+
+test('a passkey sign-in whose passkey is removed (2FA turned on) while it runs gets no session', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  const key = softAuthenticator(s.base);
+  assert.equal((await addPasskey(jar, key)).status, 200);
+  // Enrolment's sweep deletes the passkey after the sign-in read it, before its session is made.
+  const d = new Database(s.paths.db);
+  d.exec('CREATE TRIGGER swept AFTER UPDATE OF counter ON passkey BEGIN DELETE FROM passkey WHERE id = new.id; END');
+  d.close();
+  const browser = new Jar();
+  const r = await passkeySignIn(browser, key);
+  assert.equal(r.status, 401, r.body);
+  assert.equal(liveSessionCookie(r.setCookies), undefined);
+  assert.equal(await currentUser(s, browser), null);
 });

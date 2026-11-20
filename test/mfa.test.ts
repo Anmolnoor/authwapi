@@ -586,3 +586,24 @@ test('OAuth: opening a used magic link offers a new one for the same app request
   tampered.searchParams.set('callbackURL', `/oauth/resume?${query.replace('state=app-state', 'state=other')}`);
   assert.match((await send(s, new Jar(), 'GET', tampered.pathname + tampered.search)).body, /href="\/sign-in"/);
 });
+
+test('a password change that rotates the session while 2FA is turned on meanwhile issues no session without a code', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  // 2FA turns on (another tab confirming enrolment) while change-password deletes the old sessions.
+  exec('CREATE TRIGGER enable_mid AFTER DELETE ON session BEGIN UPDATE user SET twoFactorEnabled = 1 WHERE id = old.userId; END');
+  const r = await send(s, jar, 'POST', '/api/auth/change-password', { json: { currentPassword: 'correct horse', newPassword: 'new horse battery', revokeOtherSessions: true } });
+  assert.equal(liveSessionCookie(r.setCookies), undefined, 'a session was issued without a code');
+  assert.doesNotMatch(r.body, /"token":"/);
+  assert.equal(await currentUser(s, jar), null);
+});
+
+test('a used magic link with a malformed callbackURL shows the error page, not a 500', async () => {
+  s = await startTestServer();
+  const r = await send(s, new Jar(), 'GET', `/api/auth/magic-link/verify?token=nope&callbackURL=${encodeURIComponent('http://[')}`);
+  assert.equal(r.status, 400);
+  assert.match(r.body, /href="\/sign-in"/);
+});
