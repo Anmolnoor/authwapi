@@ -533,8 +533,9 @@ second.
 { "status": "success", "data": { "msg": "Token sent to email!" } }
 ```
 
-**Failure modes:** `EMAIL_URL` is checked first: if it is misconfigured, every
-request returns `500` before the body is read or the database is touched (see
+**Failure modes:** the controller checks `EMAIL_URL` first: if it is
+misconfigured, the request returns `500` before `email` is looked at or the
+database is touched (see
 [Create your `.env`](#3-create-your-env)). Otherwise: `400` `"Please provide an
 email address."` when `email` is missing or not a string; `404` `"There is no
 user with this E-mail address."`; `500` `"There was an error while sending the
@@ -568,8 +569,10 @@ expired token, or a token that was already consumed.
 
 ### `GET /api/v1/user/me` 🔒
 
-Returns the authenticated user. The `User` schema's `toJSON` transform strips
-the password and reset-token fields (see [Security Features](#security-features)).
+Returns the authenticated user. The query projects out `password`,
+`passwordConfirm`, `__v` and `passwordChangedAt`, and the `User` schema's
+`toJSON` transform strips the reset-token fields and `tokenVersion` (see
+[Security Features](#security-features)).
 
 **Response — `200`**
 
@@ -957,8 +960,8 @@ Documented honestly so you know what you're adopting:
   that their fields are strings (the NoSQL injection guard), answering `401`
   and `400` respectively. `register` still carries a `// TODO: validate`
   comment, and `resetPassword` and the password-change handlers have no type
-  check; malformed bodies there surface as Mongoose validation errors or
-  `500`s. Adding Zod (or
+  check; malformed bodies there are cast by Mongoose (a numeric password is
+  accepted as a string) or surface as validation errors or `500`s. Adding Zod (or
   `express-validator`) at the router boundary is the highest-value next change.
 - **No RBAC.** `restrictTo(role)` is written but commented out in
   `auth.controller.ts`, and the `User` schema has no `role` field.
@@ -969,7 +972,8 @@ Documented honestly so you know what you're adopting:
   `passwordResetExpires` / `active`, which don't exist (the fields are
   `resetToken`, `resetTokenTimer` and `isActive`). The schema's `toJSON`
   transform strips the secret fields from every response anyway, so nothing
-  leaks; the `.select()` list is just dead weight.
+  leaks; those three names are dead weight, though the list still removes
+  `__v` and `passwordChangedAt`.
 - **`isActive` vs the query hook.** The `pre(/^find/)` hook filters on
   `active: { $ne: false }`, but the schema field is `isActive` — the soft-delete
   filter is effectively a no-op.
