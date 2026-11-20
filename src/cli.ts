@@ -1,6 +1,9 @@
-// Operator CLI. Registers OAuth clients (dynamic registration is off), on the same data folder as the server:
+// Operator CLI, on the same data folder as the server (DATA_DIR). Registers OAuth clients (dynamic registration
+// is off) and moves the data folder:
 //   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
 //   node src/cli.ts clients list
+//   node src/cli.ts export <dir>    (safe while the server runs)
+//   node src/cli.ts import <dir>    (into a data folder with no database; then start the server)
 // In the container: docker exec authwapi node src/cli.ts ...
 // The client secret is printed once, to stdout, and stored only as a hash. It never goes to the log.
 import type { oauthProvider } from '@better-auth/oauth-provider';
@@ -10,7 +13,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { authOptions } from './auth.ts';
 import { loadConfig } from './config.ts';
-import { dataPaths, loadOrCreateSecret, prepareDataDir } from './data.ts';
+import { dataPaths, exportData, importData, loadOrCreateSecret, prepareDataDir, type DataPaths } from './data.ts';
 import { openDb } from './db.ts';
 import { createLogger } from './log.ts';
 import { MIGRATIONS_DIR } from './migrate.ts';
@@ -18,6 +21,11 @@ import { MIGRATIONS_DIR } from './migrate.ts';
 const USAGE = `Usage:
   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
   node src/cli.ts clients list
+  node src/cli.ts export <dir>
+  node src/cli.ts import <dir>
+
+export copies the database and secret of DATA_DIR into <dir> (new or empty), safely while the server runs.
+import restores such a folder into DATA_DIR, which must not have a database yet; then start the server on it.
 
 --resource names an API the app may request access tokens for (RFC 8707). Tokens requested with
 resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is created.`;
@@ -29,6 +37,26 @@ type OAuthAdminApi = InferAPI<ReturnType<typeof oauthProvider>['endpoints']>;
 
 async function main(argv: string[]): Promise<void> {
   const [group, command, ...rest] = argv;
+  if (group === 'export' || group === 'import') {
+    if (!command || rest.length > 0) throw new UsageError(`${group} takes one folder`);
+    process.umask(0o077);
+    // Only DATA_DIR, not loadConfig(): a restore shouldn't be blocked by mail or BASE_URL settings.
+    const dataDir = process.env.DATA_DIR ?? '/data';
+    if (group === 'import') {
+      if (process.getuid?.() === 0) {
+        throw new Error(
+          "import won't run as root: the server never runs as root and couldn't read the files. " +
+            'Run it as the data folder\'s owner, e.g. docker run --user "$(id -u):$(id -g)" ...'
+        );
+      }
+      const paths = importData(dataDir, command);
+      console.log(`Imported ${path.resolve(command)} into ${paths.root}. Start the server on that data folder.`);
+      return;
+    }
+    const out = await exportData(findDataFolder(dataDir), command);
+    console.log(`Exported ${path.resolve(dataDir)} to ${out}. It holds the instance secret: keep it private.`);
+    return;
+  }
   if (group !== 'clients' || (command !== 'create' && command !== 'list')) throw new UsageError('unknown command');
   const { values } = parseArgs({
     args: rest,
@@ -47,16 +75,7 @@ async function main(argv: string[]): Promise<void> {
 
   process.umask(0o077);
   const config = loadConfig(process.env);
-  const db0 = dataPaths(path.resolve(config.dataDir)).db;
-  if (!existsSync(db0)) throw new Error(`No database at ${db0}. Start the server once on this data folder (DATA_DIR), then run this again.`);
-  // `docker exec` runs as root; become the data folder's owner so nothing in it ends up owned by root.
-  if (process.getuid?.() === 0) {
-    const owner = statSync(db0);
-    if (owner.uid === 0) throw new Error(`${db0} is owned by root; the server never runs as root. Fix the data folder's owner first.`);
-    process.setgroups!([owner.gid]); // drop root's supplementary groups too
-    process.setgid!(owner.gid);
-    process.setuid!(owner.uid);
-  }
+  findDataFolder(config.dataDir);
   const paths = prepareDataDir(config.dataDir);
   const db = openDb(paths.db);
   try {
@@ -116,6 +135,25 @@ async function main(argv: string[]): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+/**
+ * The server's data folder, which must already have a database. Run as root, becomes the database's owner.
+ * It changes nothing in the folder: export runs beside a live server, whose journal file comes and goes.
+ */
+function findDataFolder(dataDir: string): DataPaths {
+  const paths = dataPaths(path.resolve(dataDir));
+  const db0 = paths.db;
+  if (!existsSync(db0)) throw new Error(`No database at ${db0}. Start the server once on this data folder (DATA_DIR), then run this again.`);
+  // `docker exec` runs as root; become the data folder's owner so nothing in it ends up owned by root.
+  if (process.getuid?.() === 0) {
+    const owner = statSync(db0);
+    if (owner.uid === 0) throw new Error(`${db0} is owned by root; the server never runs as root. Fix the data folder's owner first.`);
+    process.setgroups!([owner.gid]); // drop root's supplementary groups too
+    process.setgid!(owner.gid);
+    process.setuid!(owner.uid);
+  }
+  return paths;
 }
 
 try {

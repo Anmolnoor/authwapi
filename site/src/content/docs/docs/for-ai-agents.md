@@ -82,6 +82,6 @@ Every step is a shell command whose output you can check.
 
 ## Not built yet
 
-The admin MCP server (an agent administering AuthWAPI over MCP with a one-time bootstrap key) and export/import
-are planned for M1 but not built. Until then, administration is the CLI and the HTTP API above. See
+The admin MCP server (an agent administering AuthWAPI over MCP with a one-time bootstrap key) is planned for M1
+but not built. Until then, administration is the CLI and the HTTP API above. See
 [Status and roadmap](/docs/status/).
