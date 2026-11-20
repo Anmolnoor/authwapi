@@ -82,7 +82,7 @@ export function createApp({ auth, config, db, log, paths, secret }: AppDeps): Ho
     createOrganization: (body) => orgEndpoints.createOrganization({ body }), // no session: Better Auth uses body.userId
     inviteMember: (inviterId, body) => asUser(inviterId, () => orgEndpoints.createInvitation({ body, headers: new Headers() })),
   };
-  app.route('/', adminRoutes({ authContext: auth.$context, orgApi, sendVerificationEmail, config, db, log, paths }));
+  app.route('/', adminRoutes({ authContext: auth.$context, orgApi, authApi: auth.api, sendVerificationEmail, config, db, log, paths }));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
 
   return app;

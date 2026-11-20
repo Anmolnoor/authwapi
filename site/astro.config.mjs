@@ -64,6 +64,7 @@ export default defineConfig({
             { label: 'Protect your MCP server', slug: 'docs/protect-your-mcp-server' },
             { label: 'HTTP API (sessions)', slug: 'docs/http-api' },
             { label: 'Hosted pages', slug: 'docs/hosted-pages' },
+            { label: 'SSO for your organization', slug: 'docs/sso' },
             { label: 'Configuration', slug: 'docs/configuration' },
           ],
         },

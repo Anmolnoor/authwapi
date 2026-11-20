@@ -1,6 +1,6 @@
 ---
 title: Status and roadmap
-description: What AuthWAPI does today (M1, M2 sign-in methods and M3 organizations), what is still being built, and where the earlier version went.
+description: What AuthWAPI does today (M1, M2 sign-in methods, M3 organizations and M4a OIDC SSO), what is still being built, and where the earlier version went.
 ---
 
 AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted auth server built on
@@ -19,6 +19,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - Organizations with `owner`, `admin` and `member` roles, emailed invitations, and `org_id`/`roles` claims for apps
   that ask for the `organization` scope
 - Admin ban (ends sessions and revokes OAuth tokens) and short, audited impersonation
+- OIDC SSO per organization: providers registered over MCP or the CLI, identities bound to (provider, subject),
+  never joined by email
 - Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys,
   organization pick, invitations. Every
   sign-in method works during an app's sign-in
@@ -41,8 +43,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 
 ## After M1
 
-M2 (Google and GitHub sign-in, TOTP and passkeys) and M3 (organizations and admin) are built. Next: SSO (OIDC, then SAML);
-a multi-arch image on GHCR.
+M2 (Google and GitHub sign-in, TOTP and passkeys), M3 (organizations and admin) and M4a (OIDC SSO) are built. Next: SAML
+SSO; a multi-arch image on GHCR.
 
 ## The earlier version
 

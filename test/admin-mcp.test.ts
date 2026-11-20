@@ -425,12 +425,15 @@ test('tools/list shows each key only the tools its scope can call, with schemas 
     'ban_user',
     'create_org',
     'create_user',
+    'delete_sso_provider',
     'get_status',
     'invite_member',
     'list_orgs',
+    'list_sso_providers',
     'list_users',
     'mint_agent_key',
     'read_audit',
+    'register_sso_provider',
     'revoke_agent_key',
     'set_role',
     'unban_user',
@@ -439,7 +442,7 @@ test('tools/list shows each key only the tools its scope can call, with schemas 
   const w = await connect(writeKey.key);
   const readKey = (await call(w, 'mint_agent_key', { scope: 'read' })).data;
   await w.close();
-  assert.deepEqual((await names(readKey.key)).map((t) => t.name).sort(), ['get_status', 'list_orgs', 'list_users', 'read_audit']);
+  assert.deepEqual((await names(readKey.key)).map((t) => t.name).sort(), ['get_status', 'list_orgs', 'list_sso_providers', 'list_users', 'read_audit']);
 });
 
 test('a mint whose commit fails after its audit line was written is followed by a rolled_back line', async () => {

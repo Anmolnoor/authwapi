@@ -8,7 +8,7 @@
 //   src/oauth.ts), and signing it out revokes nothing of the target's (src/oauth.ts).
 // - Invitations are emailed with a link to the hosted accept page (src/pages.ts).
 import path from 'node:path';
-import { defineRequestState, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
+import { defineRequestState, getCurrentAdapter, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import type Database from 'better-sqlite3';
@@ -108,6 +108,8 @@ const IMPERSONATION_REFUSED = new Set([
   '/account-info',
 ]);
 const refusedWhenImpersonated = (p: string) => IMPERSONATION_REFUSED.has(p) || p.startsWith('/two-factor/') || p.startsWith('/passkey/');
+// Server-side calls that run as the organization owner (asUser): MCP invitations, SSO provider changes (src/sso.ts).
+const AS_USER_PATHS = new Set(['/organization/invite-member', '/sso/register', '/sso/delete-provider']);
 // Admin routes that end a user's sessions or replace their password: their OAuth tokens go too (by body.userId).
 // /admin/remove-user needs nothing: deleting the user deletes their tokens (foreign keys cascade).
 const REVOKES_TOKENS = new Set(['/admin/revoke-user-sessions', '/admin/set-user-password']);
@@ -169,14 +171,17 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
         },
         {
           // Never reachable over HTTP: the router always passes the request.
-          matcher: (ctx) => ctx.path === '/organization/invite-member' && ctx.request === undefined,
+          matcher: (ctx) => ctx.path !== undefined && AS_USER_PATHS.has(ctx.path) && ctx.request === undefined,
           handler: createAuthMiddleware(async (ctx) => {
             const userId = await actingAs.get();
             const user = userId ? await ctx.context.internalAdapter.findUserById(userId) : null;
             if (!user) return;
             const now = new Date();
             const session = { id: `mcp-${user.id}`, token: '', userId: user.id, createdAt: now, updatedAt: now, expiresAt: new Date(now.getTime() + 60_000) };
-            return { context: { context: { session: { session, user } } } };
+            // Inside a caller's transaction (MCP audits its write inside one), the endpoint's own queries join it: Better
+            // Auth's SSO routes use the plain adapter, which would otherwise wait on the transaction forever.
+            const adapter = await getCurrentAdapter(ctx.context.adapter);
+            return { context: { context: { session: { session, user }, adapter } } };
           }),
         },
       ],
@@ -194,25 +199,84 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
   };
 }
 
+const NEEDS_OWNER = 'This organization has SSO providers and needs an owner: add another owner or delete its SSO providers first.';
+
+/** The database's refusals behind an endpoint (migrations/0008's triggers, ssoProvider's RESTRICT key), as readable errors. */
+function dbRefusal(path: string, err: unknown): APIError | undefined {
+  const text = (e: unknown): string => (e instanceof Error ? `${e.message} ${text(e.cause)}` : '');
+  const message = text(err);
+  if (message.includes('sso_org_needs_owner')) return new APIError('BAD_REQUEST', { code: 'ORGANIZATION_NEEDS_OWNER', message: NEEDS_OWNER });
+  // Deleting a user: the only RESTRICT key on a user is the SSO provider they registered (src/sso.ts).
+  if (path === '/admin/remove-user' && message.includes('FOREIGN KEY constraint failed')) {
+    return new APIError('BAD_REQUEST', { code: 'USER_REGISTERED_SSO_PROVIDERS', message: 'This user registered SSO providers: delete those SSO providers first.' });
+  }
+  // Deleting an organization: the RESTRICT key from its SSO providers (beforeDeleteOrganization refuses that first).
+  if (path === '/organization/delete' && message.includes('FOREIGN KEY constraint failed')) {
+    return new APIError('BAD_REQUEST', { code: 'ORGANIZATION_HAS_SSO_PROVIDERS', message: 'This organization has SSO providers: delete its SSO providers first.' });
+  }
+  return undefined;
+}
+
+/**
+ * The endpoint with the database's refusals turned into readable errors. Better Auth's permission checks run first,
+ * inside the handler, so only someone allowed to make the change learns why the database refused it. `transaction`:
+ * the whole handler in one, so a refusal also undoes its earlier writes (/admin/remove-user deletes sessions before
+ * the user). The organization routes make one refusable write and query through the plain adapter, which would wait
+ * forever on an open transaction, so they run without.
+ */
+function withDbRefusals(endpoint: Endpoint, { transaction }: { transaction: boolean }): Endpoint {
+  const { use: _middleware, ...options } = endpoint.options;
+  return createAuthEndpoint(endpoint.path, options as never, async (ctx) => {
+    const run = async () => ctx.json((await endpoint({ ...ctx, asResponse: false, returnHeaders: false, returnStatus: false })) as Record<string, unknown> | null);
+    try {
+      return await (transaction ? runWithTransaction(ctx.context.adapter, run) : run());
+    } catch (err) {
+      throw dbRefusal(endpoint.path, err) ?? err;
+    }
+  }) as unknown as Endpoint;
+}
+
+function refuseUnverifiedOwner(role: string, user: { emailVerified: boolean }): void {
+  if (roleList(role).includes('owner') && !user.emailVerified) {
+    throw new APIError('BAD_REQUEST', { code: 'OWNER_EMAIL_NOT_VERIFIED', message: 'An organization owner needs a verified email.' });
+  }
+}
+
 /** Better Auth's organization and admin plugins, and the glue above. Added to authOptions().plugins. */
-export function orgAdminPlugins({ config }: AuthDeps, deliver: Deliver): Plugin[] {
+export function orgAdminPlugins({ config, db }: AuthDeps, deliver: Deliver): Plugin[] {
+  const orgPlugin = organization({
+    // M4a: what ssoProvider's RESTRICT key on organization would refuse, refused readably first.
+    organizationHooks: {
+      // M4a: an unverified user's first mailbox proof purges their memberships (src/sso.ts), so an owner must be verified.
+      beforeAddMember: async ({ member, user }) => refuseUnverifiedOwner(member.role, user),
+      beforeUpdateMemberRole: async ({ newRole, user }) => refuseUnverifiedOwner(newRole, user),
+      beforeDeleteOrganization: async ({ organization: org }) => {
+        if (db.prepare('SELECT 1 FROM ssoProvider WHERE organizationId = ?').get(org.id)) {
+          throw new APIError('BAD_REQUEST', { code: 'ORGANIZATION_HAS_SSO_PROVIDERS', message: 'This organization has SSO providers: delete its SSO providers first.' });
+        }
+      },
+    },
+    // Organizations are made by an agent (MCP create_org, a server-side call Better Auth treats as a system action).
+    allowUserToCreateOrganization: false,
+    // Accepting needs a verified email that matches the invitation (also Better Auth's default here; made explicit).
+    requireEmailVerificationOnInvitation: true,
+    // Queued until the invitation commits (MCP invite_member writes it inside its audited transaction), so a
+    // rolled-back invitation is never emailed. Outside a transaction it is queued at once.
+    sendInvitationEmail: ({ id, email, role, organization: org, inviter }) =>
+      queueAfterTransactionHook(async () => deliver('invitation', {
+        to: email,
+        subject: 'You are invited to join an organization on AuthWAPI',
+        text:
+          `${inviter.user.email} invited you to join the organization "${org.name}" as ${role}. To accept, sign in with this ` +
+          `email address and open:\n\n${config.baseUrl.origin}${ACCEPT_INVITATION_PAGE}?id=${id}\n\nIf you don't know them, ignore this email.`,
+      })),
+  });
+  // M4a: these can remove an SSO organization's last owner, or the organization, which the database refuses
+  // (migrations/0008, ssoProvider's RESTRICT key).
+  const orgEndpoints = orgPlugin.endpoints as unknown as Record<string, Endpoint>;
+  for (const key of ['leaveOrganization', 'removeMember', 'updateMemberRole', 'deleteOrganization']) orgEndpoints[key] = withDbRefusals(orgEndpoints[key], { transaction: false });
   return [
-    organization({
-      // Organizations are made by an agent (MCP create_org, a server-side call Better Auth treats as a system action).
-      allowUserToCreateOrganization: false,
-      // Accepting needs a verified email that matches the invitation (also Better Auth's default here; made explicit).
-      requireEmailVerificationOnInvitation: true,
-      // Queued until the invitation commits (MCP invite_member writes it inside its audited transaction), so a
-      // rolled-back invitation is never emailed. Outside a transaction it is queued at once.
-      sendInvitationEmail: ({ id, email, role, organization: org, inviter }) =>
-        queueAfterTransactionHook(async () => deliver('invitation', {
-          to: email,
-          subject: 'You are invited to join an organization on AuthWAPI',
-          text:
-            `${inviter.user.email} invited you to join the organization "${org.name}" as ${role}. To accept, sign in with this ` +
-            `email address and open:\n\n${config.baseUrl.origin}${ACCEPT_INVITATION_PAGE}?id=${id}\n\nIf you don't know them, ignore this email.`,
-        })),
-    }),
+    orgPlugin,
     adminPlugin(),
     orgAdminGlue(dataPaths(path.resolve(config.dataDir)).audit),
   ];
@@ -224,5 +288,6 @@ function adminPlugin(): Plugin {
   const endpoints = plugin.endpoints as unknown as Record<string, Endpoint>;
   endpoints.banUser = inBanTransaction(endpoints.banUser);
   endpoints.adminUpdateUser = inBanTransaction(endpoints.adminUpdateUser);
+  endpoints.removeUser = withDbRefusals(endpoints.removeUser, { transaction: true }); // M4a: an SSO org's last owner, or a provider's registrant
   return plugin;
 }
