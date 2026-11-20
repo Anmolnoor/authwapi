@@ -431,6 +431,17 @@ data under `$TMPDIR` (default `/tmp`).
   rejection, refresh rotation, and revocation on sign-out.
 - Both print sanitized container logs and the last HTTP response when they fail.
 
+## Releases
+
+Versions are semantic; `version` in `package.json` is the source of truth. To release:
+
+1. Bump the version: `npm version --no-git-tag-version 0.3.0` (updates `package.json` and `package-lock.json`).
+2. Fill in the section for this version in [UPGRADING.md](UPGRADING.md).
+3. Merge to `main`, then tag that commit and push the tag: `git tag v0.3.0 && git push origin v0.3.0`.
+
+The tag runs `.github/workflows/release.yml`, which fails unless the tag is `v` + the `package.json` version, then
+pushes the amd64 + arm64 image to `ghcr.io/anmolnoor/authwapi` as `0.3.0`, `0.3` and `latest`.
+
 ## License
 
 MIT
