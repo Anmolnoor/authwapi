@@ -23,9 +23,10 @@ export interface AppDeps {
   config: Config;
   db: Database.Database;
   log: Logger;
+  secret: string;
 }
 
-export function createApp({ auth, config, db, log }: AppDeps): Hono {
+export function createApp({ auth, config, db, log, secret }: AppDeps): Hono {
   const app = new Hono();
   const callAuth: AuthCall = (c, request) => {
     const headers = new Headers(request.headers);
@@ -61,7 +62,7 @@ export function createApp({ auth, config, db, log }: AppDeps): Hono {
   });
 
   app.route('/', wellKnownRoutes({ callAuth, config })); // lane A
-  app.route('/', pageRoutes({ callAuth, config, db, log })); // lane B; before the catch-all so it can intercept
+  app.route('/', pageRoutes({ callAuth, config, db, log, secret })); // lane B; before the catch-all so it can intercept
   app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
 
   return app;

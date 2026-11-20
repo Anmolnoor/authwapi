@@ -17,6 +17,8 @@ export interface PageDeps {
   config: Config;
   db: Database.Database;
   log: Logger;
+  /** The instance secret Better Auth signs verification tokens with (HS256). */
+  secret: string;
 }
 
 type Html = ReturnType<typeof html>;
