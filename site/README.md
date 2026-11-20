@@ -30,4 +30,5 @@ Run it after changing `src/auth.ts`, `src/oauth.ts` or the Better Auth version.
 
 Import the repository in Vercel and set **Root Directory** to `site`. Vercel detects Astro. Keep **Automatically
 expose System Environment Variables** on: for absolute links in `llms.txt` and the sitemap, production builds read
-`VERCEL_PROJECT_PRODUCTION_URL` and previews read `VERCEL_URL`, and a Vercel build without them fails.
+`VERCEL_PROJECT_PRODUCTION_URL` and previews read `VERCEL_URL`. `vercel.json` marks the build as a Vercel one, so
+it fails when they're missing instead of linking to localhost.

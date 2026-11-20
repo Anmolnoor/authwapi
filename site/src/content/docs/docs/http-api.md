@@ -14,7 +14,7 @@ Every route with its request and response schema is in the [API reference](/api/
 
 - **Host** must be `BASE_URL`'s host or a name in `ALLOWED_HOSTS`, else `421 unknown_host`.
 - **Origin**, if sent, must be `BASE_URL`'s origin, else `403 untrusted_origin`.
-- **A `POST` with the session cookie must send `Origin`** (`-H 'origin: http://localhost:4000'` in curl), else
+- **A `POST` to an `/api/auth` route with the session cookie must send `Origin`** (`-H 'origin: http://localhost:4000'` in curl), else
   `403 MISSING_OR_NULL_ORIGIN` and nothing happens. Browsers send it on their own. Calls without a cookie don't
   need it.
 - **Bodies** are JSON (`content-type: application/json`).

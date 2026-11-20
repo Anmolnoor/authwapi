@@ -60,19 +60,22 @@ whether or not the account exists. A failed send is written to `logs/app.jsonl`.
   broken links.
 - **Origin.** A request that sends an `Origin` header must send `BASE_URL`'s origin (or an `ALLOWED_HOSTS` name
   with the same scheme). Anything else gets `403 {"error":"untrusted_origin","origin":"…"}`.
-- **Origin with a session cookie.** A `POST` that carries the session cookie must send that `Origin`; without it,
+- **Origin with a session cookie.** A `POST` to an `/api/auth` route that carries the session cookie must send
+  that `Origin`; without it,
   Better Auth answers `403 {"code":"MISSING_OR_NULL_ORIGIN"}` and does nothing. Browsers send it on their own;
   from curl or a script, add `-H 'origin: http://localhost:4000'`. Requests without a cookie (sign-up, sign-in,
   OAuth token calls) don't need one.
 - **Network.** Inside the container the server listens on all interfaces. What keeps it on your machine is
   publishing the port on `127.0.0.1` (`-p 127.0.0.1:4000:4000`), as every example here does. Plain `-p 4000:4000`
-  listens on every interface and, on Linux, bypasses ufw and firewalld.
+  listens on every interface and, on Linux, bypasses ufw and firewalld. (Docker Engine before 28.0 also let other
+  machines on the same network reach ports published on `127.0.0.1`; use 28.0 or later.)
 
 ## Rate limits
 
 Routes under `/api/auth`, and the hosted page forms that call them, are rate-limited per client IP, taken from the
-TCP connection. `X-Forwarded-For` is ignored. Too many requests get `429` with an `X-Retry-After` header in
-seconds. Limits reset when the server restarts. `/health` and pages you only open (GET) aren't limited.
+TCP connection. `X-Forwarded-For` is ignored. Too many API requests get `429` with an `X-Retry-After` header in
+seconds; the hosted forms show an error page instead. Limits reset when the server restarts. `/health` and pages
+you only open (GET) aren't limited.
 
 | Routes (under `/api/auth`) | Limit per IP |
 | --- | --- |
@@ -87,7 +90,7 @@ seconds. Limits reset when the server restarts. `/health` and pages you only ope
 | Everything else | 100 per 10 seconds |
 
 The email verification form (`POST /api/auth/verify-email`) has its own limits: 20 tries per IP and 5 per account
-every 5 minutes. It answers an HTML page with status 429.
+every 5 minutes. It answers an HTML page with status 429 and no `X-Retry-After`.
 
 ## Running on other setups
 

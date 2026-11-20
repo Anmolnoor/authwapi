@@ -41,7 +41,7 @@ resources:     http://localhost:5000/api
   app only needs to know who signed in.
 - The secret is printed once and stored hashed. `docker exec -u 1000 authwapi node src/cli.ts clients list` shows
   the clients, never secrets.
-- `-u 1000` runs the CLI as the user the server runs as. If you set `PUID`, use that number instead.
+- `-u 1000` runs the CLI as the user the server runs as. If you set `PUID` and `PGID`, use `-u <PUID>:<PGID>`.
 
 ## 2. Send the user to sign in
 
@@ -122,7 +122,7 @@ Use `sub` as the user's ID. `email` and `email_verified` are present only when y
 
 Access tokens requested with `resource` are JWTs (`typ: at+jwt`) whose `aud` includes that resource. They last 15
 minutes. Your API checks the signature, `typ`, `iss`, `aud` and `exp`. With [jose](https://github.com/panva/jose)
-in Node (it checks `exp` by default):
+in Node:
 
 ```js
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -135,6 +135,7 @@ export async function verifyAccessToken(token) {
     issuer: AUTHWAPI,
     audience: 'http://localhost:5000/api',
     typ: 'at+jwt',
+    requiredClaims: ['exp'],
   });
   return payload; // payload.sub is the user, payload.scope the granted scopes
 }
@@ -145,8 +146,8 @@ A browser session cookie is not an access token: your API should accept only bea
 ## 6. Refresh
 
 With `offline_access`, trade the refresh token for new tokens. Each refresh token works once; use the new one it
-returns. Using an old one again also revokes the tokens issued from it, so never refresh twice at once with the
-same token.
+returns. Using an old one again also revokes the refresh tokens issued from it (JWT access tokens stay valid until
+they expire), so never refresh twice at once with the same token.
 
 ```bash
 curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth2/token \
@@ -175,8 +176,9 @@ curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth
 
 Accept the token only if the answer has `"active": true` and its `aud` includes your API. After sign-out it
 returns `{"active":false}`, and userinfo (`GET /api/auth/oauth2/userinfo` with `Authorization: Bearer <token>`)
-answers `401 invalid_token`. Introspection is limited to 100 requests a minute per IP, so cache answers briefly
-rather than asking on every request of a busy API.
+answers `401 invalid_token`. Introspection is limited to 100 requests a minute per IP. If a busy API caches
+answers, revocation reaches it only when the cached answer expires: keep the cache short and never past the
+token's `exp`.
 
 ## Other endpoints
 

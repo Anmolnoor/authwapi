@@ -6,9 +6,10 @@ import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 
 // Absolute links (llms.txt, sitemap, canonical URLs) need this deployment's public address: on Vercel, the
 // production domain for production builds and the deployment's own URL for previews. Vercel only exposes these when
-// "Automatically expose System Environment Variables" is on. Off Vercel (npm run dev/build) it is localhost.
+// "Automatically expose System Environment Variables" is on; vercel.json sets AUTHWAPI_SITE_ON_VERCEL so a Vercel build
+// without them fails instead of linking to localhost. Off Vercel (npm run dev/build) it is localhost.
 const host = process.env.VERCEL_ENV === 'production' ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
-if (process.env.VERCEL && !host) {
+if (process.env.AUTHWAPI_SITE_ON_VERCEL && !host) {
   throw new Error('Vercel system environment variables are missing: turn on "Automatically expose System Environment Variables" in the project settings.');
 }
 const site = host ? `https://${host}` : 'http://localhost:4321';
@@ -40,7 +41,7 @@ export default defineConfig({
             '- Apps sign users in with OAuth 2.1 authorization code + PKCE (S256). Clients are created only with `docker exec -u 1000 authwapi node src/cli.ts clients create ...`; dynamic client registration is off.',
           ].join('\n'),
           optionalLinks: [
-            { label: 'Source code', url: 'https://github.com/Anmolnoor/authwapi', description: 'README.md has the same facts as these docs' },
+            { label: 'Source code', url: 'https://github.com/Anmolnoor/authwapi', description: 'the server, its tests and README.md' },
           ],
           promote: ['index', 'docs/quick-start', 'docs/for-ai-agents', 'docs/integrate-an-app', 'docs/http-api'],
         }),

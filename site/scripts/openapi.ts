@@ -144,9 +144,12 @@ const AUTHWAPI_PATHS = {
     post: {
       tags: ['Pages'],
       summary: 'Sign in with a magic link (the link in the email)',
-      description: 'Signs in and sets the session cookie.',
+      description: 'Signs in and sets the session cookie. Limited to 5 a minute per IP.',
       parameters: tokenParam,
-      responses: { 303: { description: 'Signed in; redirects to the callbackURL' }, 400: htmlPage('The link is invalid, used or expired') },
+      responses: {
+        303: { description: 'Signed in: redirects to the callbackURL. A bad, used or expired link: redirects to `/?error=INVALID_TOKEN` (or the errorCallbackURL) and sets no cookie.' },
+        400: htmlPage('Too many tries, or another error'),
+      },
     },
   },
 };
@@ -234,8 +237,8 @@ async function generate(): Promise<string> {
       version: '0.2.0',
       description:
         'Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. ' +
-        'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +
-        'Errors from core routes are `{ "code", "message" }`; OAuth endpoints answer `{ "error", "error_description" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`). ' +
+        'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +
+        'Errors from core routes are `{ "code", "message" }`; OAuth endpoints answer `{ "error", "error_description" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`; the Pages routes answer an HTML error page instead). ' +
         'Request and response schemas are generated from Better Auth.',
     },
     servers: [{ url: '{baseUrl}/api/auth', variables: { baseUrl: { default: 'http://localhost:4000', description: 'Your BASE_URL' } } }],
@@ -257,7 +260,7 @@ async function generate(): Promise<string> {
           description: 'Set by sign-in. Named `__Secure-better-auth.session_token` when BASE_URL is https.',
         },
         clientSecretBasic: { type: 'http', scheme: 'basic', description: 'OAuth client ID and secret from `node src/cli.ts clients create`.' },
-        bearerAccessToken: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'An OAuth access token from /oauth2/token.' },
+        bearerAccessToken: { type: 'http', scheme: 'bearer', description: 'An OAuth access token from /oauth2/token.' },
       },
     },
     paths: nullableTo31(paths),
