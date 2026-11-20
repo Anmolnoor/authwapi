@@ -127,6 +127,53 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
   - Tested against a separate resource server that publishes its own discovery metadata and checks that tokens are bound to it.
 - **M6, release hardening:** multi-arch image (amd64/arm64) on GHCR, CI on Linux and macOS, semantic versions, upgrade notes. M1 already covers migrations, backup and export.
 
+### Rev 6 execution (2026-11-20): finish M1, then M2 → M6
+**G1 result: override, demand not shown.** On 2026-11-20 the owner asked for M2–M6 to be built now, before
+publishing M1. Not a pass. Per the owner: M6 adds the release workflows but publishes no image or tag; quality
+beats the clock (each milestone is reviewed and merged before the next depends on it).
+
+**How the work runs.** One PR per lane, merged to `main` in the order below, each after sol-loop (GPT-6.2 Sol)
+and a council round. Coders work on the Mac in their own worktrees and push a branch; Linux/container checks
+(`scripts/container-check.sh`) run on Fedora. Migration numbers are fixed per lane so parallel lanes don't
+collide; a lane that merges after another regenerates its migration with `scripts/new-migration.ts` on rebase.
+
+| Lane | Branch | Migration | Depends on |
+|---|---|---|---|
+| M1-A admin MCP (5 tools, agent keys, `logs/audit.jsonl`) | `m1-admin-mcp` | `0004_admin_mcp` | — |
+| M1-B `export` / `import` | `m1-export-import` | none | — |
+| M2 sign-in methods | `m2-signin-methods` | `0005_signin_methods` | — |
+| M6a CI (Linux + macOS, container check) | `m6-ci` | none | — |
+| M3 organizations and admin | `m3-orgs-admin` | `0006_orgs_admin` | M1-A |
+| M5 MCP OAuth | `m5-mcp-oauth` | `0007_mcp_oauth` | — |
+| M4a OIDC SSO | `m4a-oidc-sso` | `0008_sso` | M3 |
+| M4b SAML | `m4b-saml` | `0009_saml` (if needed) | M4a |
+| M6b release: multi-arch build on tags (no publish), semver, upgrade notes | `m6-release` | none | all |
+
+M6a moves ahead of M2–M5 because CI on every later PR is proof those PRs need.
+
+**Decisions per milestone (defaults; council may change them):**
+- **M2.** Google and GitHub sign-in are on only when their client ID and secret are set. A provider account links
+  to an existing AuthWAPI account only when the provider asserts a verified email *and* the AuthWAPI account's email
+  is verified (otherwise Risk 8 returns through social sign-in). TOTP with backup codes via Better Auth's
+  `twoFactor`; **a user with 2FA on is challenged after every first factor**: password, magic link and social
+  sign-in, and the OAuth `/authorize` flow. A passkey sign-in counts as both factors (user verification required).
+  Passkey `rpID` = `BASE_URL` hostname, origin = `BASE_URL` origin. Hosted pages: social buttons, 2FA challenge,
+  TOTP setup, passkey register and sign-in. Tests use an in-process mock OAuth server and a software WebAuthn
+  authenticator; no real Google/GitHub credentials.
+- **M3.** Better Auth `organization` (invitations by email, roles owner/admin/member) and `admin` (ban revokes
+  sessions *and* OAuth refresh tokens; impersonation writes an audit line and can't impersonate an admin).
+  `org_id`/`roles` claims for the active organization in ID and access tokens. MCP tools: `list_orgs`,
+  `create_org`, `invite_member`, `ban_user`, `unban_user` (write scope, audited).
+- **M5.** `@better-auth/mcp` + `@better-auth/cimd` on the existing provider. Tested against a separate resource
+  server that publishes protected-resource metadata and rejects tokens whose `aud` isn't itself.
+- **M4a.** `@better-auth/sso` OIDC per organization; binding (org, issuer, subject); org admins (or a write MCP key)
+  register providers and assert domains; callback URLs validated. Tests use a second AuthWAPI instance as the IdP,
+  with the negative tests listed above.
+- **M4b.** SAML through the same plugin; signed assertions required; IdP-initiated off unless the org opts in.
+  Round trip against a real IdP container on Fedora/CI plus negative tests (unsigned, wrong audience, replay).
+- **M6.** CI on Linux and macOS (typecheck, tests, container check on Linux); a tag-triggered multi-arch
+  (amd64/arm64) GHCR workflow that this plan never triggers; semantic versions and `UPGRADING.md`.
+
 ### Stage 7: Learn
 Retrospective and cross-project learning (`solofounder:conversation-analysis`).
 
