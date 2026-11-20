@@ -259,16 +259,20 @@ docker exec -u 1000 authwapi node src/cli.ts resource add https://mcp.example.co
 docker exec -u 1000 authwapi node src/cli.ts resource link https://client.example/oauth/metadata.json https://mcp.example.com/mcp
 ```
 
-- AuthWAPI fetches a metadata document only when a user signs in through a client the operator linked; any other
-  `client_id` URL is refused without a request going out. The URL must be `https` on a public host (loopback and
-  private addresses are always refused); the fetch resolves DNS once, refuses private addresses and follows no
-  redirects. A client without such a document (one on `localhost`) can use a `clients create` client, linked the same way.
-- The consent page shows the client's name (self-asserted) and the host of its metadata URL.
+- AuthWAPI uses a metadata document only while that client is linked to a resource; any other `client_id` URL is
+  refused without a request going out. The URL must be `https` on a public host (loopback and private addresses
+  are always refused); the fetch resolves DNS once, refuses private addresses and follows no redirects. The
+  document's `redirect_uris` must be on its own origin, loopback, or a private-use scheme.
+- `resource unlink <client_id> <resource>` takes access away: a client linked to nothing is refused at once, and
+  its refresh tokens stop working.
+- A server-side client that can keep a secret but has no metadata document can use a `clients create` client
+  (`client_secret_basic`), linked the same way.
+- The consent page leads with the host of the metadata URL; the client's name is shown as what it calls itself.
 - Your MCP server serves `/.well-known/oauth-protected-resource` with `resource` = the URL you registered and
   `authorization_servers` = [`BASE_URL`], answers 401 with
   `WWW-Authenticate: Bearer resource_metadata="<that metadata URL>"`, and accepts only JWTs that verify against
   `BASE_URL/api/auth/jwks` with `iss` = `BASE_URL` and an `aud` that includes its own URL. It refuses tokens for
-  other resources and tokens with no `aud`.
+  other resources, tokens with no `aud`, and (taking bearer tokens only) DPoP-bound tokens with a `cnf` claim.
 - Refresh tokens rotate with no grace window: reusing one fails and revokes that client's refresh tokens for the user.
 
 ## Admin MCP (for AI agents)

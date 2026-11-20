@@ -553,7 +553,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Allow access?',
-      html`${alert(error)}<p><strong>${name}</strong>${host ? html` from <strong>${host}</strong>` : ''} wants to:</p>
+      html`${alert(error)}<p>${host ? html`<strong>${host}</strong> (calls itself "${name}")` : html`<strong>${name}</strong>`} wants to:</p>
         <ul>
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}

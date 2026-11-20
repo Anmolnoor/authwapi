@@ -35,8 +35,8 @@ can't use it up, and a link someone else sent you can't sign you in without you 
 ## Consent
 
 When an app sends a user to sign in, the consent page names the app and lists, in plain words, what it asked for.
-For an MCP client whose `client_id` is a metadata URL, it also shows that URL's host: the name is self-asserted, the
-host is where the client really comes from.
+For an MCP client whose `client_id` is a metadata URL, it leads with that URL's host, which is where the client
+really comes from, and shows the name only as what the client calls itself.
 
 | Scope | Shown as |
 | --- | --- |

@@ -10,6 +10,9 @@ import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { Hono } from 'hono';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { fetchClientMetadataResource } from '@better-auth/cimd/node';
+import { loadConfig } from '../src/config.ts';
+import { oauthPlugins } from '../src/oauth.ts';
 import { startTestServer, type TestServer } from './helpers.ts';
 
 const CLIENT = 'https://mcp-client.example/oauth/client.json'; // the MCP client's client_id: its metadata URL
@@ -17,10 +20,16 @@ const REDIRECT = 'http://localhost:5999/callback'; // a local MCP client's loopb
 const A = 'https://mcp-a.example/mcp';
 const B = 'https://mcp-b.example/mcp';
 
-/** The MCP client's website: serves its metadata document. */
-const clientSite = new Hono().get('/oauth/client.json', (c) =>
-  c.json({ client_id: CLIENT, client_name: 'Example MCP Client', redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' })
-);
+const OFF_ORIGIN = 'https://mcp-client.example/oauth/off-origin.json'; // lists a redirect URI on another origin
+const NATIVE = 'https://mcp-client.example/oauth/native.json'; // a native app's private-use redirect URI
+const NATIVE_REDIRECT = 'example.mcp-client:/callback';
+
+/** The MCP client's website: serves its metadata documents. */
+const doc = (clientId: string, redirect: string) => ({ client_id: clientId, client_name: 'Example MCP Client', redirect_uris: [redirect], token_endpoint_auth_method: 'none' });
+const clientSite = new Hono()
+  .get('/oauth/client.json', (c) => c.json(doc(CLIENT, REDIRECT)))
+  .get('/oauth/off-origin.json', (c) => c.json(doc(OFF_ORIGIN, 'https://elsewhere.example/callback')))
+  .get('/oauth/native.json', (c) => c.json(doc(NATIVE, NATIVE_REDIRECT)));
 let fetched: string[] = [];
 
 let s: TestServer;
@@ -48,7 +57,8 @@ function mcpServer(resource: string) {
     if (!bearer) return c.json({ error: 'unauthorized' }, 401, challenge);
     try {
       // jwtVerify with `audience` also refuses a token with no aud.
-      const { payload } = await jwtVerify(bearer, createRemoteJWKSet(new URL(`${s.base}/api/auth/jwks`)), { issuer: s.base, audience: resource });
+      const { payload } = await jwtVerify(bearer, createRemoteJWKSet(new URL(`${s.base}/api/auth/jwks`)), { issuer: s.base, audience: resource, typ: 'at+jwt' });
+      if (payload.cnf !== undefined) throw new Error('a sender-constrained (DPoP) token needs a DPoP proof; this server takes bearer tokens only');
       return c.json({ sub: payload.sub });
     } catch {
       return c.json({ error: 'invalid_token' }, 401, challenge);
@@ -101,12 +111,12 @@ const browserGet = (url: string, cookie: string) =>
   });
 
 /** The authorization request, as the MCP client sends it. Returns AuthWAPI's answer to the browser. */
-function startAuthorization(authorizationEndpoint: string, cookie: string, clientId: string, resource: string) {
+function startAuthorization(authorizationEndpoint: string, cookie: string, clientId: string, resource: string, redirect = REDIRECT) {
   const verifier = randomBytes(32).toString('base64url');
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
-    redirect_uri: REDIRECT,
+    redirect_uri: redirect,
     scope: 'offline_access',
     state: 'st',
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
@@ -160,7 +170,7 @@ test('a CIMD client linked to MCP server A: discovery, code + PKCE, token, refre
   const page = await browserGet(consent.href, cookie);
   assert.equal(page.status, 200);
   assert.match(page.body, /Example MCP Client/);
-  assert.match(page.body, /<strong>Example MCP Client<\/strong> from <strong>mcp-client\.example<\/strong> wants to/);
+  assert.match(page.body, /<strong>mcp-client\.example<\/strong> \(calls itself "Example MCP Client"\) wants to/);
 
   const accept = await postJson('/api/auth/oauth2/consent', { accept: true, oauth_query: consent.search.slice(1) }, cookie);
   assert.equal(accept.status, 200, await accept.clone().text());
@@ -232,4 +242,80 @@ test('CLI: resource add and link check their input; clients list shows a CIMD cl
   const list = await ok('clients', 'list');
   assert.match(list, new RegExp(`${CLIENT.replaceAll('.', '\\.')}[\\s\\S]*resources: ${A.replaceAll('.', '\\.')}`));
   assert.deepEqual(fetched, []);
+});
+
+/** Signs the user in through `clientId` for `resource` and exchanges the code. */
+async function tokensFor(as: { authorization_endpoint: string; token_endpoint: string }, cookie: string, clientId: string, resource: string) {
+  const { verifier, response } = startAuthorization(as.authorization_endpoint, cookie, clientId, resource);
+  const res = await response;
+  assert.equal(res.status, 302, res.body);
+  const consent = new URL(res.location!, s.base);
+  assert.equal(consent.pathname, '/consent', res.body);
+  const accept = await postJson('/api/auth/oauth2/consent', { accept: true, oauth_query: consent.search.slice(1) }, cookie);
+  const code = new URL(((await accept.json()) as { url: string }).url).searchParams.get('code')!;
+  const res2 = await tokenRequest(as.token_endpoint, { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, code_verifier: verifier, resource });
+  assert.equal(res2.status, 200, await res2.clone().text());
+  return (await res2.json()) as Tokens;
+}
+
+/** The answer to an authorization request AuthWAPI refused before consent, as text to match an error code in. */
+async function refusal(as: { authorization_endpoint: string }, cookie: string, clientId: string, resource: string, redirect = REDIRECT) {
+  const res = await startAuthorization(as.authorization_endpoint, cookie, clientId, resource, redirect).response;
+  assert.notEqual(new URL(res.location ?? '/', s.base).pathname, '/consent', clientId);
+  return decodeURIComponent(res.location ?? '') + res.body;
+}
+
+test('a client row with no resource link is refused without its document being fetched', async () => {
+  await ok('resource', 'add', A);
+  // What an interrupted link could have left behind (the CLI now writes the row and the link together).
+  const db = new Database(s.paths.db);
+  db.prepare("INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES ('stub', ?, 'cimd', '[]', ?, ?)").run(CLIENT, Date.now(), Date.now());
+  db.close();
+  const cookie = await signedInUser();
+  assert.match(await refusal(await discover(mcpServer(A)), cookie, CLIENT, A), /invalid_client/);
+  assert.deepEqual(fetched, []);
+});
+
+test('unlinking a client cuts it off at once, even while its document is cached: no new sign-in, no refresh', async () => {
+  await ok('resource', 'add', A);
+  await ok('resource', 'link', CLIENT, A);
+  const cookie = await signedInUser();
+  const as = await discover(mcpServer(A));
+  const tokens = await tokensFor(as, cookie, CLIENT, A);
+  assert.deepEqual(fetched, [CLIENT]);
+
+  assert.match(await ok('resource', 'unlink', CLIENT, A), /Unlinked/);
+  assert.match(await refusal(as, cookie, CLIENT, A), /invalid_client/);
+  const refreshed = await tokenRequest(as.token_endpoint, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token!, resource: A });
+  assert.equal(refreshed.status, 400);
+  assert.equal(((await refreshed.json()) as { error: string }).error, 'invalid_client');
+  assert.deepEqual(fetched, [CLIENT], 'the cached document was used, and still refused');
+});
+
+test('a linked document cannot move its redirect URIs to another origin; loopback and private-use ones are fine', async () => {
+  await ok('resource', 'add', A);
+  await ok('resource', 'link', OFF_ORIGIN, A);
+  await ok('resource', 'link', NATIVE, A);
+  const cookie = await signedInUser();
+  const as = await discover(mcpServer(A));
+  assert.match(await refusal(as, cookie, OFF_ORIGIN, A, 'https://elsewhere.example/callback'), /invalid_client/);
+  const native = await startAuthorization(as.authorization_endpoint, cookie, NATIVE, A, NATIVE_REDIRECT).response;
+  assert.equal(new URL(native.location ?? '/', s.base).pathname, '/consent', native.body);
+});
+
+test("AuthWAPI's own userinfo URL can't be registered or linked as a resource", async () => {
+  const userinfo = `${s.base}/api/auth/oauth2/userinfo`;
+  for (const args of [['resource', 'add', userinfo], ['resource', 'link', CLIENT, userinfo], ['clients', 'create', '--name', 'X', '--redirect-uri', REDIRECT, '--resource', userinfo]]) {
+    const r = await cli(...args);
+    assert.notEqual(r.code, 0, args.join(' '));
+    assert.match(r.stderr, /reserved/, args.join(' '));
+  }
+});
+
+test('without a test override, client metadata is fetched with the SSRF-safe Node transport from @better-auth/cimd', () => {
+  const deps = { config: loadConfig({ DATA_DIR: '/nonexistent' }), db: new Database(':memory:'), secret: 'x'.repeat(32), sendMail: async () => {}, log: () => {} };
+  const provider = oauthPlugins(deps).find((p) => p.id === 'oauth-provider') as unknown as { options: { extensions?: { clientDiscovery?: { fetchClientMetadataResource?: unknown } }[] } };
+  const transports = (provider.options.extensions ?? []).map((e) => e.clientDiscovery?.fetchClientMetadataResource);
+  assert.deepEqual(transports, [fetchClientMetadataResource]);
+  deps.db.close();
 });

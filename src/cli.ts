@@ -4,6 +4,7 @@
 //   node src/cli.ts clients list
 //   node src/cli.ts resource add <url>
 //   node src/cli.ts resource link <client_id> <resource>
+//   node src/cli.ts resource unlink <client_id> <resource>
 //   node src/cli.ts bootstrap-key
 //   node src/cli.ts export <dir>    (safe while the server runs)
 //   node src/cli.ts import <dir>    (into a data folder with no database; then start the server)
@@ -28,6 +29,7 @@ const USAGE = `Usage:
   node src/cli.ts clients list
   node src/cli.ts resource add <url>
   node src/cli.ts resource link <client_id> <resource>
+  node src/cli.ts resource unlink <client_id> <resource>
   node src/cli.ts bootstrap-key
   node src/cli.ts export <dir>
   node src/cli.ts import <dir>
@@ -41,6 +43,7 @@ resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is cre
 resource add registers an API or MCP server (its URL, exactly as clients send it in resource=).
 resource link lets a client get tokens for it. For an MCP client the client_id is the https URL of its
 Client ID Metadata Document; AuthWAPI fetches that document only after it is linked, when a user signs in.
+resource unlink takes that away; an MCP client linked to no resource is refused at once (no sign-in, no refresh).
 
 bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
 and revokes any unused earlier one. Use it when the bootstrap key is lost or expired, or no write key is left.`;
@@ -75,8 +78,8 @@ async function main(argv: string[]): Promise<void> {
   const bootstrap = group === 'bootstrap-key';
   if (bootstrap && argv.length > 1) throw new UsageError('bootstrap-key takes no options');
   const resource = group === 'resource';
-  if (resource && !((command === 'add' && rest.length === 1) || (command === 'link' && rest.length === 2))) {
-    throw new UsageError('resource add takes a URL; resource link takes a client_id and a resource');
+  if (resource && !((command === 'add' && rest.length === 1) || ((command === 'link' || command === 'unlink') && rest.length === 2))) {
+    throw new UsageError('resource add takes a URL; resource link and unlink take a client_id and a resource');
   }
   if (!bootstrap && !resource && (group !== 'clients' || (command !== 'create' && command !== 'list'))) throw new UsageError('unknown command');
   const { values } = parseArgs({
@@ -137,6 +140,12 @@ async function main(argv: string[]): Promise<void> {
     const auth = betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log }));
     const api = auth.api as unknown as OAuthAdminApi;
     const headers = new Headers(); // Better Auth's admin endpoints require a headers object
+    const context = await auth.$context;
+    // The provider exempts its own userinfo endpoint from resource checks; it must never be a registered resource.
+    const userinfo = `${context.baseURL}/oauth2/userinfo`;
+    for (const identifier of resource ? rest.slice(-1) : (values.resource ?? [])) {
+      if (identifier === userinfo) throw new Error(`${identifier} is reserved: it is AuthWAPI's own userinfo endpoint`);
+    }
     if (resource && command === 'add') {
       const identifier = rest[0];
       await api.adminCreateOAuthResource({ headers, body: { identifier, name: identifier } });
@@ -148,19 +157,31 @@ async function main(argv: string[]): Promise<void> {
       const [clientId, identifier] = rest;
       // Path parameters, which Better Auth decodes. Checked first so a failed link leaves no client row behind.
       const params = { identifier: encodeURIComponent(identifier), client_id: encodeURIComponent(clientId) };
+      if (command === 'unlink') {
+        await api.adminUnlinkClientResource({ headers, params });
+        log('info', 'oauth client unlinked from resource', { clientId, resource: identifier });
+        console.log(`Unlinked ${clientId} from ${identifier}.`);
+        return;
+      }
       await api.adminGetOAuthResource({ headers, params });
       if (URL.canParse(clientId)) {
         const problem = validateClientIdUrl(clientId);
         if (problem) throw new Error(problem);
-        // The client row the link needs. It holds no metadata yet: the server fetches the document (only for URLs
-        // with a row) when a user first signs in through this client, and fills the row in from it.
-        const { adapter } = await auth.$context;
-        if (!(await adapter.findOne({ model: 'oauthClient', where: [{ field: 'clientId', value: clientId }] }))) {
+        // The client row the link needs, written with the link in one transaction. It holds no metadata yet: the
+        // server fetches the document (only while the URL is linked) when a user first signs in through this client.
+        await context.adapter.transaction(async (trx) => {
           const now = new Date();
-          await adapter.create({ model: 'oauthClient', data: { clientId, clientDiscoveryId: 'cimd', redirectUris: [], createdAt: now, updatedAt: now } });
-        }
+          const where = [{ field: 'clientId', value: clientId }];
+          if (!(await trx.findOne({ model: 'oauthClient', where }))) {
+            await trx.create({ model: 'oauthClient', data: { clientId, clientDiscoveryId: 'cimd', redirectUris: [], createdAt: now, updatedAt: now } });
+          }
+          if (!(await trx.findOne({ model: 'oauthClientResource', where: [...where, { field: 'resourceId', value: identifier }] }))) {
+            await trx.create({ model: 'oauthClientResource', data: { clientId, resourceId: identifier, createdAt: now } });
+          }
+        });
+      } else {
+        await api.adminLinkClientResource({ headers, params });
       }
-      await api.adminLinkClientResource({ headers, params });
       log('info', 'oauth client linked to resource', { clientId, resource: identifier });
       console.log(`Linked ${clientId} to ${identifier}.`);
       return;
