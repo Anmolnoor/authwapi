@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 
-const { ISSUER, APP_ORIGIN, API_ORIGIN, CLIENT_ID, CLIENT_SECRET_FILE, CHECK_TOKENS_DIR } = process.env;
+const { ISSUER, APP_ORIGIN, API_ORIGIN, CLIENT_ID, CLIENT_SECRET_FILE, UNSAFE_CHECK_TOKENS_DIR } = process.env;
 const redirectUri = new URL('/callback', APP_ORIGIN).href;
 const resources = { '/api': new URL('/api', API_ORIGIN).href, '/other-api': new URL('/other-api', API_ORIGIN).href };
 const secret = (await readFile(CLIENT_SECRET_FILE, 'utf8')).trim();
@@ -28,6 +28,7 @@ async function handle(req, res) {
   if (Object.hasOwn(resources, url.pathname)) {
     const token = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
     if (!token) return json(res, 401, { error: 'bearer_required' });
+    // A JWT stays valid until it expires, even after sign-out: APIs that need instant revocation use introspection.
     try {
       const { payload } = await jwtVerify(token, jwks, { issuer: ISSUER, audience: resources[url.pathname] });
       return json(res, 200, { sub: payload.sub });
@@ -84,9 +85,9 @@ async function handle(req, res) {
     if (!api.ok || (await api.json()).sub !== id.sub) return json(res, 502, { error: 'api_request_failed' });
 
     // Private test fixture for the curl driver's negative and revocation checks.
-    if (CHECK_TOKENS_DIR) {
+    if (UNSAFE_CHECK_TOKENS_DIR) {
       const { access_token, refresh_token, scope } = tokens;
-      await writeFile(`${CHECK_TOKENS_DIR}/${flow.other ? 'other' : 'primary'}.json`,
+      await writeFile(`${UNSAFE_CHECK_TOKENS_DIR}/${flow.other ? 'other' : 'primary'}.json`,
         JSON.stringify({ access_token, refresh_token, scope }), { mode: 0o600, flag: 'wx' });
     }
     return json(res, 200, { sub: id.sub, email: id.email, emailVerified: id.email_verified, resource: flow.resource });

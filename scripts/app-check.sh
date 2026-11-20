@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rootless Podman OIDC check. All HTTP traffic goes through a third container on authwapi-net.
+# Rootless Podman OIDC check. All HTTP traffic goes through a third container on a private per-run network.
 set -Eeuo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -8,18 +8,22 @@ CHECK=app
 STEP='prepare app fixture'
 check_init
 
-NETWORK=authwapi-net
-AUTH=http://authwapi:4000
-BOOTSTRAP=http://authwapi.localhost:4000
+# Per-run names, so the check never collides with a real authwapi install or another run. Inside the run's network
+# the containers answer to the aliases authwapi.localhost and app.localhost, which AuthWAPI treats as loopback.
+NETWORK=$RUN_ID-net
+SERVER=$RUN_ID-authwapi
+SAMPLE=$RUN_ID-app
+DRIVER=$RUN_ID-curl
+AUTH=http://authwapi.localhost:4000
 APP=http://app.localhost:3000
-API=http://app:3000
-CURL_IMAGE=docker.io/curlimages/curl:8.17.0
-SERVER=authwapi
+API=$APP
+CURL_IMAGE=docker.io/curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40
 RUN_LABEL="org.authwapi.check=$RUN_ID"
-server_id= driver_id= network_id=
+network_id=
 cleanup() {
+  local status=$? id
+  ((status == 0)) || check_failure_context "$SERVER" "$SAMPLE"
   # Podman may create a container before failing to start it and returning its ID.
-  local id
   for id in $(podman ps -aq --filter "label=$RUN_LABEL"); do
     podman rm -f "$id" >/dev/null 2>&1 || true
   done
@@ -31,34 +35,24 @@ trap cleanup EXIT
 
 mkdir "$T/data" "$T/state"
 cp -r examples/sample-app "$T/sample-app"
+# curl resolves every *.localhost name to 127.0.0.1 itself, so route the two hostnames to the container names.
 request() {
-  podman exec -i "$driver_id" curl -q --noproxy '*' \
-    --connect-to authwapi.localhost:4000:authwapi:4000 --connect-to app.localhost:3000:app:3000 "$@"
-}
-start_auth() {
-  podman run -d --name "$SERVER" --label "$RUN_LABEL" --network "$NETWORK" --userns=keep-id \
-    -e "BASE_URL=$1" -e "PUID=$PUID" -e "PGID=$PGID" -v "$T/data:/data:Z" "${@:2}" "$RUN_ID:server"
+  podman exec -i "$DRIVER" curl -q --noproxy '*' \
+    --connect-to "authwapi.localhost:4000:$SERVER:4000" --connect-to "app.localhost:3000:$SAMPLE:3000" "$@"
 }
 
-STEP='build AuthWAPI and start the curl container on authwapi-net'
+STEP='build AuthWAPI and start the curl container on the run network'
 podman build -q -t "$RUN_ID:server" "$ROOT" >"$T/build.log" 2>&1
 podman pull --policy=missing "$CURL_IMAGE" >"$T/pull.log" 2>&1
 network_id=$(podman network create --internal "$NETWORK")
-driver_id=$(podman run -d --name "$RUN_ID" --label "$RUN_LABEL" --network "$NETWORK" --entrypoint /bin/sh \
-  "$CURL_IMAGE" -c 'exec sleep 1800')
+podman run -d --name "$DRIVER" --label "$RUN_LABEL" --network "$NETWORK" --entrypoint /bin/sh \
+  "$CURL_IMAGE" -c 'exec sleep 1800' >/dev/null
 
-# The real issuer uses a container hostname. Boot once with a .localhost issuer to verify the local fixture
-# through the outbox. The isolated network has no mail egress when restarted with the non-loopback issuer.
 STEP='start AuthWAPI in outbox mode'
-server_id=$(start_auth "$BOOTSTRAP")
-wait_health "$BOOTSTRAP"
-make_verified_user "$BOOTSTRAP" "$T/data"
-STEP='restart AuthWAPI on the container issuer'
-podman stop -t 5 "$server_id" >/dev/null
-podman rm "$server_id" >/dev/null
-server_id=
-server_id=$(start_auth "$AUTH" -e RESEND_API_KEY=test-disabled -e EMAIL_FROM=check@example.test)
+podman run -d --name "$SERVER" --label "$RUN_LABEL" --network "$NETWORK" --network-alias authwapi.localhost \
+  --userns=keep-id -e "BASE_URL=$AUTH" -e "PUID=$PUID" -e "PGID=$PGID" -v "$T/data:/data:Z" "$RUN_ID:server" >/dev/null
 wait_health "$AUTH"
+make_verified_user "$AUTH" "$T/data"
 
 STEP='register the sample app as the data-folder owner'
 auth_cli create --name 'Sample app' --redirect-uri "$APP/callback" \
@@ -70,10 +64,11 @@ basic=$(printf '%s:%s' "$client_id" "$(<"$T/state/client-secret")" | base64 -w0)
 check_pass 'verified user via the outbox and registered the OAuth client as the data-folder owner'
 
 STEP='start the sample app on a separate hostname'
-podman run -d --name app --label "$RUN_LABEL" --network "$NETWORK" --userns=keep-id --entrypoint node \
+podman run -d --name "$SAMPLE" --label "$RUN_LABEL" --network "$NETWORK" --network-alias app.localhost \
+  --userns=keep-id --image-volume=ignore --entrypoint node \
   -v "$T/sample-app:/app/examples/sample-app:ro,Z" -v "$T/state:/check:Z" \
   -e "ISSUER=$AUTH" -e "APP_ORIGIN=$APP" -e "API_ORIGIN=$API" -e "CLIENT_ID=$client_id" \
-  -e PORT=3000 -e CLIENT_SECRET_FILE=/check/client-secret -e CHECK_TOKENS_DIR=/check \
+  -e PORT=3000 -e CLIENT_SECRET_FILE=/check/client-secret -e UNSAFE_CHECK_TOKENS_DIR=/check \
   "$RUN_ID:server" examples/sample-app/server.mjs >/dev/null
 wait_health "$APP"
 
@@ -93,7 +88,8 @@ import re
 import sys
 
 form = re.search(r'name="oauth_query" value="([^"]+)"', Path(sys.argv[1]).read_text())
-assert form, 'missing OAuth form field'
+if not form:
+    sys.exit('missing OAuth form field')
 print(unescape(form[1]))
 PY
 }
@@ -142,12 +138,17 @@ check_pass 'API returned 401 for a validly signed access token issued to the oth
 STEP='confirm the browser session and present its cookie to the API'
 http_status 200 '' "$AUTH/api/auth/get-session" "${browser[@]}"
 jq -e --arg sub "$sub" '.user.id == $sub' "$T/body" >/dev/null
-cookie=$(podman exec "$driver_id" awk -F '\t' \
-  '$1 ~ /^(#HttpOnly_)?authwapi$/ && $6 ~ /session_token$/ {print $6 "=" $7}' /tmp/cookies)
+cookie=$(podman exec "$DRIVER" awk -F '\t' \
+  '$1 ~ /^(#HttpOnly_)?authwapi\.localhost$/ && $6 ~ /session_token$/ {print $6 "=" $7}' /tmp/cookies)
 [[ -n $cookie ]]
 http_status 401 "$(printf 'header = "Cookie: %s"\n' "$cookie")" "$API/api"
 jq -e '.error == "bearer_required"' "$T/body" >/dev/null
-check_pass 'API returned 401 when sent the valid browser session cookie without a bearer token'
+STEP='present the session cookie value as a bearer token to the API'
+http_status 401 "$(printf 'header = "Authorization: Bearer %s"\n' "${cookie#*=}")" "$API/api"
+jq -e '.error == "invalid_token"' "$T/body" >/dev/null
+STEP='present the session cookie alone to the AuthWAPI userinfo endpoint'
+http_status 401 "$(printf 'header = "Cookie: %s"\n' "$cookie")" "$AUTH/api/auth/oauth2/userinfo"
+check_pass 'the valid browser session cookie was refused by the API (as a cookie and as a bearer token) and by userinfo'
 
 oauth() {
   http_status "$1" "$(printf 'header = "Authorization: Basic %s"\ndata-urlencode = "%s"\n' "$basic" "$3")" \
@@ -169,7 +170,9 @@ introspect "$other" true
 refresh 200 "$offline"
 rotated=$(jq -er 'select(.scope | split(" ") | index("offline_access")) | .refresh_token' "$T/body")
 [[ $rotated != "$offline" ]]
-check_pass 'both access tokens introspected as active and the offline_access refresh token rotated'
+introspect "$rotated" true
+introspect "$offline" false
+check_pass 'both access tokens active; the offline_access refresh token rotated: replacement active, original inactive'
 
 STEP='sign out on AuthWAPI and check the browser session ended'
 http_status 303 '' "$AUTH/sign-out" "${browser[@]}" -H "Origin: $AUTH" --data ''
@@ -181,3 +184,13 @@ introspect "$other" false
 refresh 400 "$rotated"
 jq -e '.error == "invalid_grant"' "$T/body" >/dev/null
 check_pass 'sign-out ended the browser session; both access tokens introspected inactive and the offline_access refresh was refused'
+
+STEP='check the refresh token from the flow without offline_access'
+other_refresh=$(jq -r '.refresh_token' "$T/state/other.json")
+if [[ $other_refresh == null ]]; then
+  check_pass 'the flow without offline_access received no refresh token, so there is none to revoke'
+else
+  refresh 400 "$other_refresh"
+  jq -e '.error == "invalid_grant"' "$T/body" >/dev/null
+  check_pass 'sign-out also revoked the refresh token from the flow without offline_access'
+fi

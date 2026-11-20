@@ -242,12 +242,17 @@ migrations don't match the config.
 Run on Linux with rootless Podman, Python 3, `curl`, and `jq`. The checks build the image and use temporary
 data under `$TMPDIR` (default `/tmp`).
 
-- `scripts/upgrade-check.sh [--from <git-ref>]` upgrades a populated data folder and checks backups and
-  rollback. The default is the parent of the commit that added the latest migration, so one is always pending. The previous image must support the OAuth client CLI and precede at least one current migration.
-- `scripts/app-check.sh` runs [the sample app](examples/sample-app/) and AuthWAPI on separate hostnames on
-  the private `authwapi-net` network. It checks hosted sign-in, PKCE, ID and access token verification, audience
-  and cookie rejection, refresh rotation, and revocation on sign-out. It needs the network name and the
-  `authwapi` and `app` container names available.
+- `scripts/upgrade-check.sh [--from <git-ref>]` upgrades a populated data folder. It checks that the user,
+  password hash, OAuth client (redirect URIs, secret hash) and sessions survive, that the user signs in and the
+  client authenticates with its secret, and that a backup is taken. It then runs a broken migration on a copy of
+  the previous folder and checks the whole upgrade rolls back. The default is the parent of the commit that added
+  the latest migration, so one is always pending. The previous image must support the OAuth client CLI and precede
+  at least one current migration.
+- `scripts/app-check.sh` runs [the sample app](examples/sample-app/) as `app.localhost` and AuthWAPI as
+  `authwapi.localhost` on a private network created for the run (names carry the run id, so it doesn't touch an
+  `authwapi` install). It checks hosted sign-in, PKCE, ID and access token verification, audience and cookie
+  rejection, refresh rotation, and revocation on sign-out.
+- Both print sanitized container logs and the last HTTP response when they fail.
 
 ## License
 

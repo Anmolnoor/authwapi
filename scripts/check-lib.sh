@@ -68,4 +68,29 @@ EOF
   grep -q 'Email verified' "$T/body" || check_fail 'verification form did not confirm success'
 }
 
+# On failure, print what explains it before cleanup deletes $T: the last HTTP response and the tail of each
+# named container's log. Tokens, cookies and other long secrets are redacted.
+check_failure_context() {
+  local name
+  redact() {
+    sed -E -e 's/^(set-cookie|authorization|cookie):.*/\1: [redacted]/I' \
+      -e 's/eyJ[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]*){1,2}/[jwt]/g' -e 's/[A-Za-z0-9_%+\/=-]{24,}/[redacted]/g'
+  }
+  if [[ -s $T/response || -s $T/curl-error ]]; then
+    printf -- '--- last HTTP response (%s)\n' "${STEP:-}" >&2
+    cat "$T/response" "$T/curl-error" 2>/dev/null | head -c 4000 | redact >&2 || true
+    printf '\n' >&2
+  fi
+  if [[ ${STEP:-} == build* ]]; then
+    for name in "$T"/build*.log; do
+      printf -- '--- tail of %s\n' "${name##*/}" >&2
+      tail -n 20 "$name" | redact >&2 || true
+    done
+  fi
+  for name in "$@"; do
+    printf -- '--- podman logs --tail 40 %s\n' "$name" >&2
+    podman logs --tail 40 "$name" 2>&1 | redact >&2 || true
+  done
+}
+
 auth_cli() { podman exec --user "$PUID:$PGID" "$SERVER" node src/cli.ts clients "$@"; }
