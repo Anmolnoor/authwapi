@@ -183,9 +183,9 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   `{"twoFactorRedirect": true}` (API) or a redirect to `/two-factor` (browser), plus a short-lived `two_factor`
   cookie; finish with `POST /api/auth/two-factor/verify-totp` or `/verify-backup-code` and `{"code"}`. There are no
   trusted devices: `trustDevice` is refused.
-- **A TOTP code works once**, for sign-in, turning 2FA on and the recent-code checks alike: a code that was already
-  accepted, or one from an earlier 30-second step than the last code accepted, gets
-  `401 TOTP_CODE_ALREADY_USED`. Wait for the next code. A code is used up only when it's accepted.
+- **A TOTP code works once.** After a code is accepted (the one that turns 2FA on included), that code, or one from an
+  earlier 30-second step, gets `401 TOTP_CODE_ALREADY_USED` at sign-in and in the recent-code checks. Enter the next
+  code: a sign-in keeps its challenge, so the same form works. A code that's refused for another reason isn't used up.
 - **Passkeys** are bound to `BASE_URL` (RP ID = its hostname, origin = its origin) and need user verification
   (fingerprint, face or PIN), checked on the server. A passkey sign-in counts as both factors. Use `localhost`, not
   `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.

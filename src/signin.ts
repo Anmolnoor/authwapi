@@ -299,7 +299,8 @@ function mfaGlue(): BetterAuthPlugin {
                 if (made && made !== s?.token) {
                   await ctx.context.internalAdapter.deleteSession(made);
                   ctx.context.setNewSession(null);
-                  deleteSessionCookie(ctx);
+                  dropSessionCookies(ctx);
+                  deleteSessionCookie(ctx, true);
                   await newChallenge(ctx, userId);
                   const before = ctx.request ? failuresBefore.get(ctx.request) : undefined;
                   if (before?.userId === userId) {
