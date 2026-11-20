@@ -3,7 +3,7 @@
   "info": {
     "title": "AuthWAPI",
     "version": "0.2.0",
-    "description": "Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. Every request must use a Host that is BASE_URL's host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL's origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). Errors from core routes are `{ \"code\", \"message\" }`; OAuth endpoints answer `{ \"error\", \"error_description\" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`; the Pages routes answer an HTML error page instead). Request and response schemas are generated from Better Auth."
+    "description": "Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. Every request must use a Host that is BASE_URL's host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL's origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that sends any cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). Errors from core routes are `{ \"code\", \"message\" }`; OAuth endpoints answer `{ \"error\", \"error_description\" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`; the Pages routes answer an HTML error page instead). Request and response schemas are generated from Better Auth."
   },
   "servers": [
     {
@@ -754,6 +754,149 @@
                       "type": "boolean"
                     },
                     "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              }
+            },
+            "description": "Bad Request. Usually due to missing parameters, or invalid parameters."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              }
+            },
+            "description": "Unauthorized. Due to missing or invalid authentication."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Forbidden. You do not have permission to access this resource or to perform this action."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Not Found. The requested resource was not found."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Too Many Requests. You have exceeded the rate limit. Try again later."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Internal Server Error. This is a problem with the server that you cannot fix."
+          }
+        }
+      }
+    },
+    "/reset-password/{token}": {
+      "get": {
+        "tags": [
+          "Email and password"
+        ],
+        "description": "Redirects the user to the callback URL with the token\n\nThe link in the reset email. Redirects (302) to the callbackURL (the hosted `/reset-password` page) with the token; POST it to `/reset-password` with the new password.",
+        "operationId": "resetPasswordCallback",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "description": "The token to reset the password",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "callbackURL",
+            "in": "query",
+            "required": true,
+            "description": "The URL to redirect the user to reset their password",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
                       "type": "string"
                     }
                   }
@@ -2585,65 +2728,6 @@
                   "grant_type"
                 ]
               }
-            },
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "grant_type": {
-                    "type": "string",
-                    "description": "OAuth2 grant type"
-                  },
-                  "client_id": {
-                    "type": "string",
-                    "description": "OAuth2 client ID"
-                  },
-                  "client_secret": {
-                    "type": "string",
-                    "description": "OAuth2 client secret"
-                  },
-                  "code": {
-                    "type": "string",
-                    "description": "Authorization code (for authorization_code grant)"
-                  },
-                  "code_verifier": {
-                    "type": "string",
-                    "description": "PKCE code verifier (for authorization_code grant)"
-                  },
-                  "redirect_uri": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "Redirect URI (for authorization_code grant)"
-                  },
-                  "refresh_token": {
-                    "type": "string",
-                    "description": "Refresh token (for refresh_token grant)"
-                  },
-                  "resource": {
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "description": "Single resource (URL)"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        },
-                        "description": "Multiple resources (URLs)"
-                      }
-                    ],
-                    "description": "Requested protected resource(s) for the access token"
-                  },
-                  "scope": {
-                    "type": "string",
-                    "description": "Requested scopes (for client_credentials grant)"
-                  }
-                },
-                "required": [
-                  "grant_type"
-                ]
-              }
             }
           }
         },
@@ -2814,32 +2898,6 @@
           "required": true,
           "content": {
             "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "client_id": {
-                    "type": "string",
-                    "description": "OAuth2 client ID"
-                  },
-                  "client_secret": {
-                    "type": "string",
-                    "description": "OAuth2 client secret"
-                  },
-                  "token": {
-                    "type": "string",
-                    "description": "The token to introspect (access or refresh token)"
-                  },
-                  "token_type_hint": {
-                    "type": "string",
-                    "description": "Hint about the token type. Recognized values: `access_token`, `refresh_token`."
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            },
-            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -3052,32 +3110,6 @@
           "required": true,
           "content": {
             "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "client_id": {
-                    "type": "string",
-                    "description": "OAuth2 client ID"
-                  },
-                  "client_secret": {
-                    "type": "string",
-                    "description": "OAuth2 client secret"
-                  },
-                  "token": {
-                    "type": "string",
-                    "description": "The token to revoke (access or refresh token)"
-                  },
-                  "token_type_hint": {
-                    "type": "string",
-                    "description": "Hint about the token type. Recognized values: `access_token`, `refresh_token`."
-                  }
-                },
-                "required": [
-                  "token"
-                ]
-              }
-            },
-            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -3439,7 +3471,7 @@
         "requestBody": {
           "required": false,
           "content": {
-            "application/json": {
+            "application/x-www-form-urlencoded": {
               "schema": {
                 "type": "object",
                 "properties": {

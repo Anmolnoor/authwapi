@@ -18,7 +18,7 @@ curl http://localhost:4000/health
 {"status":"ok"}
 ```
 
-Everything AuthWAPI keeps goes into `./authwapi-data` (see [the data folder](/docs/configuration/#the-data-folder)).
+It takes a few seconds to start; if `curl` fails, try again. Everything AuthWAPI keeps goes into `./authwapi-data` (see [the data folder](/docs/configuration/#the-data-folder)).
 The port is published on `127.0.0.1` only, so nothing outside your machine can reach it.
 
 **Podman, SELinux, another port or another user ID?** See [Running on other setups](/docs/configuration/#running-on-other-setups).
@@ -42,7 +42,8 @@ The account can't sign in until its email is verified. Signing in now returns
 
 ## 3. Verify the email
 
-With no email provider configured, AuthWAPI writes each email as a JSON file in `authwapi-data/outbox/`:
+With no email provider configured, AuthWAPI writes each email as a JSON file in `authwapi-data/outbox/`, a moment
+after the request:
 
 ```bash
 cat authwapi-data/outbox/*.json

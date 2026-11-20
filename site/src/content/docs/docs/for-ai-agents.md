@@ -70,7 +70,7 @@ Every step is a shell command whose output you can check.
   needs HTTPS and Resend, which isn't documented yet.
 - **Match the Host.** If you reach the server under another name (another container, another port), set
   `BASE_URL` or `ALLOWED_HOSTS` to match, or every request gets `421 unknown_host`.
-- **Send `Origin` with the cookie.** A `POST` to a Better Auth route that carries the session cookie (sign-out, change-password,
+- **Send `Origin` with the cookie.** A `POST` to a Better Auth route that sends any cookie, such as the session cookie (sign-out, change-password,
   revoking sessions) must send `-H 'origin: http://localhost:4000'` (your `BASE_URL`), or it fails with
   `403 MISSING_OR_NULL_ORIGIN` and changes nothing. Any other `Origin` gets `403 untrusted_origin`.
 - **Respect `429`.** Wait the number of seconds in `X-Retry-After`. Sign-in and sign-up allow 3 requests per 10

@@ -42,6 +42,11 @@ const SUPPORTED: Record<string, { methods: string[]; security?: object[]; note?:
     tag: 'Email and password',
     note: 'Emails a reset link if the address has an account. Same answer either way.',
   },
+  '/reset-password/{token}': {
+    methods: ['get'],
+    tag: 'Email and password',
+    note: 'The link in the reset email. Redirects (302) to the callbackURL (the hosted `/reset-password` page) with the token; POST it to `/reset-password` with the new password.',
+  },
   '/reset-password': {
     methods: ['post'],
     tag: 'Email and password',
@@ -211,10 +216,9 @@ async function generate(): Promise<string> {
         const op = ops[m];
         if (!op) throw new Error(`Better Auth has no ${m.toUpperCase()} ${path}; update SUPPORTED in site/scripts/openapi.ts`);
         const description = [op.description, note].filter(Boolean).join('\n\n');
-        // OAuth clients POST form-encoded bodies (RFC 6749); Better Auth accepts that as well as the JSON it lists.
+        // The OAuth endpoints take form-encoded bodies only (RFC 6749; JSON gets 415), though Better Auth lists JSON.
         const json = op.requestBody?.content?.['application/json'];
-        const requestBody =
-          security === CLIENT && json ? { ...op.requestBody, content: { 'application/x-www-form-urlencoded': json, 'application/json': json } } : op.requestBody;
+        const requestBody = path.startsWith('/oauth2/') && json ? { ...op.requestBody, content: { 'application/x-www-form-urlencoded': json } } : op.requestBody;
         const result = { ...op, ...(requestBody ? { requestBody } : {}), tags: [tag], description, security: security ?? [] };
         correct(path, m, result);
         return [m, result];
@@ -237,7 +241,7 @@ async function generate(): Promise<string> {
       version: '0.2.0',
       description:
         'Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. ' +
-        'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +
+        'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST to a Better Auth route that sends any cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +
         'Errors from core routes are `{ "code", "message" }`; OAuth endpoints answer `{ "error", "error_description" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`; the Pages routes answer an HTML error page instead). ' +
         'Request and response schemas are generated from Better Auth.',
     },
@@ -279,4 +283,3 @@ if (process.argv.includes('--check')) {
   writeFileSync(OUT, text);
   console.log(`wrote ${OUT.pathname}`);
 }
-process.exit(0); // Better Auth's rate-limit sweeper keeps the event loop alive
