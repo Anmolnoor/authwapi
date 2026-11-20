@@ -127,52 +127,82 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
   - Tested against a separate resource server that publishes its own discovery metadata and checks that tokens are bound to it.
 - **M6, release hardening:** multi-arch image (amd64/arm64) on GHCR, CI on Linux and macOS, semantic versions, upgrade notes. M1 already covers migrations, backup and export.
 
-### Rev 6 execution (2026-11-20): finish M1, then M2 → M6
+### Rev 7 execution (2026-11-20): finish M1, then M2 → M6
+Rev 7 applies council round 1 on rev 6 (Opus 6, Sol 6, Terra 6).
+
 **G1 result: override, demand not shown.** On 2026-11-20 the owner asked for M2–M6 to be built now, before
 publishing M1. Not a pass. Per the owner: M6 adds the release workflows but publishes no image or tag; quality
 beats the clock (each milestone is reviewed and merged before the next depends on it).
 
-**How the work runs.** One PR per lane, merged to `main` in the order below, each after sol-loop (GPT-6.2 Sol)
-and a council round. Coders work on the Mac in their own worktrees and push a branch; Linux/container checks
-(`scripts/container-check.sh`) run on Fedora. Migration numbers are fixed per lane so parallel lanes don't
-collide; a lane that merges after another regenerates its migration with `scripts/new-migration.ts` on rebase.
+**How the work runs.** One PR per lane, merged to `main` in this order, each after sol-loop (GPT-6.2 Sol) and a
+council round: **M6a → M1-A, M1-B → M1-C → M2 → M3 → M4a → M4b → M5 → M6b.** Lanes may be coded in parallel
+when their files don't overlap, but merge in that order. Coders work on the Mac in their own worktrees and push
+a branch; the full container check (needs enforcing SELinux) runs on Fedora.
 
-| Lane | Branch | Migration | Depends on |
-|---|---|---|---|
-| M1-A admin MCP (5 tools, agent keys, `logs/audit.jsonl`) | `m1-admin-mcp` | `0004_admin_mcp` | — |
-| M1-B `export` / `import` | `m1-export-import` | none | — |
-| M2 sign-in methods | `m2-signin-methods` | `0005_signin_methods` | — |
-| M6a CI (Linux + macOS, container check) | `m6-ci` | none | — |
-| M3 organizations and admin | `m3-orgs-admin` | `0006_orgs_admin` | M1-A |
-| M5 MCP OAuth | `m5-mcp-oauth` | `0007_mcp_oauth` | — |
-| M4a OIDC SSO | `m4a-oidc-sso` | `0008_sso` | M3 |
-| M4b SAML | `m4b-saml` | `0009_saml` (if needed) | M4a |
-| M6b release: multi-arch build on tags (no publish), semver, upgrade notes | `m6-release` | none | all |
+**Migrations are numbered in merge order**, not reserved: a lane rebases onto `main` right before merge, deletes
+its provisional SQL, and regenerates with `scripts/new-migration.ts` (next free number). Our own tables are
+declared through a plugin `schema` (as `tokensRevokedAt` is in `src/oauth.ts`) so the generator and the existing
+schema-drift test cover them.
 
-M6a moves ahead of M2–M5 because CI on every later PR is proof those PRs need.
+| Lane | Branch | Depends on |
+|---|---|---|
+| M6a CI (Linux + macOS tests; container checks 1, 2, 4, 5) | `m6-ci` | — |
+| M1-A admin MCP (5 tools, agent keys, `logs/audit.jsonl`) | `m1-admin-mcp` | — |
+| M1-B `export` / `import` | `m1-export-import` | — |
+| M1-C M1 exit: `AGENTS.md`, `/llms.txt`, sample app on another hostname, upgrade test, browser QA, the no-human agent test run twice (host; container on Fedora's `authwapi-net`) | `m1-exit` | M1-A, M1-B |
+| M2 sign-in methods | `m2-signin-methods` | M6a |
+| M3 organizations and admin | `m3-orgs-admin` | M1-A, M2 |
+| M4a OIDC SSO | `m4a-oidc-sso` | M3 |
+| M4b SAML | `m4b-saml` | M4a |
+| M5 MCP OAuth for users' MCP servers | `m5-mcp-oauth` | M3 |
+| M6b release: multi-arch build on tags (never triggered), semver, `UPGRADING.md` | `m6-release` | all |
 
-**Decisions per milestone (defaults; council may change them):**
-- **M2.** Google and GitHub sign-in are on only when their client ID and secret are set. A provider account links
-  to an existing AuthWAPI account only when the provider asserts a verified email *and* the AuthWAPI account's email
-  is verified (otherwise Risk 8 returns through social sign-in). TOTP with backup codes via Better Auth's
-  `twoFactor`; **a user with 2FA on is challenged after every first factor**: password, magic link and social
-  sign-in, and the OAuth `/authorize` flow. A passkey sign-in counts as both factors (user verification required).
-  Passkey `rpID` = `BASE_URL` hostname, origin = `BASE_URL` origin. Hosted pages: social buttons, 2FA challenge,
-  TOTP setup, passkey register and sign-in. Tests use an in-process mock OAuth server and a software WebAuthn
-  authenticator; no real Google/GitHub credentials.
-- **M3.** Better Auth `organization` (invitations by email, roles owner/admin/member) and `admin` (ban revokes
-  sessions *and* OAuth refresh tokens; impersonation writes an audit line and can't impersonate an admin).
-  `org_id`/`roles` claims for the active organization in ID and access tokens. MCP tools: `list_orgs`,
-  `create_org`, `invite_member`, `ban_user`, `unban_user` (write scope, audited).
-- **M5.** `@better-auth/mcp` + `@better-auth/cimd` on the existing provider. Tested against a separate resource
-  server that publishes protected-resource metadata and rejects tokens whose `aud` isn't itself.
-- **M4a.** `@better-auth/sso` OIDC per organization; binding (org, issuer, subject); org admins (or a write MCP key)
-  register providers and assert domains; callback URLs validated. Tests use a second AuthWAPI instance as the IdP,
-  with the negative tests listed above.
-- **M4b.** SAML through the same plugin; signed assertions required; IdP-initiated off unless the org opts in.
-  Round trip against a real IdP container on Fedora/CI plus negative tests (unsigned, wrong audience, replay).
-- **M6.** CI on Linux and macOS (typecheck, tests, container check on Linux); a tag-triggered multi-arch
-  (amd64/arm64) GHCR workflow that this plan never triggers; semantic versions and `UPGRADING.md`.
+**Decisions per milestone:**
+- **M2, MFA is enforced on the server.** No usable session, consent or authorization code exists before the
+  second factor, for every first factor: password (Better Auth's built-in challenge), magic-link verify and social
+  callback (our hook turns the new session into a 2FA challenge before the response), and later SSO callbacks
+  (M4). Tested per path, including direct API calls. `twoFactor` with `allowPasswordless: true`, trusted devices
+  off, backup codes; enabling 2FA revokes other sessions and refresh tokens. A passkey sign-in counts as both
+  factors only with `authenticatorSelection.userVerification: "required"` checked on the server; adding a passkey to
+  an account with 2FA needs a fresh 2FA check. The signed OAuth request survives the social redirect, the 2FA page
+  and the passkey ceremony (this also closes the M1 follow-up: offer magic link during an OAuth sign-in).
+- **M2, account linking is enforced in code**, one choke point for implicit and explicit linking, `trustedProviders`
+  empty: a provider account links only when the provider asserts a verified email. If the local account's email is
+  unverified (possibly pre-registered by someone else, Risk 8), linking behaves like magic link: the email becomes
+  verified, the unproven password is removed, and every session and refresh token is revoked. Google/GitHub are on
+  only when their credentials are set. Passkeys need a small client script and a CSP change on hosted pages. Tests
+  use an in-process mock OAuth server and a software WebAuthn authenticator.
+- **M3, one ban operation** for HTTP and MCP: revokes sessions and refresh tokens, and the provider rejects refresh
+  and code exchange for banned users; introspection reports their tokens inactive (a JWKS-only API keeps the
+  15-minute window, documented). Tested against a concurrent ban. `/admin/revoke-user-session(s)`,
+  `/admin/set-user-password` and `/admin/remove-user` also revoke refresh tokens. The first admin is set with a
+  `set_role` MCP tool (write scope). **Impersonation:** short, audited, can't target admins or org owners/admins,
+  and an impersonated session can't use `/oauth2/authorize`, `/oauth2/consent` or change credentials. **Org claims**
+  (`org_id`, `roles`) sit behind an `organization` scope and are bound to the grant at sign-in (provider `postLogin` +
+  `consentReferenceId`), never read from the live session; refresh re-checks membership and role, and leaves the
+  claims out when there's no authorized org. A hosted page accepts invitations. MCP: `list_orgs` (read), `create_org`,
+  `invite_member`, `ban_user`, `unban_user`, `set_role` (write), all audited.
+- **M4a, SSO trust.** Providers are registered only by a write MCP tool `register_sso_provider` (org-scoped) or the
+  CLI; HTTP registration is off (`providersLimit: 0`). Explicit endpoints (`skipDiscovery`), so `trustedOrigins`
+  doesn't widen. **No linking by email or domain:** domains only route users to their org's provider, are unique
+  across orgs, and are never "verified" (Better Auth would then link any verified user by email). An SSO identity
+  resolves only through its (org, issuer, subject) binding; an existing user is linked only if already a member of
+  that org or when linking explicitly while signed in. Deleting a provider revokes its users' sessions and tokens.
+  Local 2FA applies after SSO sign-in. Tests: an org claiming `gmail.com` gets no one else's account, cross-org,
+  unverified email, replay, wrong audience, bad signature. IdP in tests: a second AuthWAPI instance.
+- **M4b, SAML.** IdP-initiated sign-in stays off (Better Auth's switch is global). `wantAssertionsSigned: true`,
+  `requireTimestamps: true`, `algorithms.onDeprecated: "reject"`, InResponseTo and replay checks on. Document that
+  SAML keys sit unencrypted in SQLite. Round trip against a real IdP container on Fedora/CI, plus negative tests
+  (unsigned, wrong audience, replay, another provider's assertion).
+- **M5, users' MCP servers on the current provider:** `cimd()` plus the provider's resource registry; not
+  `@better-auth/mcp`, which would replace the provider. The operator registers each MCP server as a resource
+  (`authwapi resource add`); CIMD clients get only resources that exist; `isMetadataDocumentUrlAllowed` policy and
+  the bundled SSRF-safe fetch; the consent page shows the `client_id` host (a client name is self-asserted). Refresh
+  rotation stays strict. Tested with two external MCP resources through discovery, code exchange and refresh: a
+  token for one is rejected by the other, and a client can't get a token for a resource it wasn't granted. OAuth
+  tokens are never accepted by the admin MCP.
+- **M6.** M6a above. M6b: tag-triggered multi-arch (amd64/arm64) GHCR workflow that this plan never triggers;
+  semantic versions; `UPGRADING.md`.
 
 ### Stage 7: Learn
 Retrospective and cross-project learning (`solofounder:conversation-analysis`).
