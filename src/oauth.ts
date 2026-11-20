@@ -40,7 +40,7 @@ type ProviderOptions = Parameters<typeof oauthProvider>[0];
  * Revokes every refresh and opaque access token the user holds, for every client (offline_access ones included),
  * and records when, so introspection can report older JWT access tokens inactive too (see introspectionGuard).
  */
-async function revokeUserTokens(context: Pick<AuthContext, 'adapter'>, userId: string): Promise<void> {
+export async function revokeUserTokens(context: Pick<AuthContext, 'adapter'>, userId: string): Promise<void> {
   const now = new Date();
   // Inside a transaction (an end-session delete may run in one) queries outside it would wait forever.
   const adapter = await getCurrentAdapter(context.adapter);

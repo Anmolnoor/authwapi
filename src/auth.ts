@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
+import { linkingPolicy, signInPlugins } from './signin.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -95,6 +96,10 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     advanced: {
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
+    // Google / GitHub, each only when its client ID and secret are set (config.ts). Linking: src/signin.ts.
+    socialProviders: config.social,
+    account: { accountLinking: { trustedProviders: [] } },
+    user: { validateUserInfo: linkingPolicy },
     // Reset and verification tokens are stored hashed, so a copy of the database can't be used to reset.
     verification: { storeIdentifier: 'hashed' },
     emailAndPassword: {
@@ -140,6 +145,8 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
           });
         },
       }),
+      // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
+      ...signInPlugins(config),
       ...oauthPlugins(deps), // lane A
     ],
     emailVerification: {

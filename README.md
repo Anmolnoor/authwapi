@@ -2,8 +2,9 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 3 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
-pages, email + password with verification, magic links, password reset, sessions, apps signing users in through
+**Status: early (M1, slice 3 of the [plan](.solofounder/flow.md), plus M2 sign-in methods).** Works today: hosted
+sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub sign-in, TOTP
+two-factor authentication with backup codes, passkeys, password reset, sessions, apps signing users in through
 AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder, migrations and Docker. **Not built yet:** the admin MCP
 server, export/import, the no-human agent test. Don't put real users on it yet.
 
@@ -62,20 +63,64 @@ database while the server runs.
 | `BASE_URL` | `http://localhost:4000` | The address people and apps use. Links, cookies and the Host check all come from it. Origin only, no path. |
 | `ALLOWED_HOSTS` | — | Extra Host names to accept, comma-separated, e.g. `authwapi` or `host.docker.internal` for an agent in another container |
 | `RESEND_API_KEY`, `EMAIL_FROM` | — | Resend delivery (both needed) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | "Continue with Google" (both needed; see [Google and GitHub sign-in](#google-and-github-sign-in)) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | — | "Continue with GitHub" (both needed) |
 | `PUID`, `PGID` | `1000` | User the server runs as; the entrypoint gives `/data` to this user |
 | `PORT` | `4000` | Port inside the container |
 | `DATA_DIR` | `/data` | Data folder inside the container |
 
 ## Pages
 
-Server-rendered, no JavaScript: `/` · `/sign-in` (password or "email me a link") · `/sign-up` · `/forgot-password`
-· `/reset-password` · `/consent` (an app asking for access) · `/signed-out`.
+Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up, or "email me a link") · `/sign-up`
+· `/forgot-password` · `/reset-password` · `/consent` (an app asking for access) · `/signed-out` · `/two-factor` (the
+code after the first step) · `/two-factor/setup` (turn on TOTP) · `/passkeys` (add one). The only script is
+`/passkey.js` for the passkey buttons (WebAuthn needs one); the pages' CSP allows scripts from our own origin only.
+Every sign-in method also works during an app's sign-in: the request carries on to consent afterwards.
 
 - **Verifying an email asks for the password you chose at sign-up.** Opening the link only shows that form, so
   someone who signed up with *your* address can't get in when you click it: you won't know their password, and
   "Forgot password?" replaces it and ends every session.
 - **A magic link asks "Sign in as you@example.com?"** before it signs you in, so an email scanner that opens
   links can't use it up, and a link someone else sent you can't sign you in without you seeing whose it is.
+
+## Google and GitHub sign-in
+
+Each provider is on only when both its variables are set (half a pair stops the server). Register AuthWAPI with
+the provider using this redirect URI (your `BASE_URL`, then the path):
+
+- **Google** ([Google Cloud console](https://console.cloud.google.com/apis/credentials), OAuth client ID, type
+  "Web application"): `BASE_URL/api/auth/callback/google`, e.g. `http://localhost:4000/api/auth/callback/google`.
+- **GitHub** ([Developer settings → OAuth Apps](https://github.com/settings/developers)): authorization callback URL
+  `BASE_URL/api/auth/callback/github`. AuthWAPI asks for `user:email`.
+
+```bash
+docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" \
+  -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... ghcr.io/anmolnoor/authwapi
+```
+
+**Accounts are joined by email only when it's safe.** A Google or GitHub sign-in is accepted only if the provider
+says the email is verified. It joins an existing AuthWAPI account with the same email only if that account's email
+is verified too, whether it happens at sign-in or through `POST /api/auth/link-social` while signed in. If someone
+created an account with your address and never verified it, the sign-in is refused and the page points to
+"Email me a link": the link proves the address, removes the unproven password and every session, and then Google
+or GitHub works.
+
+## Two-factor authentication and passkeys
+
+- **TOTP with backup codes.** Turn it on at `/two-factor/setup` (or `POST /api/auth/two-factor/enable`, then
+  `POST /api/auth/two-factor/verify-totp` with a code). Doing so signs out every other session and revokes the
+  user's refresh tokens. Backup codes are shown once.
+- **Enforced on the server after every first step**: password, magic link, Google, GitHub. Until the second
+  factor, there's no session, no consent and no authorization code. The first step answers with
+  `{"twoFactorRedirect": true}` (API) or a redirect to `/two-factor` (browser), plus a short-lived `two_factor`
+  cookie; finish with `POST /api/auth/two-factor/verify-totp` or `/verify-backup-code` and `{"code"}`. There are no
+  trusted devices: `trustDevice` is refused.
+- **Passkeys** are bound to `BASE_URL` (RP ID = its hostname, origin = its origin) and need user verification
+  (fingerprint, face or PIN), checked on the server. A passkey sign-in counts as both factors. Use `localhost`, not
+  `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.
+- **Recent code needed.** On a 2FA account, adding a passkey, turning 2FA off, reading the TOTP secret or making
+  new backup codes needs a code entered in the last 5 minutes (`POST /api/auth/two-factor/verify-totp` while signed
+  in, or the code you signed in with).
 
 ## Apps (OAuth 2.1 / OpenID Connect)
 
@@ -105,7 +150,8 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
 
 Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`: `POST /sign-up/email`,
 `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `POST /request-password-reset`,
-`POST /reset-password`, `POST /sign-in/magic-link`, and the OAuth endpoints under `/oauth2/`. The links in
+`POST /reset-password`, `POST /sign-in/magic-link`, `POST /sign-in/social`, `POST /link-social`, the 2FA endpoints
+under `/two-factor/`, the passkey endpoints under `/passkey/`, and the OAuth endpoints under `/oauth2/`. The links in
 emails (`/api/auth/verify-email`, `/api/auth/magic-link/verify`) are pages: GET shows a form, POST acts.
 Browser-style requests must send an `Origin` equal to `BASE_URL`.
 

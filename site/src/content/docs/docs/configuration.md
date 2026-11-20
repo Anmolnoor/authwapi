@@ -13,6 +13,8 @@ says what to fix.
 | `BASE_URL` | `http://localhost:4000` | The address people and apps use. Links in emails, cookies, the OAuth issuer and the Host check all come from it. An origin only: no path, query or fragment. |
 | `ALLOWED_HOSTS` | none | Extra Host names to accept, comma-separated, such as `authwapi` or `host.docker.internal` for an agent in another container. A name without a port means the listening port. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | none | Send email through Resend. Both are needed. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | none | Turns on "Continue with Google". Both are needed. In Google Cloud, create a "Web application" OAuth client with the redirect URI `BASE_URL/api/auth/callback/google`. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | none | Turns on "Continue with GitHub". Both are needed. In GitHub's Developer settings, create an OAuth App with the callback URL `BASE_URL/api/auth/callback/github`. |
 | `PUID`, `PGID` | `1000` | The user the server runs as. The container's entrypoint gives `/data` to this user. |
 | `PORT` | `4000` | Port inside the container. |
 | `DATA_DIR` | `/data` | Data folder inside the container. |

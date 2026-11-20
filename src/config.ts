@@ -4,6 +4,9 @@ export type EmailConfig =
   | { mode: 'resend'; apiKey: string; from: string }
   | { mode: 'outbox' };
 
+export type SocialProvider = 'google' | 'github';
+export type SocialConfig = Partial<Record<SocialProvider, { clientId: string; clientSecret: string }>>;
+
 export interface Config {
   baseUrl: URL;
   host: string; // interface to listen on; 0.0.0.0 inside the container
@@ -12,6 +15,7 @@ export interface Config {
   allowedHosts: Set<string>; // Host header values accepted, e.g. "localhost:4000"
   trustedOrigins: string[]; // browser Origins accepted: BASE_URL's, plus each ALLOWED_HOSTS name with its scheme
   email: EmailConfig;
+  social: SocialConfig; // Google / GitHub sign-in, each on only when its client ID and secret are set
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -52,6 +56,14 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     email = fail('RESEND_API_KEY and EMAIL_FROM are required when BASE_URL is not localhost');
   }
 
+  const social: SocialConfig = {};
+  for (const [provider, prefix] of [['google', 'GOOGLE'], ['github', 'GITHUB']] as const) {
+    const clientId = env[`${prefix}_CLIENT_ID`];
+    const clientSecret = env[`${prefix}_CLIENT_SECRET`];
+    if (!clientId !== !clientSecret) fail(`${prefix}_CLIENT_ID and ${prefix}_CLIENT_SECRET must be set together`);
+    if (clientId && clientSecret) social[provider] = { clientId, clientSecret };
+  }
+
   const trustedOrigins = [...allowedHosts].map((h) => `${baseUrl.protocol}//${h}`);
-  return { baseUrl, host: env.HOST ?? '0.0.0.0', port, dataDir: env.DATA_DIR ?? '/data', allowedHosts, trustedOrigins, email };
+  return { baseUrl, host: env.HOST ?? '0.0.0.0', port, dataDir: env.DATA_DIR ?? '/data', allowedHosts, trustedOrigins, email, social };
 }
