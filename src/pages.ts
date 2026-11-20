@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 import { Hono, type Context } from 'hono';
 import { html } from 'hono/html';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { errors, jwtVerify } from 'jose';
 import { createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import type { AuthCall } from './app.ts';
 import { memoryRateLimit } from './auth.ts';
@@ -66,22 +67,26 @@ const SCRYPT = { N: 16384, r: 16, p: 1, maxmem: 128 * 16384 * 16 * 2 };
 async function passwordMatches(stored: string, password: string): Promise<boolean> {
   const [salt, key] = stored.split(':');
   const expected = Buffer.from(key ?? '', 'hex');
-  if (!salt || expected.length !== 64) throw new Error('the stored password is not a Better Auth scrypt hash');
+  if (!salt || expected.length !== 64) throw new Error("the stored password isn't in the expected format");
   const derived = await new Promise<Buffer>((resolve, reject) =>
     scrypt(password.normalize('NFKC'), salt, 64, SCRYPT, (err, k) => (err ? reject(err) : resolve(k)))
   );
   return timingSafeEqual(derived, expected);
 }
 
-/** The user a verification link belongs to. Better Auth checks the signature and that this user owns the email. */
-function verificationUserId(token: string): string | undefined {
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
-    // An email-change token (updateTo) can't be minted (change-email is off); refuse it rather than guess.
-    return typeof payload.userId === 'string' && payload.updateTo === undefined ? payload.userId : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Marks the email verified only if, at that moment, the user still has this address and exactly the password hash
+ * that was just checked. One UPDATE, which SQLite runs atomically, so a password reset that lands between the check
+ * and here makes it change nothing. Returns whether it changed the row. This replaces Better Auth's verify-email,
+ * which here sets only emailVerified and updatedAt (no verification hooks are configured, autoSignIn is off).
+ */
+export function markEmailVerified(db: Database.Database) {
+  const update = db.prepare(
+    `UPDATE user SET emailVerified = 1, updatedAt = ? WHERE id = ? AND email = ?
+     AND EXISTS (SELECT 1 FROM account WHERE userId = user.id AND providerId = 'credential' AND password = ?)`
+  );
+  return (userId: string, email: string, hash: string): boolean =>
+    update.run(new Date().toISOString(), userId, email, hash).changes === 1;
 }
 
 // Better Auth stores a magic link as sha256(token) under "magic-link:", and with verification.storeIdentifier
@@ -89,14 +94,58 @@ function verificationUserId(token: string): string | undefined {
 const b64sha256 = (s: string) => createHash('sha256').update(s).digest('base64url');
 const magicLinkIdentifier = (token: string) => b64sha256(`magic-link:${b64sha256(token)}`);
 
+/** Every path served here; each gets the anti-framing / no-cache headers below. */
+const PAGE_PATHS = [
+  '/',
+  '/sign-in',
+  '/sign-out',
+  '/signed-out',
+  '/sign-up',
+  '/forgot-password',
+  '/reset-password',
+  '/consent',
+  '/api/auth/verify-email',
+  '/api/auth/magic-link/verify',
+];
+
 /**
  * Mounted BEFORE the /api/auth/* catch-all, so routes here intercept Better Auth paths
  * (GET /api/auth/verify-email, GET /api/auth/magic-link/verify).
  */
-export function pageRoutes({ callAuth, config, db, log }: PageDeps): Hono {
+export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hono {
   const app = new Hono();
+  // No page can be framed (a framing site could trick a click on Allow or Continue; the POST would carry our own
+  // Origin) or cached (pages carry tokens and session state). Registered per path, not '*': a '*' middleware here
+  // would also run for every route mounted after these, including the whole API.
+  for (const path of PAGE_PATHS) {
+    app.use(path, async (c, next) => {
+      await next();
+      c.res.headers.set('content-security-policy', "frame-ancestors 'none'");
+      c.res.headers.set('x-frame-options', 'DENY');
+      c.res.headers.set('cache-control', 'no-store');
+    });
+  }
   const limiter = memoryRateLimit();
   const credential = db.prepare(`SELECT password FROM account WHERE userId = ? AND providerId = 'credential'`);
+  const markVerified = markEmailVerified(db);
+  const verificationKey = new TextEncoder().encode(secret);
+  const userWithEmail = db.prepare(`SELECT id FROM user WHERE id = ? AND email = ?`);
+  /**
+   * The user a verification link was issued for, checked as Better Auth's verify-email checks it (HS256 with the
+   * instance secret, not expired, email lowercased at signing) and more strictly: it must name a user id, that user
+   * must still have that address, and it must not be an email-change token (change-email is off; refuse rather
+   * than guess). Runs before any per-user counter or scrypt work, so a forged token can't lock anyone out.
+   */
+  const verificationUser = async (token: string): Promise<{ userId: string; email: string } | 'expired' | undefined> => {
+    try {
+      const { payload } = await jwtVerify(token, verificationKey, { algorithms: ['HS256'], requiredClaims: ['exp'] });
+      const { userId, email, updateTo } = payload;
+      if (typeof userId !== 'string' || typeof email !== 'string' || updateTo !== undefined) return undefined;
+      return userWithEmail.get(userId, email) === undefined ? undefined : { userId, email };
+    } catch (err) {
+      return err instanceof errors.JWTExpired ? 'expired' : undefined;
+    }
+  };
   const pendingMagicLink = db.prepare(
     `SELECT u.email AS email, v.expiresAt AS expiresAt FROM verification v JOIN user u ON u.email = lower(json_extract(v.value, '$.email'))
      WHERE v.identifier = ?`
@@ -294,9 +343,9 @@ export function pageRoutes({ callAuth, config, db, log }: PageDeps): Hono {
   });
 
   // ── Risk 8: verifying an email needs the password chosen at sign-up ──
-  // GET shows a form and changes nothing; POST checks the password, then asks Better Auth to verify. Better Auth's
-  // own GET route is reachable only through the internal call below: this path is intercepted for every method
-  // Hono routes here (GET, HEAD, POST), and Better Auth matches only this exact path.
+  // GET shows a form and changes nothing; POST checks the token and the password, then marks the email verified in
+  // one conditional UPDATE (markEmailVerified). Better Auth's own route is never called: this path is intercepted
+  // for every method Hono routes here (GET, HEAD, POST), and Better Auth matches only this exact path.
   const verifyPage = (c: Context, error?: string, status: ContentfulStatusCode = 200, help = false) =>
     render(
       c,
@@ -315,30 +364,39 @@ export function pageRoutes({ callAuth, config, db, log }: PageDeps): Hono {
     );
   app.get('/api/auth/verify-email', (c) => verifyPage(c));
   app.post('/api/auth/verify-email', async (c) => {
-    const token = c.req.query('token') ?? '';
-    const userId = verificationUserId(token);
-    if (userId === undefined) {
+    const tooMany = (retryAfter: number | null) => verifyPage(c, `Too many attempts. Try again in ${retryAfter} seconds.`, 429, true);
+    const ip = getConnInfo(c).remote.address ?? 'unknown';
+    // Per IP first, before anything else is read. Higher than the per-user limit: several people can share an IP.
+    const byIp = await limiter.consume(`verify-email:ip:${ip}`, { window: 300, max: 20 });
+    if (!byIp.allowed) return tooMany(byIp.retryAfter);
+    const user = await verificationUser(c.req.query('token') ?? '');
+    if (user === 'expired') {
+      return render(c, 'Verify your email', alert("This verification link has expired. Use 'Email me a link' on the sign-in page: it verifies your email too."), 400);
+    }
+    if (user === undefined) {
       return render(c, 'Verify your email', alert("This verification link is broken. Use 'Email me a link' on the sign-in page: it verifies your email too."), 400);
     }
     const password = (await form(c))('password');
     if (password === '') return verifyPage(c, 'Enter your password.', 400);
-    const ip = getConnInfo(c).remote.address ?? 'unknown';
-    for (const key of [`verify-email:ip:${ip}`, `verify-email:user:${userId}`]) {
-      const { allowed, retryAfter } = await limiter.consume(key, { window: 300, max: 5 });
-      if (!allowed) return verifyPage(c, `Too many attempts. Try again in ${retryAfter} seconds.`, 429, true);
-    }
-    const stored = (credential.get(userId) as { password: string | null } | undefined)?.password;
+    // Only a genuine link reaches the per-user counter.
+    const byUser = await limiter.consume(`verify-email:user:${user.userId}`, { window: 300, max: 5 });
+    if (!byUser.allowed) return tooMany(byUser.retryAfter);
+    const stored = (credential.get(user.userId) as { password: string | null } | undefined)?.password;
     if (!stored) {
       // None exist in M1 (a magic link can't create an account); fail closed rather than verify without a password.
       return render(c, 'Verify your email', alert("This account has no password, so this link can't verify it. Use 'Email me a link' on the sign-in page instead."), 409);
     }
-    // Longer than Better Auth's 128-character maximum: can't be the sign-up password; skip the scrypt work.
-    if (password.length > 128 || !(await passwordMatches(stored, password))) {
-      return verifyPage(c, "That isn't the password this account was created with.", 401, true);
+    let matches: boolean;
+    try {
+      // Longer than Better Auth's 128-character maximum: can't be the sign-up password; skip the scrypt work.
+      matches = password.length <= 128 && (await passwordMatches(stored, password));
+    } catch (err) {
+      log('error', 'verify-email: could not check the password', { userId: user.userId, error: err instanceof Error ? err.message : 'unknown error' });
+      return render(c, 'Verify your email', alert("We couldn't check your password, so nothing was changed. Tell whoever runs this sign-in service."), 500);
     }
-    const r = await ba(c, 'GET', `/verify-email?token=${encodeURIComponent(token)}`);
-    if (r.status !== 200) {
-      return render(c, 'Verify your email', alert(`${errorText('/verify-email', r)} Use 'Email me a link' on the sign-in page to verify instead.`), 400);
+    if (!matches) return verifyPage(c, "That isn't the password this account was created with.", 401, true);
+    if (!markVerified(user.userId, user.email, stored)) {
+      return verifyPage(c, 'The password for this account changed while you were verifying. Enter the current password.', 409, true);
     }
     return render(c, 'Email verified', html`<p class="ok" role="status">Your email is verified.</p><p><a href="/sign-in">Sign in</a></p>`);
   });
@@ -377,11 +435,17 @@ export function pageRoutes({ callAuth, config, db, log }: PageDeps): Hono {
     if (r.status !== 200) return render(c, 'Allow access?', alert(errorText('/oauth2/public-client', r)), r.status === 401 ? 401 : 400);
     const name = (r.data as { client_name?: string }).client_name ?? clientId;
     const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
+    // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
+    // checks its signature, so what's listed here is what's being allowed.
+    const resources = params.getAll('resource');
     return render(
       c,
       'Allow access?',
       html`<p><strong>${name}</strong> wants to:</p>
-        <ul>${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}</ul>
+        <ul>
+          ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
+          ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}
+        </ul>
         <form method="post" action="/consent">
           <input type="hidden" name="oauth_query" value="${query}">
           <button name="accept" value="yes">Allow</button>
