@@ -11,7 +11,7 @@
 // - Tool results are JSON data, never prose: user names and emails are attacker-chosen text, and an agent reading
 //   them must see fields, not sentences that could pass for instructions.
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, openSync, readFileSync, readSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { runWithTransaction } from '@better-auth/core/context';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { createMcpHandler, ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
@@ -100,7 +100,7 @@ function issueBootstrapKey(db: Database.Database, file: string, reissue?: { audi
   const tmp = `${file}.${randomBytes(8).toString('hex')}.tmp`;
   const fd = openSync(tmp, 'wx', 0o600);
   try {
-    writeSync(fd, key + '\n');
+    writeFileSync(fd, key + '\n'); // loops until every byte is written (a bare writeSync may write fewer)
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -123,8 +123,8 @@ function issueBootstrapKey(db: Database.Database, file: string, reissue?: { audi
       }
     })();
   } catch (err) {
+    if (okEntry) appendRolledBack(reissue!.auditFile, okEntry); // first: a failing cleanup must not skip it
     rmSync(tmp, { force: true });
-    if (okEntry) appendRolledBack(reissue!.auditFile, okEntry);
     throw err;
   }
   try {
@@ -173,7 +173,7 @@ interface Tool {
 
 export interface AdminDeps {
   authContext: Promise<AuthContext>;
-  /** Better Auth's send-verification-email for an existing, unverified user (delivered after the response). */
+  /** Better Auth's send-verification-email for an existing, unverified user (delivered asynchronously). */
   sendVerificationEmail: (email: string) => Promise<unknown>;
   config: Config;
   db: Database.Database;
@@ -286,7 +286,7 @@ export function adminRoutes({ authContext, sendVerificationEmail, config, db, lo
           return created;
         });
         // After the commit. The user exists either way, so a failure here is reported in the result, not as an error.
-        // 'queued': delivery runs after the response (so timing can't reveal accounts); failures go to app.jsonl.
+        // 'queued': delivery is asynchronous (so timing can't reveal accounts); failures go to app.jsonl.
         let verificationEmail: 'queued' | 'failed' | 'not needed' = 'not needed';
         if (!emailVerified) {
           verificationEmail = await sendVerificationEmail(address).then(

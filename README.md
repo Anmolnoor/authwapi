@@ -124,7 +124,7 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `revoke_agent_key` | `write` | `{keyId}` → the key stops working at once |
 | `get_status` | `read`, `write` | Version, base URL, email mode, user and agent-key counts |
 | `list_users` | `read`, `write` | `{limit?, offset?}` → users, oldest first |
-| `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery runs after the response, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
+| `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery is asynchronous, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
 | `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
 
 Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
