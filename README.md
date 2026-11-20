@@ -58,8 +58,10 @@ a new or empty folder (0700, files 0600). It works while the server runs; writes
 
 ```bash
 d=$(date +%Y%m%d)
+src=authwapi-export
 docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d   # -u: your PUID if not 1000
-mv authwapi-data/export-$d ./authwapi-export    # it lands inside the mounted folder; move it out
+# It lands inside the mounted folder; move it out, never into (or over) an existing folder.
+if [ -e "$src" ]; then echo "$src already exists; move it away first" >&2; else mv "authwapi-data/export-$d" "$src"; fi
 ```
 
 An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop
@@ -69,9 +71,10 @@ running one):
 ```bash
 docker stop authwapi
 d=$(date +%Y%m%d)
+src=authwapi-export-final
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/authwapi-data:/data" \
   --entrypoint node authwapi src/cli.ts export /data/export-$d
-mv authwapi-data/export-$d ./authwapi-export-final
+if [ -e "$src" ]; then echo "$src already exists; move it away first" >&2; else mv "authwapi-data/export-$d" "$src"; fi
 ```
 
 `import` restores an export into a data folder that has no database or secret yet. It first checks the export
@@ -80,8 +83,8 @@ new server starts, then start the server on that folder (it applies any newer mi
 host, remove the old container first, since the new one takes its name and port:
 
 ```bash
+# $src is the folder the export above moved out (authwapi-export, or authwapi-export-final after a cutover).
 docker rm -f authwapi    # same host only; on a new host, skip this
-src=authwapi-export      # authwapi-export-final after a cutover
 mkdir new-data           # a fresh, empty folder
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/$src:/import:ro" \
   --entrypoint node authwapi src/cli.ts import /import

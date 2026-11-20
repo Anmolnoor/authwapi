@@ -31,11 +31,12 @@ async function server(): Promise<TestServer> {
 
 const run = async (file: string, args: string[], env: NodeJS.ProcessEnv) => {
   try {
-    const { stdout, stderr } = await promisify(execFile)(file, args, { env: { PATH: process.env.PATH, ...env } });
+    // A timeout, so a stuck CLI fails its test instead of hanging the run.
+    const { stdout, stderr } = await promisify(execFile)(file, args, { env: { PATH: process.env.PATH, ...env }, timeout: 30_000 });
     return { code: 0, stdout, stderr };
   } catch (err) {
-    const e = err as { code: number; stdout: string; stderr: string };
-    return { code: e.code, stdout: e.stdout, stderr: e.stderr };
+    const e = err as { code: number | null; killed?: boolean; stdout: string; stderr: string };
+    return { code: e.killed ? 'timed out' : e.code, stdout: e.stdout, stderr: e.stderr };
   }
 };
 const cli = (dataDir: string, ...args: string[]) => run(process.execPath, ['src/cli.ts', ...args], { DATA_DIR: dataDir });
@@ -378,5 +379,37 @@ test('export refuses the data folder\'s own files however the path is spelled: .
     assert.equal(r.code, 1, target);
     assert.match(r.stderr, /data folder/, target);
   }
+  assert.deepEqual(readdirSync(s.paths.logs).filter((f) => f !== 'app.jsonl'), []);
+});
+
+test('a failing import keeps its staging file claimed until its own cleanup removes it', async () => {
+  const out = await freshExport();
+  const target = path.join(tmp(), 'new');
+  // At cleanup, the staged database must still exist: if the copy had unlinked it on the write error, a concurrent
+  // import could claim the name in between, and this cleanup would then delete that import's file.
+  const probe = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';
+    const rmSync = fs.rmSync;
+    fs.rmSync = (file, ...rest) => {
+      if (String(file).endsWith('.import.db') && !fs.existsSync(file)) process.stderr.write('PROBE: staging file was already gone\\n');
+      return rmSync(file, ...rest);
+    };
+    syncBuiltinESMExports();`;
+  const r = await run(
+    '/bin/sh',
+    ['-c', 'ulimit -f 8; exec "$0" "$@"', process.execPath, '--import', `data:text/javascript,${encodeURIComponent(probe)}`, 'src/cli.ts', 'import', out],
+    { DATA_DIR: target }
+  );
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /EFBIG|too large/);
+  assert.doesNotMatch(r.stderr, /PROBE/);
+  assert.deepEqual(readdirSync(target).filter((f) => f.startsWith('.import')), []);
+});
+
+test('export refuses a case alias of logs/ on a case-insensitive filesystem', async (t) => {
+  const s = await server();
+  if (!existsSync(path.join(s.paths.root, 'LOGS'))) return t.skip('case-sensitive filesystem');
+  const r = await cli(s.paths.root, 'export', path.join(s.paths.root, 'LOGS', 'export'));
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /data folder/);
   assert.deepEqual(readdirSync(s.paths.logs).filter((f) => f !== 'app.jsonl'), []);
 });

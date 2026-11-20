@@ -2,8 +2,8 @@
 import Database from 'better-sqlite3';
 import { randomBytes } from 'node:crypto';
 import {
-  accessSync, chmodSync, closeSync, constants, copyFileSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync,
-  readFileSync, realpathSync, rmdirSync, rmSync, unlinkSync, writeFileSync,
+  accessSync, chmodSync, closeSync, constants, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
+  readSync, realpathSync, rmdirSync, rmSync, unlinkSync, writeFileSync, writeSync,
 } from 'node:fs';
 import path from 'node:path';
 
@@ -205,11 +205,21 @@ export function importData(dataDir: string, dir: string): DataPaths {
 
 /** Copies src to a new file dst (fails if dst exists), mode 0600, on disk before it returns. */
 function copyExclusive(src: string, dst: string, created: string[]): void {
-  closeSync(openSync(dst, 'wx', 0o600)); // claims the name; nobody else can create it now
+  const out = openSync(dst, 'wx', 0o600); // claims the name; nobody else can create it now
   created.push(dst);
-  copyFileSync(src, dst); // into the claimed file, without buffering the whole database in memory
-  chmodSync(dst, 0o600); // copyFileSync gives dst the source's mode
-  fsync(dst);
+  const from = openSync(src, 'r');
+  try {
+    // 1 MiB at a time through the claiming descriptor: no whole-database buffer, and unlike copyFileSync nothing
+    // unlinks dst on a write error, which would let another import claim the name before our cleanup ran.
+    const buf = Buffer.allocUnsafe(1 << 20);
+    for (let n; (n = readSync(from, buf, 0, buf.length, null)) > 0; ) {
+      for (let done = 0; done < n; ) done += writeSync(out, buf, done, n - done);
+    }
+    fsyncSync(out);
+  } finally {
+    closeSync(from);
+    closeSync(out);
+  }
 }
 
 /** realpath of a path whose last parts may not exist yet: the existing part resolved, the rest appended. */
@@ -220,7 +230,7 @@ function realPath(target: string): string {
     rest.unshift(path.basename(dir));
     dir = path.dirname(dir);
   }
-  return path.join(realpathSync(dir), ...rest);
+  return path.join(realpathSync.native(dir), ...rest); // native: the on-disk case on case-insensitive filesystems
 }
 
 function fsync(file: string): void {
