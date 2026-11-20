@@ -123,8 +123,11 @@ function issueBootstrapKey(db: Database.Database, file: string, reissue?: { audi
       }
     })();
   } catch (err) {
-    if (okEntry) appendRolledBack(reissue!.auditFile, okEntry); // first: a failing cleanup must not skip it
-    rmSync(tmp, { force: true });
+    try {
+      if (okEntry) appendRolledBack(reissue!.auditFile, okEntry); // before cleanup, which must not skip it
+    } finally {
+      rmSync(tmp, { force: true }); // and a failing audit append must not skip the cleanup
+    }
     throw err;
   }
   try {
