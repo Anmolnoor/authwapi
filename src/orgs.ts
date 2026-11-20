@@ -210,6 +210,10 @@ function dbRefusal(path: string, err: unknown): APIError | undefined {
   if (path === '/admin/remove-user' && message.includes('FOREIGN KEY constraint failed')) {
     return new APIError('BAD_REQUEST', { code: 'USER_REGISTERED_SSO_PROVIDERS', message: 'This user registered SSO providers: delete those SSO providers first.' });
   }
+  // Deleting an organization: the RESTRICT key from its SSO providers (beforeDeleteOrganization refuses that first).
+  if (path === '/organization/delete' && message.includes('FOREIGN KEY constraint failed')) {
+    return new APIError('BAD_REQUEST', { code: 'ORGANIZATION_HAS_SSO_PROVIDERS', message: 'This organization has SSO providers: delete its SSO providers first.' });
+  }
   return undefined;
 }
 
@@ -267,9 +271,10 @@ export function orgAdminPlugins({ config, db }: AuthDeps, deliver: Deliver): Plu
           `email address and open:\n\n${config.baseUrl.origin}${ACCEPT_INVITATION_PAGE}?id=${id}\n\nIf you don't know them, ignore this email.`,
       })),
   });
-  // M4a: these can remove an SSO organization's last owner, which the database refuses (migrations/0008).
+  // M4a: these can remove an SSO organization's last owner, or the organization, which the database refuses
+  // (migrations/0008, ssoProvider's RESTRICT key).
   const orgEndpoints = orgPlugin.endpoints as unknown as Record<string, Endpoint>;
-  for (const key of ['leaveOrganization', 'removeMember', 'updateMemberRole']) orgEndpoints[key] = withDbRefusals(orgEndpoints[key], { transaction: false });
+  for (const key of ['leaveOrganization', 'removeMember', 'updateMemberRole', 'deleteOrganization']) orgEndpoints[key] = withDbRefusals(orgEndpoints[key], { transaction: false });
   return [
     orgPlugin,
     adminPlugin(),

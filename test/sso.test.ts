@@ -547,7 +547,7 @@ test('an organization with SSO providers keeps an owner: removing, leaving or de
   assert.match(left.body, onlyOwner);
   const selfDemoted = await send(sp, v2Jar, 'POST', '/api/auth/organization/update-member-role', { json: { memberId: 'm-v2', role: 'member', organizationId: a.organizationId } });
   assert.equal(selfDemoted.status, 400, selfDemoted.body);
-  assert.match(selfDemoted.body, /needs an owner|without an owner/);
+  assert.match(selfDemoted.body, /without an owner/);
   const removedMember = await send(sp, v2Jar, 'POST', '/api/auth/organization/remove-member', { json: { memberIdOrEmail: 'v2@a.test', organizationId: a.organizationId } });
   assert.equal(removedMember.status, 400, removedMember.body);
   assert.match(removedMember.body, onlyOwner);
@@ -556,7 +556,7 @@ test('an organization with SSO providers keeps an owner: removing, leaving or de
   await ok(call(write, 'delete_sso_provider', { providerId: a.providerId }));
 });
 
-test('two owners demoting each other at once leave one owner (the database decides, not a pre-check)', async () => {
+test('two owners demoting each other at once leave one owner; underneath, SQLite refuses removing or moving the last one', async () => {
   const { write } = await agents();
   const a = await ssoOrg(write, 'a', 'a.example');
   const v = row("SELECT u.id AS user, m.id AS member FROM user u JOIN member m ON m.userId = u.id WHERE u.email = 'owner@a.test'")!;
@@ -579,7 +579,27 @@ test('two owners demoting each other at once leave one owner (the database decid
   const raw = db(sp);
   assert.throws(() => raw.prepare("UPDATE member SET role = 'member' WHERE organizationId = ? AND role = 'owner'").run(a.organizationId), /sso_org_needs_owner/);
   assert.throws(() => raw.prepare("DELETE FROM member WHERE organizationId = ? AND role = 'owner'").run(a.organizationId), /sso_org_needs_owner/);
+  assert.throws(() => raw.prepare("UPDATE member SET organizationId = 'elsewhere' WHERE organizationId = ? AND role = 'owner'").run(a.organizationId), /sso_org_needs_owner/);
   raw.close();
+});
+
+test("the organization routes word the database's refusal: a remove-member the trigger aborts answers 400 needs an owner", async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const idpJar = await idpUser('alice@a.example');
+  assert.equal((await ssoSignIn(new Jar(), idpJar, 'alice@a.example')).back.location, '/');
+  const memberId = row("SELECT m.id FROM member m JOIN user u ON u.id = m.userId WHERE u.email = 'alice@a.example'")!.id;
+  // Better Auth's own checks never let a request reach migration 0008's triggers, so one stands in for them here.
+  const d = db(sp);
+  d.exec(`CREATE TRIGGER stand_in BEFORE DELETE ON member WHEN OLD.id = '${memberId}' BEGIN SELECT RAISE(ABORT, 'sso_org_needs_owner'); END`);
+  d.close();
+  const owner = new Jar();
+  assert.equal((await passwordSignIn(sp, owner, 'owner@a.test')).status, 200);
+  const r = await send(sp, owner, 'POST', '/api/auth/organization/remove-member', { json: { memberIdOrEmail: memberId, organizationId: a.organizationId } });
+  assert.equal(r.status, 400, r.body);
+  assert.equal(r.json().code, 'ORGANIZATION_NEEDS_OWNER');
+  assert.match(r.json().message, /needs an owner: add another owner or delete its SSO providers first/);
+  assert.equal(count('SELECT count(*) FROM member WHERE id = ?', memberId), 1);
 });
 
 test("someone without the right gets Better Auth's refusal, not word of the org's SSO providers", async () => {
