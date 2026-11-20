@@ -31,8 +31,8 @@ jobs:
       - run: npm test
 
   # The image's data-folder, rootless podman and kill-during-write checks. Check 3 (SELinux) needs an enforcing
-  # host, which GitHub's Ubuntu runners aren't; it runs on Fedora before a release instead. Then a SAML sign-in
-  # against a real SimpleSAMLphp IdP (its MCP setup and database check run on the host: Node and npm ci).
+  # host, which GitHub's Ubuntu runners aren't; it runs on Fedora before a release instead. Then upgrades, the app
+  # checks, and a SAML sign-in against a real SimpleSAMLphp IdP (scripts/saml-idp-check.sh).
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 30
