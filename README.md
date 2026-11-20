@@ -243,8 +243,7 @@ Run on Linux with rootless Podman, Python 3, `curl`, and `jq`. The checks build 
 data under `$TMPDIR` (default `/tmp`).
 
 - `scripts/upgrade-check.sh [--from <git-ref>]` upgrades a populated data folder and checks backups and
-  rollback. The default is `v0.2.0` if tagged, otherwise the parent of the commit that added the latest
-  migration. The previous image must support the OAuth client CLI and precede at least one current migration.
+  rollback. The default is the parent of the commit that added the latest migration, so one is always pending. The previous image must support the OAuth client CLI and precede at least one current migration.
 - `scripts/app-check.sh` runs [the sample app](examples/sample-app/) and AuthWAPI on separate hostnames on
   the private `authwapi-net` network. It checks hosted sign-in, PKCE, ID and access token verification, audience
   and cookie rejection, refresh rotation, and revocation on sign-out. It needs the network name and the
