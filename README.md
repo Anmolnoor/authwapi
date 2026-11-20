@@ -53,20 +53,24 @@ Never copy `authwapi.db` while the server runs: a copy taken mid-write can be co
 **Stop, copy, start.** Stop the container, copy the whole folder (`cp -a`, keeping file modes), start a container
 on the new folder.
 
-**Export, then import** (no downtime for the old instance). `export` copies the database through SQLite's online
-backup API, one consistent snapshot, plus the `secret`, into a new or empty folder (0700, files 0600). It works
-while the server runs:
+**Export, then import.** `export` copies the database through SQLite's online backup API, plus the `secret`, into
+a new or empty folder (0700, files 0600). It works while the server runs; writes pause briefly while it copies.
+An export is a snapshot of one moment: anything written after it is not in the new folder. For a cutover, stop the
+old server (or stop sending it traffic) first, then take the final export.
 
 ```bash
-docker exec -u 1000 authwapi node src/cli.ts export /data/export-$(date +%Y%m%d)   # -u: your PUID if not 1000
-mv authwapi-data/export-$(date +%Y%m%d) ./authwapi-export    # it lands inside the mounted folder; move it out
+d=$(date +%Y%m%d)
+docker exec -u 1000 authwapi node src/cli.ts export /data/export-$d   # -u: your PUID if not 1000
+mv authwapi-data/export-$d ./authwapi-export    # it lands inside the mounted folder; move it out
 ```
 
-`import` restores an export into a data folder that has no database yet, after checking
-`PRAGMA integrity_check`; run it before the new server starts, then start the server on that folder (it applies
-any newer migrations on boot):
+`import` restores an export into a data folder that has no database or secret yet. It first checks the export
+(`PRAGMA integrity_check`, AuthWAPI's migrations table, the secret) and refuses to run as root. Run it before the
+new server starts, then start the server on that folder (it applies any newer migrations on boot). On the same
+host, remove the old container first, since the new one takes its name and port:
 
 ```bash
+docker rm -f authwapi    # same host only; on a new host, skip this
 mkdir -p new-data
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/authwapi-export:/import:ro" \
   --entrypoint node authwapi src/cli.ts import /import
@@ -81,7 +85,8 @@ An export holds only `authwapi.db` and `secret`, which is everything the new fol
 means it must be kept as private as the data folder. Left behind: `schema.sql` and `migrations/` (rebuilt on
 boot), `backups/` (this instance's pre-upgrade copies), `logs/` (this instance's history) and `outbox/` (sign-in
 links that expire; an export shouldn't carry working credentials). Import refuses a folder that already has a
-database or secret, so it never overwrites data or runs under a live server.
+database or secret, so it never overwrites data or runs under a live server. A failed export or import removes
+what it wrote, so you can simply retry.
 
 ## Email
 

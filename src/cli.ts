@@ -12,7 +12,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { authOptions } from './auth.ts';
-import { loadConfig, type Config } from './config.ts';
+import { loadConfig } from './config.ts';
 import { dataPaths, exportData, importData, loadOrCreateSecret, prepareDataDir, type DataPaths } from './data.ts';
 import { openDb } from './db.ts';
 import { createLogger } from './log.ts';
@@ -40,14 +40,21 @@ async function main(argv: string[]): Promise<void> {
   if (group === 'export' || group === 'import') {
     if (!command || rest.length > 0) throw new UsageError(`${group} takes one folder`);
     process.umask(0o077);
-    const config = loadConfig(process.env);
+    // Only DATA_DIR, not loadConfig(): a restore shouldn't be blocked by mail or BASE_URL settings.
+    const dataDir = process.env.DATA_DIR ?? '/data';
     if (group === 'import') {
-      const paths = importData(config.dataDir, command);
+      if (process.getuid?.() === 0) {
+        throw new Error(
+          "import won't run as root: the server never runs as root and couldn't read the files. " +
+            'Run it as the data folder\'s owner, e.g. docker run --user "$(id -u):$(id -g)" ...'
+        );
+      }
+      const paths = importData(dataDir, command);
       console.log(`Imported ${path.resolve(command)} into ${paths.root}. Start the server on that data folder.`);
       return;
     }
-    const out = await exportData(findDataFolder(config), command);
-    console.log(`Exported ${path.resolve(config.dataDir)} to ${out}. It holds the instance secret: keep it private.`);
+    const out = await exportData(findDataFolder(dataDir), command);
+    console.log(`Exported ${path.resolve(dataDir)} to ${out}. It holds the instance secret: keep it private.`);
     return;
   }
   if (group !== 'clients' || (command !== 'create' && command !== 'list')) throw new UsageError('unknown command');
@@ -68,7 +75,7 @@ async function main(argv: string[]): Promise<void> {
 
   process.umask(0o077);
   const config = loadConfig(process.env);
-  findDataFolder(config);
+  findDataFolder(config.dataDir);
   const paths = prepareDataDir(config.dataDir);
   const db = openDb(paths.db);
   try {
@@ -134,8 +141,8 @@ async function main(argv: string[]): Promise<void> {
  * The server's data folder, which must already have a database. Run as root, becomes the database's owner.
  * It changes nothing in the folder: export runs beside a live server, whose journal file comes and goes.
  */
-function findDataFolder(config: Config): DataPaths {
-  const paths = dataPaths(path.resolve(config.dataDir));
+function findDataFolder(dataDir: string): DataPaths {
+  const paths = dataPaths(path.resolve(dataDir));
   const db0 = paths.db;
   if (!existsSync(db0)) throw new Error(`No database at ${db0}. Start the server once on this data folder (DATA_DIR), then run this again.`);
   // `docker exec` runs as root; become the data folder's owner so nothing in it ends up owned by root.

@@ -2,7 +2,7 @@
 // The CLI runs as its own process, as an operator would run it, against real servers on temp folders.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync, closeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
@@ -29,17 +29,24 @@ async function server(): Promise<TestServer> {
   return s;
 }
 
-const cli = async (dataDir: string, ...args: string[]) => {
+const run = async (file: string, args: string[], env: NodeJS.ProcessEnv) => {
   try {
-    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['src/cli.ts', ...args], {
-      env: { PATH: process.env.PATH, DATA_DIR: dataDir },
-    });
+    const { stdout, stderr } = await promisify(execFile)(file, args, { env: { PATH: process.env.PATH, ...env } });
     return { code: 0, stdout, stderr };
   } catch (err) {
     const e = err as { code: number; stdout: string; stderr: string };
     return { code: e.code, stdout: e.stdout, stderr: e.stderr };
   }
 };
+const cli = (dataDir: string, ...args: string[]) => run(process.execPath, ['src/cli.ts', ...args], { DATA_DIR: dataDir });
+
+/** An export of a fresh server's data folder (the server is stopped afterwards). */
+async function freshExport(): Promise<string> {
+  const s = await server();
+  const out = path.join(tmp(), 'export');
+  assert.equal((await cli(s.paths.root, 'export', out)).code, 0);
+  return out;
+}
 
 const signUp = (base: string, email: string, password = 'correct horse') =>
   fetch(`${base}/api/auth/sign-up/email`, {
@@ -123,7 +130,8 @@ test('export → import into a fresh folder at another path restores users, sess
   const secret = readFileSync(s.paths.secret);
 
   const moved = path.join(tmp(), 'somewhere', 'else'); // doesn't exist yet: import creates it
-  const r = await cli(moved, 'import', out);
+  // Import needs only DATA_DIR: settings the server checks at boot (here, a broken BASE_URL) don't block a restore.
+  const r = await run(process.execPath, ['src/cli.ts', 'import', out], { DATA_DIR: moved, BASE_URL: 'not a url' });
   assert.equal(r.code, 0, r.stderr);
   assert.ok(readFileSync(path.join(moved, 'secret')).equals(secret), 'the secret was not restored'); // never print it
   assert.equal(mode(path.join(moved, 'secret')), 0o600);
@@ -191,4 +199,104 @@ test('import refuses a folder that is not an export', async () => {
   const r = await cli(path.join(tmp(), 'new'), 'import', src);
   assert.equal(r.code, 1);
   assert.match(r.stderr, /not an AuthWAPI export/);
+});
+
+test('export fails cleanly when the database stays locked: no folder is left behind, so a retry works', async () => {
+  const s = await server();
+  const lock = new Database(s.paths.db);
+  lock.exec('BEGIN EXCLUSIVE'); // held past export's 5s busy timeout
+  const out = path.join(tmp(), 'export');
+  try {
+    const r = await cli(s.paths.root, 'export', out);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /copied nothing.*busy.*retry/);
+  } finally {
+    lock.exec('ROLLBACK');
+    lock.close();
+  }
+  assert.ok(!existsSync(out), 'the failed export left its folder behind');
+  assert.equal((await cli(s.paths.root, 'export', out)).code, 0);
+});
+
+test('export refuses a database that is not an AuthWAPI database, and leaves nothing behind', async () => {
+  const data = tmp();
+  writeFileSync(path.join(data, 'secret'), 's'.repeat(43));
+  const other = new Database(path.join(data, 'authwapi.db'));
+  other.exec('CREATE TABLE notes (body TEXT)');
+  other.close();
+  const out = path.join(tmp(), 'export');
+  const r = await run(process.execPath, ['src/cli.ts', 'export', out], { DATA_DIR: data, BASE_URL: 'not a url' });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /_authwapi_migrations/);
+  assert.ok(!existsSync(out));
+});
+
+test('import refuses an empty or foreign database, or a short secret, before creating anything', async () => {
+  const cases: [string, (out: string) => void, RegExp][] = [
+    ['an empty database file', (out) => writeFileSync(path.join(out, 'authwapi.db'), ''), /_authwapi_migrations/],
+    [
+      'a database from some other app',
+      (out) => {
+        rmSync(path.join(out, 'authwapi.db'));
+        const db = new Database(path.join(out, 'authwapi.db'));
+        db.exec('CREATE TABLE notes (body TEXT)');
+        db.close();
+      },
+      /_authwapi_migrations/,
+    ],
+    ['a short secret', (out) => writeFileSync(path.join(out, 'secret'), 'short\n'), /shorter than 32/],
+  ];
+  for (const [what, spoil, reason] of cases) {
+    const out = await freshExport();
+    spoil(out);
+    const target = path.join(tmp(), 'new');
+    const r = await cli(target, 'import', out);
+    assert.equal(r.code, 1, what);
+    assert.match(r.stderr, reason, what);
+    assert.ok(!existsSync(target), `${what}: import created ${target}`);
+  }
+});
+
+test('an import that fails mid-copy removes what it wrote, so a retry works', async () => {
+  const out = await freshExport();
+  const target = path.join(tmp(), 'new');
+  // A file-size limit makes the database copy fail with EFBIG (Node ignores SIGXFSZ) after the folder exists.
+  const r = await run('/bin/sh', ['-c', 'ulimit -f 8; exec "$0" "$@"', process.execPath, 'src/cli.ts', 'import', out], { DATA_DIR: target });
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /EFBIG|too large/);
+  assert.deepEqual(readdirSync(target).filter((f) => statSync(path.join(target, f)).isFile()), []);
+  const retry = await cli(target, 'import', out);
+  assert.equal(retry.code, 0, retry.stderr);
+});
+
+test('a refused import changes nothing in the data folder, modes included; a dangling link counts as a file', async () => {
+  const out = await freshExport();
+  const data = tmp();
+  writeFileSync(path.join(data, 'authwapi.db'), 'mine');
+  chmodSync(path.join(data, 'authwapi.db'), 0o644);
+  chmodSync(data, 0o755);
+  const r = await cli(data, 'import', out);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /already has a database/);
+  assert.deepEqual(readdirSync(data), ['authwapi.db']);
+  assert.equal(mode(data), 0o755);
+  assert.equal(mode(path.join(data, 'authwapi.db')), 0o644);
+  assert.equal(readFileSync(path.join(data, 'authwapi.db'), 'utf8'), 'mine');
+
+  const linked = tmp();
+  symlinkSync(path.join(linked, 'nowhere'), path.join(linked, 'secret'));
+  const r2 = await cli(linked, 'import', out);
+  assert.equal(r2.code, 1);
+  assert.match(r2.stderr, /already has a database or secret/);
+  assert.deepEqual(readdirSync(linked), ['secret']);
+});
+
+test('import refuses to run as root, which would leave files the server cannot read', async () => {
+  const out = await freshExport();
+  const target = path.join(tmp(), 'new');
+  const asRoot = 'data:text/javascript,process.getuid=()=>0';
+  const r = await run(process.execPath, ['--import', asRoot, 'src/cli.ts', 'import', out], { DATA_DIR: target });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /as root.*--user/);
+  assert.ok(!existsSync(target));
 });
