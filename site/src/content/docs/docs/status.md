@@ -17,13 +17,13 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - Operator CLI for OAuth clients
 - Email through Resend, or an outbox folder on localhost
 - One data folder: SQLite, migrations with a backup before each upgrade, JSON logs with no tokens or links
+- `export` / `import` of the data folder, safe while the server runs (SQLite's online backup API)
 - Docker image running as a non-root user; checked on rootful Docker, rootless podman and SELinux
 
 ## Still to build in M1
 
 - **Admin MCP server** at `/mcp`: an agent bootstraps it with a one-time key, mints scoped keys, lists and creates
   users and reads an audit log
-- **Export and import** of the data folder while the server runs
 - **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over MCP
 
 ## After M1

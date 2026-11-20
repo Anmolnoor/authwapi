@@ -4,8 +4,8 @@
 
 **Status: early (M1, slice 3 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
 pages, email + password with verification, magic links, password reset, sessions, apps signing users in through
-AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder, migrations and Docker. **Not built yet:** the admin MCP
-server, export/import, the no-human agent test. Don't put real users on it yet.
+AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder with export/import, migrations and Docker. **Not built yet:** the admin MCP
+server, the no-human agent test. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -44,8 +44,44 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
-**To move it:** stop the container, copy the folder, start a container on the new folder. Never copy the
-database while the server runs.
+**To move it**, see [Moving the data folder](#moving-the-data-folder).
+
+## Moving the data folder
+
+Never copy `authwapi.db` while the server runs: a copy taken mid-write can be corrupt. Two safe ways:
+
+**Stop, copy, start.** Stop the container, copy the whole folder (`cp -a`, keeping file modes), start a container
+on the new folder.
+
+**Export, then import** (no downtime for the old instance). `export` copies the database through SQLite's online
+backup API, one consistent snapshot, plus the `secret`, into a new or empty folder (0700, files 0600). It works
+while the server runs:
+
+```bash
+docker exec authwapi node src/cli.ts export /data/export-$(date +%Y%m%d)
+mv authwapi-data/export-$(date +%Y%m%d) ./authwapi-export    # it lands inside the mounted folder; move it out
+```
+
+`import` restores an export into a data folder that has no database yet, after checking
+`PRAGMA integrity_check`; run it before the new server starts, then start the server on that folder (it applies
+any newer migrations on boot):
+
+```bash
+mkdir -p new-data
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/new-data:/data" -v "$PWD/authwapi-export:/import:ro" \
+  --entrypoint node authwapi src/cli.ts import /import
+docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/new-data:/data" authwapi
+```
+
+Rootless podman: use `--userns=keep-id` instead of `--user`, and add `:Z` to both volumes on SELinux. Without
+Docker: `DATA_DIR=./authwapi-data node src/cli.ts export ./authwapi-export`, and
+`DATA_DIR=./new-data node src/cli.ts import ./authwapi-export`.
+
+An export holds only `authwapi.db` and `secret`, which is everything the new folder needs, and the secret
+means it must be kept as private as the data folder. Left behind: `schema.sql` and `migrations/` (rebuilt on
+boot), `backups/` (this instance's pre-upgrade copies), `logs/` (this instance's history) and `outbox/` (sign-in
+links that expire; an export shouldn't carry working credentials). Import refuses a folder that already has a
+database or secret, so it never overwrites data or runs under a live server.
 
 ## Email
 
