@@ -1,0 +1,1 @@
+create table "ssoProvider" ("id" text not null primary key, "issuer" text not null, "oidcConfig" text, "samlConfig" text, "userId" text not null references "user" ("id") on delete restrict, "providerId" text not null unique, "organizationId" text references "organization" ("id") on delete restrict, "domain" text not null);

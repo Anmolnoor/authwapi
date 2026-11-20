@@ -18,6 +18,7 @@ import type { Logger } from './log.ts';
 import { SELECT_ORG_PAGE, withConsentOrg } from './oauth.ts';
 import { ACCEPT_INVITATION_PAGE } from './orgs.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
+import { purgeUnproven } from './sso.ts';
 
 export interface PageDeps {
   callAuth: AuthCall;
@@ -71,7 +72,9 @@ const socialError = (code: string) =>
     ? "An account with this email already exists but its address isn't verified, so it can't be joined to that sign-in yet. Use 'Email me a link' below: it verifies the address, then that sign-in works too."
     : code === 'email_not_verified'
       ? "That provider didn't confirm your email address is verified. Verify it there, or sign in another way."
-      : `That sign-in didn't work (${code}). Try again or sign in another way.`;
+      : code === 'account_exists'
+        ? 'An account with this email already exists, so this SSO sign-in was refused. Sign in as before, or ask the operator to connect it to SSO.'
+        : `That sign-in didn't work (${code}). Try again or sign in another way.`;
 
 /** Plain-words descriptions for the consent page. Unknown scopes are shown by name. */
 const SCOPE_WORDS: Record<string, string> = {
@@ -98,17 +101,29 @@ async function passwordMatches(stored: string, password: string): Promise<boolea
 
 /**
  * Marks the email verified only if, at that moment, the user still has this address and exactly the password hash
- * that was just checked. One UPDATE, which SQLite runs atomically, so a password reset that lands between the check
- * and here makes it change nothing. Returns whether it changed the row. This replaces Better Auth's verify-email,
- * which here sets only emailVerified and updatedAt (no verification hooks are configured, autoSignIn is off).
+ * that was just checked, so a password reset that lands between the check and here makes it change nothing. It is the
+ * mailbox owner's first proof, so in the same transaction everything set up before it goes (purgeUnproven, keeping the
+ * password just checked). Returns whether it changed the row. This replaces Better Auth's verify-email, which here
+ * sets only emailVerified and updatedAt (no verification hooks are configured, autoSignIn is off).
+ * Throws TransactionBusy while another request's Better Auth transaction holds the connection: a transaction begun
+ * now would nest inside it and be undone by its rollback.
  */
+export class TransactionBusy extends Error {}
 export function markEmailVerified(db: Database.Database) {
   const update = db.prepare(
     `UPDATE user SET emailVerified = 1, updatedAt = ? WHERE id = ? AND email = ?
      AND EXISTS (SELECT 1 FROM account WHERE userId = user.id AND providerId = 'credential' AND password = ?)`
   );
-  return (userId: string, email: string, hash: string): boolean =>
-    update.run(new Date().toISOString(), userId, email, hash).changes === 1;
+  const verified = db.prepare('SELECT emailVerified FROM user WHERE id = ?').pluck();
+  return (userId: string, email: string, hash: string): boolean => {
+    if (db.inTransaction) throw new TransactionBusy();
+    return db.transaction(() => {
+      const already = verified.get(userId) === 1; // clicking the link again purges nothing
+      if (update.run(new Date().toISOString(), userId, email, hash).changes !== 1) return false;
+      if (!already) purgeUnproven(db, userId, { keepCredential: true, verify: false });
+      return true;
+    })();
+  };
 }
 
 // Better Auth stores a magic link as sha256(token) under "magic-link:", and with verification.storeIdentifier
@@ -285,6 +300,13 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
             <button class="secondary">Continue with ${PROVIDER_NAMES[provider]}</button>
           </form>`
         )}
+        <form method="post" action="/sign-in">
+          <input type="hidden" name="method" value="sso">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <label for="sso-email">Or sign in with your organization (SSO)</label>
+          <input id="sso-email" name="email" type="email" autocomplete="email" required>
+          <button class="secondary">Sign in with SSO</button>
+        </form>
         <hr>
         <form method="post" action="/sign-in">
           <input type="hidden" name="method" value="magic-link">
@@ -324,6 +346,17 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       });
       const url = (r.data as { url?: string } | null)?.url;
       if (r.status !== 200 || !url) return signInPage(c, query, errorText('/sign-in/social', r), undefined, 400);
+      return c.redirect(url, 303);
+    }
+    if (f('method') === 'sso') {
+      // The email's domain picks the organization's provider; like magic link, the callback lands on resumeUrl.
+      const r = await ba(c, 'POST', '/sign-in/sso', {
+        email: f('email'),
+        callbackURL: resumeUrl(query),
+        errorCallbackURL: query ? `/sign-in?${query}` : '/sign-in',
+      });
+      const url = (r.data as { url?: string } | null)?.url;
+      if (r.status !== 200 || !url) return signInPage(c, query, r.status === 404 ? 'No organization signs in with SSO at that address.' : errorText('/sign-in/sso', r), undefined, 400);
       return c.redirect(url, 303);
     }
     const r = await ba(c, 'POST', '/sign-in/email', {
@@ -486,7 +519,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       return render(c, 'Verify your email', alert("We couldn't check your password, so nothing was changed. Tell whoever runs this sign-in service."), 500);
     }
     if (!matches) return verifyPage(c, "That isn't the password this account was created with.", 401, true);
-    if (!markVerified(user.userId, user.email, stored)) {
+    let changed: boolean;
+    try {
+      changed = markVerified(user.userId, user.email, stored);
+    } catch (err) {
+      if (!(err instanceof TransactionBusy)) throw err;
+      return verifyPage(c, 'The server was busy and changed nothing. Enter your password again.', 503, true);
+    }
+    if (!changed) {
       return verifyPage(c, 'The password for this account changed while you were verifying. Enter the current password.', 409, true);
     }
     return render(c, 'Email verified', html`<p class="ok" role="status">Your email is verified.</p><p><a href="/sign-in">Sign in</a></p>`);

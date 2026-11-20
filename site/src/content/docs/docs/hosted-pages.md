@@ -9,7 +9,7 @@ follow the system light or dark theme, can't be framed by another site, and are 
 | Page | What it is |
 | --- | --- |
 | `/` | Shows who is signed in, with a sign-out button |
-| `/sign-in` | Password sign-in, or "Email me a link" (a magic link). Also the OAuth sign-in page. |
+| `/sign-in` | Password sign-in, "Sign in with SSO" (your organization's identity provider), or "Email me a link" (a magic link). Also the OAuth sign-in page. |
 | `/sign-up` | Create an account |
 | `/forgot-password` | Ask for a reset link |
 | `/reset-password` | Choose a new password (opened from the reset email) |

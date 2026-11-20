@@ -133,7 +133,7 @@ it and import again.
 
 ## Pages
 
-Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up, or "email me a link") · `/sign-up`
+Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up, SSO, or "email me a link") · `/sign-up`
 · `/forgot-password` · `/reset-password` · `/consent` (an app asking for access) · `/signed-out` · `/two-factor` (the
 code after the first step) · `/two-factor/setup` (turn on TOTP) · `/passkeys` (add one). The only script is
 `/passkey.js` for the passkey buttons (WebAuthn needs one); the pages' CSP allows scripts from our own origin only.
@@ -215,6 +215,57 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   impersonated session can't change the password, email, linked accounts, 2FA or passkeys, delete the account, read
   or refresh linked providers' tokens, edit app consents, or sign in to apps: no consent and no authorization code.
   Signing it out ends only that session; the user's own refresh tokens stay.
+
+## SSO for your organization
+
+An organization can sign its people in with its own OpenID Connect identity provider (Okta, Entra ID, Google
+Workspace, another AuthWAPI...), through [Better Auth's SSO plugin](https://better-auth.com/docs/plugins/sso).
+
+1. **Create an app at the identity provider** with the redirect URI
+   `BASE_URL/api/auth/sso/callback/sso-<slug>` (pick a short `<slug>`, e.g. `acme`), scopes `openid email`, and the
+   authorization code flow. Note its client ID and secret, its issuer and its authorization, token and JWKS URLs.
+2. **Register it for the organization**: the `register_sso_provider` MCP tool (write key) or the CLI, which runs as
+   the organization's owner. The client secret goes on stdin, so it stays out of the process list:
+   ```bash
+   printf %s "$CLIENT_SECRET" | docker exec -i -u 1000 authwapi node src/cli.ts sso register --org <organizationId> \
+     --slug acme --domain acme.com --issuer https://idp.acme.com --client-id <id> \
+     --authorization-endpoint https://idp.acme.com/authorize --token-endpoint https://idp.acme.com/token \
+     --jwks-endpoint https://idp.acme.com/jwks
+   ```
+3. **People sign in** with "Sign in with SSO" on `/sign-in` (their email's domain picks the provider), or with
+   `POST /api/auth/sign-in/sso` and `{"email" or "providerId", "callbackURL"}`.
+
+How it's kept safe:
+- **Providers change only through MCP or the CLI.** Better Auth's routes for registering, updating, deleting and
+  domain-verifying providers answer 404. A provider isn't edited in place: delete it and register it again.
+  Endpoints and the issuer are given explicitly (no discovery), must use `https://` and be publicly routable.
+  Registering and its audit line commit together.
+- **The domain only routes.** Each domain belongs to one provider. It never decides who someone is: an SSO
+  identity is the provider (so the organization and issuer) plus the ID token's `sub`. The ID token's signature,
+  issuer, audience and expiry are checked, the provider must say the email is verified, and a callback works once.
+- **SSO never joins an existing account by email.** A sign-in through a provider either finds the account bound to
+  that `sub` at that provider or creates a new user, a member of the organization (only a user SSO creates joins:
+  someone the organization removed isn't added back by signing in again). If an account already has the email, the
+  sign-in is refused (`error=account_exists`); the operator can bind a verified account to its subject, which also
+  makes it a member: `docker exec -u 1000 authwapi node src/cli.ts sso bind --provider sso-acme --subject <sub> --user <userId>`.
+  Another organization's provider can't sign in to it, even with the same identity provider and `sub`.
+- **A new SSO user's email stays unverified**: the organization vouches for it, not the mailbox. Its verification
+  link can't verify it (the account has no password). If the address is someone else's (an organization claiming
+  `gmail.com`, say), its owner signs in with "Email me a link" (or resets the password, then verifies with the new
+  one). The first proof that someone holds the mailbox (a magic link, a reset, the verify page) removes, in the same
+  transaction, every linked sign-in (SSO, Google/GitHub, and any password but the one just checked), session, 2FA,
+  passkey, OAuth token, consent, unused authorization code and organization membership set up before; so does an
+  admin marking the email verified (`emailVerified` must then be `true`, not a string or number). If any part of
+  the proof fails, nothing changes, and the same link works again. The organization's provider can't sign in to it
+  afterwards.
+- **2FA still applies** after an SSO sign-in, for users who turned it on.
+- **Deleting a provider** (`delete_sso_provider` or `sso delete <providerId>`) removes its bindings and ends its
+  users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets. An
+  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
+  database enforces it too). An organization's owner needs a verified email: to register a provider, and to be
+  made an owner at all (`create_org`, or a role change to `owner`). An organization with SSO providers always keeps
+  an owner: removing, leaving or demoting its last owner is refused (the database enforces it).
+- Client secrets are stored unencrypted in the SQLite database, like everything in the data folder: keep it private.
 
 ## Apps (OAuth 2.1 / OpenID Connect)
 
@@ -304,11 +355,14 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery is asynchronous, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
 | `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
 | `list_orgs` | `read`, `write` | `{limit?, offset?}` → organizations with member counts, oldest first |
-| `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user becomes its owner |
+| `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user, whose email must be verified (`owner_email_not_verified`), becomes its owner |
 | `invite_member` | `write` | `{organizationId, email, role}` (`member` or `admin`) → an invitation, emailed from the organization's owner |
 | `ban_user` | `write` | `{userId, reason?}` → an indefinite ban (it replaces a timed one): sessions end, OAuth tokens are revoked, sign-in is refused |
 | `unban_user` | `write` | `{userId}` → the user can sign in again |
 | `set_role` | `write` | `{userId, role}` (`admin` or `user`); this is how the first admin is made |
+| `register_sso_provider` | `write` | `{organizationId, slug, domain, issuer, clientId, clientSecret, authorizationEndpoint, tokenEndpoint, jwksEndpoint}` → the provider (`sso-<slug>`) and the redirect URI to register at the identity provider. See [SSO](#sso-for-your-organization). |
+| `list_sso_providers` | `read`, `write` | `{organizationId?}` → providers: ID, organization, domain, issuer, redirect URI (never the secret) |
+| `delete_sso_provider` | `write` | `{providerId}` → the provider and its bindings go; its users' sessions and OAuth tokens are revoked |
 
 Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
 instructions. `tools/list` shows only the tools your key's scope can call. Each key may make 60 tool calls a minute
@@ -330,7 +384,8 @@ Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`: `PO
 `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `POST /request-password-reset`,
 `POST /reset-password`, `POST /sign-in/magic-link`, `POST /sign-in/social`, `POST /link-social`, the 2FA endpoints
 under `/two-factor/`, the passkey endpoints under `/passkey/`, the organization endpoints under `/organization/`,
-the admin endpoints under `/admin/`, and the OAuth endpoints under `/oauth2/`. The links in
+the admin endpoints under `/admin/`, SSO sign-in (`POST /sign-in/sso`, `/sso/callback/<providerId>`), and the OAuth
+endpoints under `/oauth2/`. The links in
 emails (`/api/auth/verify-email`, `/api/auth/magic-link/verify`) are pages: GET shows a form, POST acts.
 Browser-style requests must send an `Origin` equal to `BASE_URL`.
 

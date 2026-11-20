@@ -25,6 +25,7 @@ import type { Config } from './config.ts';
 import type { DataPaths } from './data.ts';
 import type { Logger } from './log.ts';
 import { banUser } from './orgs.ts';
+import { deleteSsoProvider, listSsoProviders, registerSsoProvider, SsoRefusal, ssoProviderInput } from './sso.ts';
 
 type Scope = 'bootstrap' | 'read' | 'write';
 interface Key {
@@ -197,9 +198,17 @@ async function refusal<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
+/** SSO refusals (ours and Better Auth's) as ToolErrors. */
+const ssoRefusal = <T>(call: () => Promise<T>): Promise<T> =>
+  refusal(call).catch((err: unknown) => {
+    throw err instanceof SsoRefusal ? new ToolError(err.message) : err;
+  });
+
 export interface AdminDeps {
   authContext: Promise<AuthContext>;
   orgApi: OrgApi;
+  /** auth.api, for the SSO plugin's endpoints (src/sso.ts). */
+  authApi: unknown;
   /** Better Auth's send-verification-email for an existing, unverified user (delivered asynchronously). */
   sendVerificationEmail: (email: string) => Promise<unknown>;
   config: Config;
@@ -208,7 +217,7 @@ export interface AdminDeps {
   paths: DataPaths;
 }
 
-export function adminRoutes({ authContext, orgApi, sendVerificationEmail, config, db, log, paths }: AdminDeps): Hono {
+export function adminRoutes({ authContext, orgApi, authApi, sendVerificationEmail, config, db, log, paths }: AdminDeps): Hono {
   const findKey = db.prepare(
     'SELECT id, scope FROM adminKey WHERE keyHash = ? AND revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > ?)'
   );
@@ -357,6 +366,9 @@ export function adminRoutes({ authContext, orgApi, sendVerificationEmail, config
       }),
       run: async ({ name, slug, ownerUserId }, ok) => {
         const ctx = await authContext;
+        // An unverified owner's first mailbox proof purges their memberships (src/sso.ts), which would leave the org ownerless.
+        const owner = await ctx.internalAdapter.findUserById(ownerUserId);
+        if (owner && !owner.emailVerified) throw new ToolError('owner_email_not_verified');
         const org = await runWithTransaction(ctx.adapter, async () => {
           const created = await refusal(() => orgApi.createOrganization({ name, slug, userId: ownerUserId }));
           ok({ target: created.id });
@@ -427,6 +439,35 @@ export function adminRoutes({ authContext, orgApi, sendVerificationEmail, config
           ok({ target: userId });
         });
         return { userId, role };
+      },
+    },
+    register_sso_provider: {
+      description:
+        "Register an organization's OIDC identity provider (SSO). Users whose email is at `domain` are routed to it; new " +
+        "users it signs in become members of the organization, with an unverified email. An existing account is never " +
+        'joined by email (the operator binds it). Endpoints are explicit (no discovery). Register the returned redirectUri ' +
+        'with the identity provider. The client secret is stored, never returned.',
+      scopes: ['write'],
+      input: ssoProviderInput,
+      run: async (input, ok) => {
+        const ctx = await authContext;
+        const provider = await ssoRefusal(() => registerSsoProvider(ctx, authApi, input, (providerId) => ok({ target: providerId })));
+        return { provider };
+      },
+    },
+    list_sso_providers: {
+      description: "List SSO providers (all, or one organization's): provider ID, organization, domain, issuer, redirect URI.",
+      scopes: ['read', 'write'],
+      input: z.object({ organizationId: z.string().min(1).max(200).optional() }),
+      run: async ({ organizationId }) => ({ providers: await listSsoProviders(await authContext, organizationId) }),
+    },
+    delete_sso_provider: {
+      description: "Delete an SSO provider. Its sign-in bindings go, and its users' sessions and OAuth tokens are revoked.",
+      scopes: ['write'],
+      input: z.object({ providerId: z.string().min(1).max(200) }),
+      run: async ({ providerId }, ok) => {
+        await ssoRefusal(async () => deleteSsoProvider(await authContext, authApi, providerId, () => ok({ target: providerId })));
+        return { providerId, deleted: true };
       },
     },
     read_audit: {
