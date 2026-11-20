@@ -20,8 +20,9 @@ trap cleanup EXIT
 latest=(migrations/[0-9][0-9][0-9][0-9]_*.sql)
 case $# in
   0)
-    # Default: the commit before the newest migration was added, so there is always a pending migration to apply.
-    migration_commit=$(git log -1 --diff-filter=A --format=%H -- "${latest[-1]}")
+    # Default: this branch just before the newest migration reached it, so there is always a pending migration.
+    # Follow first parents: a migration can arrive (or be renumbered) in a merge commit.
+    migration_commit=$(git rev-list --first-parent HEAD -- "${latest[-1]}" | tail -n 1)
     from=${migration_commit:?latest migration must be tracked}^
     ;;
   2) [[ $1 == --from ]] || check_fail 'usage: scripts/upgrade-check.sh [--from <git-ref>]'; from=$2 ;;
