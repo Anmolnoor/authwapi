@@ -6,6 +6,7 @@
 import { passkey } from '@better-auth/passkey';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { timingSafeEqual } from 'node:crypto';
 import { base32 } from '@better-auth/utils/base32';
 import { createOTP } from '@better-auth/utils/otp';
 import { deleteSessionCookie } from 'better-auth/cookies';
@@ -125,15 +126,21 @@ async function challenge(ctx: HookContext, token: string, userId: string) {
 
 /**
  * The check Better Auth's verify-totp makes (twoFactor/totp: the stored secret, decrypted, 6 digits, 30 s, one step
- * either side), for a code that would turn 2FA on.
+ * either side), returning the 30-second step the code matches, or null.
  */
-async function totpMatches(ctx: HookContext, userId: string, code: unknown): Promise<boolean> {
-  if (typeof code !== 'string') return false;
+async function totpStep(ctx: HookContext, userId: string, code: unknown): Promise<number | null> {
+  if (typeof code !== 'string') return null;
   const row = await ctx.context.adapter.findOne<{ secret: string }>({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] });
-  if (!row) return false;
+  if (!row) return null;
   const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: row.secret });
   const secret = raw.startsWith('base32:') ? base32.decode(raw.slice(7).toUpperCase()) : raw;
-  return createOTP(secret, { digits: 6, period: 30 }).verify(code);
+  const otp = createOTP(secret, { digits: 6, period: 30 });
+  const now = Math.floor(Date.now() / 30_000);
+  for (const step of [now - 1, now, now + 1]) {
+    const expected = await otp.hotp(step);
+    if (code.length === expected.length && timingSafeEqual(Buffer.from(code), Buffer.from(expected))) return step;
+  }
+  return null;
 }
 
 /**
@@ -168,6 +175,8 @@ function mfaGlue(): BetterAuthPlugin {
 
   return {
     id: 'authwapi-mfa',
+    // The last 30-second TOTP step accepted for the user (RFC 6238 §5.2 replay check, below).
+    schema: { twoFactor: { fields: { lastUsedStep: { type: 'number', required: false, input: false, returned: false } } } },
     hooks: {
       before: [
         {
@@ -215,12 +224,46 @@ function mfaGlue(): BetterAuthPlugin {
           }),
         },
         {
+          // RFC 6238 §5.2: a code works once. A right code claims its step for the user in one conditional UPDATE (so two
+          // requests racing with the same code can't both pass); a code whose step isn't newer than the last accepted
+          // one is refused. Wrong codes go on to Better Auth, which refuses and counts them. The user is whoever
+          // verify-totp would check: the signed-in session, or the sign-in challenge's two_factor cookie.
+          // Turning 2FA off and on again keeps the step, so a new secret's code can be refused for up to ~90 s.
+          matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
+          handler: createAuthMiddleware(async (ctx) => {
+            let userId = arrived(ctx)?.userId;
+            if (!userId) {
+              const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
+              const challenge = cookie ? await ctx.context.internalAdapter.findVerificationValue(cookie) : null;
+              if (challenge && new Date(challenge.expiresAt) > new Date()) userId = challenge.value;
+            }
+            if (!userId) return;
+            const step = await totpStep(ctx, userId, ctx.body?.code);
+            if (step === null) return;
+            const claimed = await ctx.context.adapter.updateMany({
+              model: 'twoFactor',
+              where: [
+                { field: 'userId', value: userId },
+                { field: 'lastUsedStep', operator: 'lt', value: step, connector: 'OR' },
+                { field: 'lastUsedStep', value: null, connector: 'OR' },
+              ],
+              update: { lastUsedStep: step },
+            });
+            if (!claimed) {
+              throw new APIError('UNAUTHORIZED', {
+                code: 'TOTP_CODE_ALREADY_USED',
+                message: 'That code was already used. Wait for the next one in your authenticator app.',
+              });
+            }
+          }),
+        },
+        {
           // Turning 2FA on, first sweep: once the code is known to be right and BEFORE Better Auth commits the switch.
           // If the switch then fails, 2FA is simply still off and the user can retry. The after-hook sweeps again.
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
             const s = arrived(ctx);
-            if (!s || s.twoFactorEnabled || !(await totpMatches(ctx, s.userId, ctx.body?.code))) return;
+            if (!s || s.twoFactorEnabled || (await totpStep(ctx, s.userId, ctx.body?.code)) === null) return;
             await sweep(ctx, s.userId, s.token);
           }),
         },

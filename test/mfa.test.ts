@@ -126,6 +126,60 @@ test('a backup code completes the challenge once', async () => {
   assert.notEqual(again.status, 200);
 });
 
+// RFC 6238 §5.2: a TOTP code is accepted once, and never a code from a step at or before the last one accepted.
+const challenged = async () => {
+  const jar = new Jar();
+  assert.equal((await passwordSignIn(s, jar, 'ada@example.com')).status, 200);
+  return jar;
+};
+const verifyTotp = (jar: Jar, code: string) => send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code } });
+
+test('a TOTP code works once: the same code cannot finish a second sign-in', async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const code = totp(secret);
+  const [a, b] = [await challenged(), await challenged()];
+  assert.equal((await verifyTotp(a, code)).status, 200);
+  const again = await verifyTotp(b, code);
+  assert.equal(again.status, 401);
+  assert.equal(again.json().code, 'TOTP_CODE_ALREADY_USED');
+  assert.equal(await currentUser(s, b), null, 'a used code signed someone in again');
+});
+
+test('two sign-ins racing with the same TOTP code: exactly one gets a session', async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const code = totp(secret);
+  const jars = [await challenged(), await challenged()];
+  const statuses = (await Promise.all(jars.map((j) => verifyTotp(j, code)))).map((r) => r.status).sort();
+  assert.deepEqual(statuses, [200, 401]);
+  const users = await Promise.all(jars.map((j) => currentUser(s, j)));
+  assert.equal(users.filter(Boolean).length, 1);
+});
+
+test('after a TOTP code is accepted, a code from an earlier step in the window is refused', async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  assert.equal((await verifyTotp(await challenged(), totp(secret, Date.now() + 30_000))).status, 200);
+  const older = await verifyTotp(await challenged(), totp(secret));
+  assert.equal(older.status, 401);
+  assert.equal(older.json().code, 'TOTP_CODE_ALREADY_USED');
+});
+
+test('the code that turned 2FA on cannot be used again as a signed-in fresh check', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(r.json().totpURI).searchParams.get('secret')!;
+  const code = totp(secret);
+  assert.equal((await verifyTotp(jar, code)).status, 200);
+  const again = await verifyTotp(jar, code);
+  assert.equal(again.status, 401);
+  assert.equal(again.json().code, 'TOTP_CODE_ALREADY_USED');
+});
+
 test('trusted devices are off: trustDevice is refused, and even a valid trust cookie does not skip the challenge', async () => {
   s = await startTestServer();
   const { userId, secret } = await twoFactorUser();
@@ -383,7 +437,8 @@ test('turning 2FA on revokes before it commits: a wrong code revokes nothing; a 
   const d2 = db(s);
   d2.exec('DROP TRIGGER fail_2fa');
   d2.close();
-  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  // The failed attempt used its code (a code works once, even when what it was for fails); the retry takes the next one.
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret, Date.now() + 30_000) } })).status, 200);
   assert.equal(count('SELECT twoFactorEnabled FROM user WHERE id = ?'), 1);
   assert.equal(await currentUser(s, jar), 'ada@example.com');
 });

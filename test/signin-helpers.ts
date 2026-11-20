@@ -129,7 +129,8 @@ export async function enableTotp(s: TestServer, jar: Jar, password: string | und
   assert.equal(r.status, 200, r.body);
   const { totpURI, backupCodes } = r.json() as { totpURI: string; backupCodes: string[] };
   const secret = new URL(totpURI).searchParams.get('secret')!;
-  const ok = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } });
+  // The previous step's code (still in the window), so the current step's code is free for the test's next check.
+  const ok = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret, Date.now() - 30_000) } });
   assert.equal(ok.status, 200, ok.body);
   return { secret, backupCodes };
 }
