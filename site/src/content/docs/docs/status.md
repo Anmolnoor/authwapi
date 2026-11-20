@@ -25,6 +25,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - OAuth 2.1 / OpenID Connect provider: authorization code + PKCE, ID tokens, JWT access tokens per API, JWKS,
   introspection, userinfo, refresh-token rotation, RP-initiated logout; sign-out revokes refresh tokens for every app
 - Operator CLI for OAuth clients
+- OAuth for your own MCP servers: MCP clients identify themselves with Client ID Metadata Documents, and the operator
+  links each one to the MCP servers (resources) it may get tokens for
 - **Admin MCP server** at `/mcp`: an agent bootstraps it with a one-time key, mints scoped, revocable keys, lists
   and creates users, manages organizations, bans users, sets the first admin, and reads an audit log
 - Email through Resend, or an outbox folder on localhost
@@ -40,7 +42,7 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 ## After M1
 
 M2 (Google and GitHub sign-in, TOTP and passkeys) and M3 (organizations and admin) are built. Next: SSO (OIDC, then SAML);
-OAuth for your own MCP servers; a multi-arch image on GHCR.
+a multi-arch image on GHCR.
 
 ## The earlier version
 

@@ -534,6 +534,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const r = await ba(c, 'GET', `/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`);
     if (r.status !== 200) return render(c, 'Allow access?', alert(errorText('/oauth2/public-client', r)), r.status === 401 ? 401 : 400);
     const name = (r.data as { client_name?: string }).client_name ?? clientId;
+    // An MCP client's client_id is its metadata URL: its host is who the client is, while its name is self-asserted.
+    const host = URL.canParse(clientId) ? new URL(clientId).host : undefined;
     const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
     // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
     // checks its signature, so what's listed here is what's being allowed.
@@ -551,7 +553,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Allow access?',
-      html`${alert(error)}<p><strong>${name}</strong> wants to:</p>
+      html`${alert(error)}<p><strong>${name}</strong>${host ? html` from <strong>${host}</strong>` : ''} wants to:</p>
         <ul>
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}

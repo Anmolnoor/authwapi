@@ -246,6 +246,31 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
 - Send `resource` on the token request only if it was on the authorization request (`invalid_target` otherwise).
   A `claims` request may name `email`/`email_verified` only with the `email` scope.
 
+## Protect your MCP server with AuthWAPI
+
+Your own MCP servers can use AuthWAPI as their authorization server. MCP clients find it through your server's
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata and identify themselves with a
+[Client ID Metadata Document](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/):
+their `client_id` is the `https` URL of that document. Register each MCP server as a resource and link the clients
+allowed to use it; a client gets no token for a resource it isn't linked to.
+
+```bash
+docker exec -u 1000 authwapi node src/cli.ts resource add https://mcp.example.com/mcp
+docker exec -u 1000 authwapi node src/cli.ts resource link https://client.example/oauth/metadata.json https://mcp.example.com/mcp
+```
+
+- AuthWAPI fetches a metadata document only when a user signs in through a client the operator linked; any other
+  `client_id` URL is refused without a request going out. The URL must be `https` on a public host (loopback and
+  private addresses are always refused); the fetch resolves DNS once, refuses private addresses and follows no
+  redirects. A client without such a document (one on `localhost`) can use a `clients create` client, linked the same way.
+- The consent page shows the client's name (self-asserted) and the host of its metadata URL.
+- Your MCP server serves `/.well-known/oauth-protected-resource` with `resource` = the URL you registered and
+  `authorization_servers` = [`BASE_URL`], answers 401 with
+  `WWW-Authenticate: Bearer resource_metadata="<that metadata URL>"`, and accepts only JWTs that verify against
+  `BASE_URL/api/auth/jwks` with `iss` = `BASE_URL` and an `aud` that includes its own URL. It refuses tokens for
+  other resources and tokens with no `aud`.
+- Refresh tokens rotate with no grace window: reusing one fails and revokes that client's refresh tokens for the user.
+
 ## Admin MCP (for AI agents)
 
 An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP, protocol 2026-07-28; 2025-era

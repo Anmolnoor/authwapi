@@ -3,7 +3,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { SendMail } from '../src/mailer.ts';
-import { start, type Running } from '../src/server.ts';
+import { start, type Overrides, type Running } from '../src/server.ts';
 
 export const freePort = () =>
   new Promise<number>((resolve, reject) => {
@@ -25,11 +25,11 @@ export interface TestServer extends Running {
 }
 
 /** A real AuthWAPI on a free port with a throwaway data folder (outbox email). */
-export async function startTestServer(env: NodeJS.ProcessEnv = {}, sendMail?: SendMail): Promise<TestServer> {
+export async function startTestServer(env: NodeJS.ProcessEnv = {}, sendMail?: SendMail, overrides: Omit<Overrides, 'sendMail'> = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'authwapi-test-'));
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  const running = await start({ BASE_URL: base, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, ...env }, { sendMail });
+  const running = await start({ BASE_URL: base, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dataDir, ...env }, { sendMail, ...overrides });
   const outbox = (): Mail[] =>
     readdirSync(running.paths.outbox)
       .filter((f) => f.endsWith('.json') && !f.startsWith('.'))

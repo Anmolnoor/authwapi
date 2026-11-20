@@ -1,3 +1,4 @@
+import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
 import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
@@ -63,6 +64,8 @@ export interface AuthDeps {
   secret: string;
   sendMail: SendMail;
   log: Logger;
+  /** Tests only; otherwise MCP clients' metadata documents are fetched with @better-auth/cimd's SSRF-safe transport. */
+  fetchClientMetadata?: ClientMetadataResourceFetch;
 }
 
 export function authOptions(deps: AuthDeps): BetterAuthOptions {

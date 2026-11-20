@@ -1,12 +1,16 @@
 // OAuth 2.1 / OIDC provider for apps (plan D9). Better Auth's oauthProvider + jwt plugins, configured so that:
 // - the issuer is BASE_URL, ID tokens have aud = client ID, access tokens requested with `resource` are JWTs with
 //   aud = that resource and live 15 minutes;
-// - clients are created only by the operator CLI (src/cli.ts), never over HTTP;
+// - clients are created only by the operator CLI (src/cli.ts), never over HTTP. MCP clients identify themselves by
+//   a Client ID Metadata Document URL (cimd); AuthWAPI fetches one only once the operator has linked that URL to a
+//   resource with the CLI, so an unknown client_id URL is refused without any request going out;
 // - sign-out revokes the session and every refresh and opaque access token the user holds;
 // - (M3) a banned user gets no tokens, even when the ban races the issuance, and their tokens introspect inactive;
 // - (M3) org claims (org_id, roles) come with the organization scope, in access tokens and userinfo only, for the
 //   organization picked at sign-in (SELECT_ORG_PAGE), bound to the grant and re-checked whenever tokens are issued.
 import { randomUUID } from 'node:crypto';
+import { cimd } from '@better-auth/cimd';
+import { fetchClientMetadataResource } from '@better-auth/cimd/node';
 import { defineRequestState, runWithRequestState } from '@better-auth/core/context';
 import { getOAuthProviderApi, oauthProvider } from '@better-auth/oauth-provider';
 import { getCurrentAdapter, type AuthContext, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
@@ -420,8 +424,17 @@ export function oauthPlugins(deps: AuthDeps): Plugin[] {
     allowInsecureRedirectUri: isLoopback,
   };
   const provider = oauthProvider(opts);
+  const clientMetadata = cimd({
+    // Resolves DNS once, refuses private and reserved addresses, pins the connection, follows no redirects.
+    fetchClientMetadataResource: deps.fetchClientMetadata ?? fetchClientMetadataResource,
+    metadataProfile: 'mcp-2026-07-28', // MCP clients' documents must name the client and its redirect URIs
+    // cimd itself refuses anything but https URLs on public hosts. On top of that, only a URL the operator linked
+    // (`resource link` creates its client row) is fetched: no stranger can make AuthWAPI send requests or store clients.
+    isMetadataDocumentUrlAllowed: async (url, ctx) =>
+      Boolean(await ctx.context.adapter.findOne({ model: 'oauthClient', where: [{ field: 'clientId', value: url }] })),
+  });
   // The glue calls Better Auth's helpers with the provider's resolved options (defaults filled in), as it does.
-  return [jwtForOAuth(config.baseUrl.origin), provider, authwapiOAuthGlue(provider.options, deps)];
+  return [jwtForOAuth(config.baseUrl.origin), provider, clientMetadata, authwapiOAuthGlue(provider.options, deps)];
 }
 
 /**
