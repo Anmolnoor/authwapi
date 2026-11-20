@@ -7,11 +7,14 @@
 #
 # Rootful checks use `docker` on /var/run/docker.sock if it is usable, else `sudo docker`, else `sudo podman`.
 # sudo runs non-interactively; to give it a password, set SUDO_PASSWORD_FILE to a file holding it.
-# Temp folders go under $TMPDIR (default /tmp), never $HOME. Port 4199 on 127.0.0.1.
+# Temp folders go under $TMPDIR (default /tmp), never $HOME. A free port on 127.0.0.1, picked per run.
 set -uo pipefail
 
-PORT=4199
+# A free port per run, so a leftover server on a fixed port can never answer for the container under test.
+PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 BASE_URL="http://localhost:$PORT"
+# Containers publish on 127.0.0.1 only; pin curl there so "localhost" can't reach something on ::1 instead.
+CURL=(curl --resolve "localhost:$PORT:127.0.0.1")
 RUN_ID="acheck-$$"
 IMG="localhost/authwapi-check:$$"
 CYCLES="${CYCLES:-50}"
@@ -54,14 +57,16 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-name() { local n="$RUN_ID-$1"; CONTAINERS+=("$n"); printf '%s' "$n"; }
+# Sets C to a container name and registers it for cleanup. Call it directly, never in $(...): a subshell's
+# CONTAINERS update is lost, so the exit trap could not remove containers of an interrupted run.
+name() { C="$RUN_ID-$1"; CONTAINERS+=("$C"); }
 
 # Waits for /health; $1 = engine command prefix (rootful|podman), $2 = container.
 wait_health() {
   local i
   for i in $(seq 1 60); do
-    if curl -fsS "$BASE_URL/health" 2>/dev/null | grep -q '"ok"'; then return 0; fi
     [ "$($1 inspect -f '{{.State.Running}}' "$2" 2>/dev/null)" = "true" ] || return 1
+    if "${CURL[@]}" -fsS "$BASE_URL/health" 2>/dev/null | grep -q '"ok"'; then return 0; fi
     sleep 0.5
   done
   return 1
@@ -70,7 +75,7 @@ wait_health() {
 # Signs up, then checks the outbox JSON is readable by this user, and ownership/modes of the whole folder.
 assert_data() { # $1 check id, $2 data dir, $3 email
   local id="$1" dir="$2" code f bad
-  code=$(curl -s -o "$T/signup.out" -w '%{http_code}' -X POST "$BASE_URL/api/auth/sign-up/email" \
+  code=$("${CURL[@]}" -s -o "$T/signup.out" -w '%{http_code}' -X POST "$BASE_URL/api/auth/sign-up/email" \
     -H "origin: $BASE_URL" -H 'content-type: application/json' \
     -d "{\"email\":\"$3\",\"password\":\"correct-horse-battery-staple\",\"name\":\"Check\"}")
   [ "$code" = 200 ] && pass "$id" "sign-up HTTP $code" || { fail "$id" "sign-up HTTP $code: $(head -c 300 "$T/signup.out")"; return; }
@@ -92,9 +97,9 @@ check1() {
   if [ ${#ROOTFUL[@]} -eq 0 ]; then fail 1 "no rootful engine (docker socket, sudo docker, sudo podman all unusable)"; return; fi
   say "-- 1: rootful (${ROOTFUL[*]}), missing bind folder"
   mkdir -p "$T/c1"
-  c=$(name c1)
+  name c1; c=$C
   rootful run -d --name "$c" -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" \
-    -e PUID="$(id -u)" -e PGID="$(id -g)" -v "$dir:/data" "$IMG" >/dev/null
+    -e PUID="$(id -u)" -e PGID="$(id -g)" -v "$dir:/data" "$IMG" >/dev/null || { fail 1 "container did not start"; return; }
   if wait_health rootful "$c"; then pass 1 "/health ok"; else fail 1 "/health never ok: $(rootful logs "$c" 2>&1 | tail -5)"; rootful rm -f "$c" >/dev/null; return; fi
   assert_data 1 "$dir" "c1@example.test"
   rootful rm -f "$c" >/dev/null
@@ -104,8 +109,8 @@ check2() {
   local dir="$T/c2/data" c
   say "-- 2: rootless podman --userns=keep-id :Z, folder from mkdir -p"
   mkdir -p "$dir"
-  c=$(name c2)
-  podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null
+  name c2; c=$C
+  podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null || { fail 2 "container did not start"; return; }
   if wait_health podman "$c"; then pass 2 "/health ok"; else fail 2 "/health never ok: $(podman logs "$c" 2>&1 | tail -5)"; podman rm -f "$c" >/dev/null; return; fi
   assert_data 2 "$dir" "c2@example.test"
   podman rm -f "$c" >/dev/null
@@ -116,7 +121,7 @@ check3() {
   say "-- 3: SELinux, rootless podman keep-id with and without :Z"
   if [ "$(getenforce 2>/dev/null)" != Enforcing ]; then fail 3 "SELinux is '$(getenforce 2>&1)', not Enforcing; cannot run this check"; return; fi
   mkdir -p "$dir"
-  c=$(name c3a)
+  name c3a; c=$C
   out=$(timeout 60 podman run --name "$c" --userns=keep-id -e BASE_URL="$BASE_URL" -v "$dir:/data" "$IMG" 2>&1); rc=$?
   podman rm -f "$c" >/dev/null 2>&1
   if [ $rc -ne 0 ] && grep -q 'not writable' <<<"$out"; then
@@ -126,8 +131,8 @@ check3() {
   else
     fail 3 "without :Z: exit $rc, output: $(tail -5 <<<"$out")"
   fi
-  c=$(name c3b)
-  podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null
+  name c3b; c=$C
+  podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null || { fail 3 "with :Z container did not start"; return; }
   if wait_health podman "$c"; then pass 3 "with :Z /health ok"; else fail 3 "with :Z /health never ok: $(podman logs "$c" 2>&1 | tail -5)"; fi
   podman rm -f "$c" >/dev/null
 }
@@ -139,18 +144,18 @@ check4() {
   if [ ${#ROOTFUL[@]} -eq 0 ]; then
     fail 4 "no rootful engine; PUID and the entrypoint symlink check only run as root"
   else
-    c=$(name c4a)
+    name c4a; c=$C
     out=$(timeout 60 "${ROOTFUL[@]}" run --name "$c" -e PUID=00 -e BASE_URL="$BASE_URL" -v "$T/c4/puid:/data" "$IMG" 2>&1); rc=$?
     rootful rm -f "$c" >/dev/null 2>&1
     [ $rc -ne 0 ] && grep -q 'would run the server as root' <<<"$out" \
       && pass 4 "PUID=00 refused (exit $rc): $out" || fail 4 "PUID=00: exit $rc, output: $(tail -5 <<<"$out")"
-    c=$(name c4b)
+    name c4b; c=$C
     out=$(timeout 60 "${ROOTFUL[@]}" run --name "$c" -e PUID="$(id -u)" -e PGID="$(id -g)" -e DATA_DIR=/mnt/link -e BASE_URL="$BASE_URL" -v "$base:/mnt" "$IMG" 2>&1); rc=$?
     rootful rm -f "$c" >/dev/null 2>&1
     [ $rc -ne 0 ] && grep -q 'is a symlink' <<<"$out" \
       && pass 4 "rootful: symlinked DATA_DIR refused (exit $rc): $out" || fail 4 "rootful symlink: exit $rc, output: $(tail -5 <<<"$out")"
   fi
-  c=$(name c4c)
+  name c4c; c=$C
   out=$(timeout 60 podman run --name "$c" --userns=keep-id -e DATA_DIR=/mnt/link -e BASE_URL="$BASE_URL" -v "$base:/mnt:Z" "$IMG" 2>&1); rc=$?
   podman rm -f "$c" >/dev/null 2>&1
   [ $rc -ne 0 ] && grep -q 'is a symlink' <<<"$out" \
@@ -159,21 +164,35 @@ check4() {
 }
 
 check5() {
-  local dir="$T/c5/data" c i j res ok=0 lastusers=0
+  local dir="$T/c5/data" c i res krc answered cut why ok=0 lastusers=0 acked=0
   say "-- 5: $CYCLES kill-during-write cycles (rootless podman keep-id :Z bind mount)"
   mkdir -p "$dir"
   for i in $(seq 1 "$CYCLES"); do
-    c=$(name "c5-$i")
-    podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null
+    name "c5-$i"; c=$C
+    podman run -d --name "$c" --userns=keep-id -p "127.0.0.1:$PORT:4000" -e BASE_URL="$BASE_URL" -v "$dir:/data:Z" "$IMG" >/dev/null \
+      || { fail 5 "cycle $i: container did not start"; return; }
     if ! wait_health podman "$c"; then fail 5 "cycle $i: /health never ok: $(podman logs "$c" 2>&1 | tail -5)"; podman rm -f "$c" >/dev/null; return; fi
-    for j in $(seq 1 20); do
-      curl -s -o /dev/null -m 10 -X POST "$BASE_URL/api/auth/sign-up/email" -H "origin: $BASE_URL" \
-        -H 'content-type: application/json' -d "{\"email\":\"k$i-$j@example.test\",\"password\":\"correct-horse-battery-staple\",\"name\":\"K\"}" &
-    done
-    sleep "0.$((RANDOM % 6 + 1))$((RANDOM % 10))"  # 0.10-0.69s into the burst
-    podman kill -s KILL "$c" >/dev/null
+    rm -f "$T"/k5-*
+    # Sign-up is rate limited to 3 per 10s per client IP, and rootless port forwarding makes every host request
+    # come from one IP, so 17 of 20 would get an instant 429. Send the burst from inside the container's network
+    # namespace, each request from its own 127.0.0.x, so all 20 are real writes (they take ~1.4s in all).
+    # Each k5-N file gets that request's HTTP code when it ends; 000 = no response.
+    podman unshare nsenter -t "$(podman inspect -f '{{.State.Pid}}' "$c")" -n bash -c '
+      for j in $(seq 1 20); do
+        curl -s -o /dev/null -w "%{http_code}" -m 10 --connect-to "localhost:$1:127.0.0.1:4000" --interface "127.0.0.$((j + 1))" \
+          -X POST "$2/api/auth/sign-up/email" -H "origin: $2" -H "content-type: application/json" \
+          -d "{\"email\":\"k$4-$j@example.test\",\"password\":\"correct-horse-battery-staple\",\"name\":\"K\"}" >"$3/k5-$j" &
+      done; wait' _ "$PORT" "$BASE_URL" "$T" "$i" &
+    # Kill 0-0.69s after the first sign-up commits, while the rest of the burst is still being written.
+    for _ in $(seq 1 200); do grep -qx 200 "$T"/k5-* 2>/dev/null && break; sleep 0.05; done
+    sleep "0.$((RANDOM % 7))$((RANDOM % 10))"
+    podman kill -s KILL "$c" >/dev/null; krc=$?
+    [ "$(podman inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = false ] || krc="${krc}, still running"
     wait
     podman rm -f "$c" >/dev/null
+    answered=$(grep -lx 200 "$T"/k5-* | wc -l)
+    cut=$(grep -lx 000 "$T"/k5-* | wc -l)
+    acked=$((acked + answered))
     res=$(podman run --rm --userns=keep-id -v "$dir:/data:Z" --entrypoint node "$IMG" --input-type=module -e "
       import Database from 'better-sqlite3';
       const db = new Database('/data/authwapi.db');
@@ -181,11 +200,17 @@ check5() {
       const n = db.prepare('select count(*) as n from user').get().n;
       db.close();
       console.log(r + ' ' + n);" 2>&1)
-    if [ "${res%% *}" = ok ]; then ok=$((ok + 1)); lastusers="${res##* }"; else fail 5 "cycle $i: integrity_check: $res"; fi
-    say "   cycle $i: $res"
+    why=""
+    [ "$krc" != 0 ] && why="podman kill -s KILL failed (exit $krc)"
+    [ -z "$why" ] && [ "$answered" -eq 0 ] && why="no sign-up succeeded before the kill"
+    [ -z "$why" ] && [ "$cut" -eq 0 ] && why="no request was cut off by the kill (all answered before it landed)"
+    [ -z "$why" ] && [ "${res%% *}" != ok ] && why="integrity_check: $res"
+    [ -z "$why" ] && [ "${res##* }" -lt "$acked" ] && why="$acked sign-ups answered 200 so far but only ${res##* } users in the database"
+    if [ -z "$why" ]; then ok=$((ok + 1)); lastusers="${res##* }"; else fail 5 "cycle $i: $why"; fi
+    say "   cycle $i: $res; $answered sign-ups answered ($acked so far), $cut cut off by SIGKILL"
   done
-  [ "$ok" -eq "$CYCLES" ] && pass 5 "$ok/$CYCLES integrity_check ok, $lastusers users committed across kills" \
-    || fail 5 "$ok/$CYCLES integrity_check ok"
+  [ "$ok" -eq "$CYCLES" ] && pass 5 "$ok/$CYCLES cycles killed mid-burst, integrity_check ok, all $acked answered sign-ups kept ($lastusers users)" \
+    || fail 5 "$ok/$CYCLES cycles ok"
 }
 
 # --- main -------------------------------------------------------------------------------------------------
