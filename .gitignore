@@ -42,3 +42,5 @@ logs/*.log_*               # logs
 app.log
 exceptions.log
 rejections.log
+# local dev data folder
+.data/

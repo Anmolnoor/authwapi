@@ -1,74 +1,48 @@
-import express, { Express } from 'express';
-import helmet from 'helmet';
-import { rateLimit } from 'express-rate-limit';
-import morgan from 'morgan';
-import cookieParser from 'cookie-parser';
-import xss from 'xss-clean';
-import cors from 'cors';
+import { getConnInfo } from '@hono/node-server/conninfo';
+import { Hono } from 'hono';
+import { CLIENT_IP_HEADER } from './auth.ts';
+import type { Config } from './config.ts';
 
-// ---- module alias ----
-import 'module-alias/register';
-
-// import functions here
-import CEH from './utils/errorHandler';
-import { globalErrorHandler } from './controllers';
-
-//  --- routers Import ---
-import route from './routes/router';
-
-import { auth, User } from './routes';
-
-const app: Express = express();
-
-// trust proxy from vercel
-app.set('trust proxy', 1);
-
-// cors
-app.use(cors());
-
-// XSS-Clean
-app.use(xss());
-
-// Set Security HTTP Headers
-app.use(helmet());
-
-// // Development Logging
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
-if (process.env.NODE_ENV === 'production') {
-  app.use(morgan('short'));
+interface AuthHandler {
+  handler: (request: Request) => Promise<Response>;
 }
 
-const FixedTime = 60 * 60 * 1000;
-// Limiting request from same IP
-const limiter = rateLimit({
-  max: 500,
-  windowMs: FixedTime,
-  message: 'Too many request from this IP, Please try again in an Hour!',
-});
+export function createApp(auth: AuthHandler, config: Config): Hono {
+  const app = new Hono();
 
-app.use('/', limiter);
+  // Before the Host check so the container's own HEALTHCHECK (Host: 127.0.0.1) works. Reveals nothing.
+  app.get('/health', (c) => c.json({ status: 'ok' }));
 
-// Body parser and reading data from the body into req.body
-// { limit: '4096kb' }
-app.use(express.json({ limit: '4096kb' }));
+  // Only answer to BASE_URL's host and ALLOWED_HOSTS. This blocks DNS rebinding, and a port
+  // mapping that doesn't match BASE_URL fails here loudly instead of producing broken links.
+  app.use('*', async (c, next) => {
+    const host = c.req.header('host');
+    if (host === undefined || !config.allowedHosts.has(host)) {
+      return c.json(
+        { error: 'unknown_host', host, hint: 'Set BASE_URL to the address you use, or add the name to ALLOWED_HOSTS.' },
+        421
+      );
+    }
+    await next();
+  });
 
-// cookie parser
-app.use(cookieParser());
+  // A browser request from a site that isn't ours is refused before it reaches Better Auth, which only
+  // checks Origin when a cookie is sent. Requests with no Origin (curl, server-to-server) pass.
+  app.use('*', async (c, next) => {
+    const origin = c.req.header('origin');
+    if (origin !== undefined && !config.trustedOrigins.includes(origin)) {
+      return c.json({ error: 'untrusted_origin', origin }, 403);
+    }
+    await next();
+  });
 
-// --- Routers ---
-// -- API-v1.0.0 --
-app.use('/api/test', route);
-app.use('/api/v1/auth', auth);
-app.use('/api/v1/user', User);
+  app.on(['GET', 'POST'], '/api/auth/*', (c) => {
+    // Rate limits key on this header. It comes from the TCP peer; anything the client sent is replaced.
+    const headers = new Headers(c.req.raw.headers);
+    headers.delete('x-forwarded-for');
+    headers.set(CLIENT_IP_HEADER, getConnInfo(c).remote.address ?? 'unknown');
+    return auth.handler(new Request(c.req.raw, { headers }));
+  });
 
-// --- route not found error handling ---
-app.use('*', (req, res, next) => {
-  next(new CEH(`Can't found ${req.originalUrl} on this server!!!`, 404));
-});
-
-// --- Global error handling middleware ---
-app.use(globalErrorHandler);
-
-export default app;
+  return app;
+}
