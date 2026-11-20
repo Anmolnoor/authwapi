@@ -29,7 +29,7 @@ export async function start(env: NodeJS.ProcessEnv, overrides: { sendMail?: Send
 
   const sendMail = overrides.sendMail ?? createMailer(config.email, paths.outbox, log);
   const auth = betterAuth(authOptions({ config, db, secret, sendMail, log }));
-  const app = createApp(auth, config);
+  const app = createApp({ auth, config, db, log });
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port });
   await new Promise<void>((resolve, reject) => {

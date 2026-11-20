@@ -1,14 +1,38 @@
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { Hono } from 'hono';
+import type Database from 'better-sqlite3';
+import { Hono, type Context } from 'hono';
 import { CLIENT_IP_HEADER } from './auth.ts';
 import type { Config } from './config.ts';
+import type { Logger } from './log.ts';
+import { wellKnownRoutes } from './oauth.ts';
+import { pageRoutes } from './pages.ts';
 
 interface AuthHandler {
   handler: (request: Request) => Promise<Response>;
 }
 
-export function createApp(auth: AuthHandler, config: Config): Hono {
+/**
+ * Sends a request to Better Auth on behalf of the client behind `c`: the client IP header (rate limits) is set
+ * from the TCP peer, and anything the client sent in X-Forwarded-For or that header is replaced.
+ * Pages and well-known routes use this to call Better Auth endpoints internally.
+ */
+export type AuthCall = (c: Context, request: Request) => Promise<Response>;
+
+export interface AppDeps {
+  auth: AuthHandler;
+  config: Config;
+  db: Database.Database;
+  log: Logger;
+}
+
+export function createApp({ auth, config, db, log }: AppDeps): Hono {
   const app = new Hono();
+  const callAuth: AuthCall = (c, request) => {
+    const headers = new Headers(request.headers);
+    headers.delete('x-forwarded-for');
+    headers.set(CLIENT_IP_HEADER, getConnInfo(c).remote.address ?? 'unknown');
+    return auth.handler(new Request(request, { headers }));
+  };
 
   // Before the Host check so the container's own HEALTHCHECK (Host: 127.0.0.1) works. Reveals nothing.
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -36,13 +60,9 @@ export function createApp(auth: AuthHandler, config: Config): Hono {
     await next();
   });
 
-  app.on(['GET', 'POST'], '/api/auth/*', (c) => {
-    // Rate limits key on this header. It comes from the TCP peer; anything the client sent is replaced.
-    const headers = new Headers(c.req.raw.headers);
-    headers.delete('x-forwarded-for');
-    headers.set(CLIENT_IP_HEADER, getConnInfo(c).remote.address ?? 'unknown');
-    return auth.handler(new Request(c.req.raw, { headers }));
-  });
+  app.route('/', wellKnownRoutes({ callAuth, config })); // lane A
+  app.route('/', pageRoutes({ callAuth, config, db, log })); // lane B; before the catch-all so it can intercept
+  app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
 
   return app;
 }

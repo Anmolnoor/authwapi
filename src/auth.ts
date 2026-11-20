@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
+import { oauthPlugins } from './oauth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -52,7 +53,8 @@ export interface AuthDeps {
   log: Logger;
 }
 
-export function authOptions({ config, db, secret, sendMail, log }: AuthDeps): BetterAuthOptions {
+export function authOptions(deps: AuthDeps): BetterAuthOptions {
+  const { config, db, secret, sendMail, log } = deps;
   const findAccount = db.prepare('SELECT email FROM "user" WHERE email = ?');
   const recentMagicLink = new Map<string, number>(); // address → last send time, for the per-address cooldown
   const MAGIC_LINK_COOLDOWN_MS = 60_000;
@@ -133,6 +135,7 @@ export function authOptions({ config, db, secret, sendMail, log }: AuthDeps): Be
           });
         },
       }),
+      ...oauthPlugins(deps), // lane A
     ],
     emailVerification: {
       sendOnSignUp: true,
