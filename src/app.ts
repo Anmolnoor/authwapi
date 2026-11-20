@@ -10,6 +10,7 @@ import type { Logger } from './log.ts';
 import { wellKnownRoutes } from './oauth.ts';
 import { asUser } from './orgs.ts';
 import { pageRoutes } from './pages.ts';
+import { SAML_ACS_PATH } from './sso.ts';
 
 interface AuthHandler {
   handler: (request: Request) => Promise<Response>;
@@ -65,10 +66,13 @@ export function createApp({ auth, config, db, log, paths, secret }: AppDeps): Ho
   });
 
   // A browser request from a site that isn't ours is refused before it reaches Better Auth, which only
-  // checks Origin when a cookie is sent. Requests with no Origin (curl, server-to-server) pass.
+  // checks Origin when a cookie is sent. Requests with no Origin (curl, server-to-server) pass. One exception: a SAML
+  // IdP's page posts its response to the ACS from the IdP's own site (M4b); that POST is a signed assertion that
+  // must answer this browser's own AuthnRequest (src/sso.ts), so its Origin proves nothing either way.
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    if (origin !== undefined && !config.trustedOrigins.includes(origin)) {
+    const samlAcs = c.req.method === 'POST' && SAML_ACS_PATH.test(c.req.path);
+    if (origin !== undefined && !samlAcs && !config.trustedOrigins.includes(origin)) {
       return c.json({ error: 'untrusted_origin', origin }, 403);
     }
     await next();

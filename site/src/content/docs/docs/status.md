@@ -43,8 +43,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 
 ## After M1
 
-M2 (Google and GitHub sign-in, TOTP and passkeys), M3 (organizations and admin) and M4a (OIDC SSO) are built. Next: SAML
-SSO; a multi-arch image on GHCR.
+M2 (Google and GitHub sign-in, TOTP and passkeys), M3 (organizations and admin), M4a (OIDC SSO) and M4b (SAML SSO)
+are built. Next: a multi-arch image on GHCR.
 
 ## The earlier version
 

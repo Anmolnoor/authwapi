@@ -443,10 +443,13 @@ export function adminRoutes({ authContext, orgApi, authApi, sendVerificationEmai
     },
     register_sso_provider: {
       description:
-        "Register an organization's OIDC identity provider (SSO). Users whose email is at `domain` are routed to it; new " +
-        "users it signs in become members of the organization, with an unverified email. An existing account is never " +
-        'joined by email (the operator binds it). Endpoints are explicit (no discovery). Register the returned redirectUri ' +
-        'with the identity provider. The client secret is stored, never returned.',
+        "Register an organization's identity provider (SSO), OIDC (default) or SAML (protocol: 'saml'). Users whose email is " +
+        'at `domain` are routed to it; new users it signs in become members of the organization, with an unverified email. ' +
+        'An existing account is never joined by email (the operator binds it). OIDC: issuer, client ID and secret, and ' +
+        'explicit endpoints (no discovery); register the returned redirectUri with the identity provider; the client secret ' +
+        'is stored, never returned. SAML: idpMetadata (the IdP metadata XML), or idpEntityId, idpSsoUrl (https, ' +
+        'HTTP-Redirect) and idpSigningCert (PEM); give the IdP the returned acsUrl and spEntityId (also the SP metadata ' +
+        'URL). SAML providers require signed assertions, persistent NameIDs and an "email" attribute.',
       scopes: ['write'],
       input: ssoProviderInput,
       run: async (input, ok) => {
@@ -456,7 +459,7 @@ export function adminRoutes({ authContext, orgApi, authApi, sendVerificationEmai
       },
     },
     list_sso_providers: {
-      description: "List SSO providers (all, or one organization's): provider ID, organization, domain, issuer, redirect URI.",
+      description: "List SSO providers (all, or one organization's): provider ID, organization, domain, protocol, issuer, and the redirect URI (OIDC) or ACS URL and SP entity ID (SAML).",
       scopes: ['read', 'write'],
       input: z.object({ organizationId: z.string().min(1).max(200).optional() }),
       run: async ({ organizationId }) => ({ providers: await listSsoProviders(await authContext, organizationId) }),
