@@ -269,14 +269,14 @@ test('a client row with no resource link is refused without its document being f
   await ok('resource', 'add', A);
   // What an interrupted link could have left behind (the CLI now writes the row and the link together).
   const db = new Database(s.paths.db);
-  db.prepare("INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES ('stub', ?, 'cimd', '[]', ?, ?)").run(CLIENT, Date.now(), Date.now());
+  db.prepare("INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES ('stub', ?, 'cimd', '[]', ?, ?)").run(CLIENT, new Date().toISOString(), new Date().toISOString());
   db.close();
   const cookie = await signedInUser();
   assert.match(await refusal(await discover(mcpServer(A)), cookie, CLIENT, A), /invalid_client/);
   assert.deepEqual(fetched, []);
 });
 
-test('unlinking a client cuts it off at once, even while its document is cached: no new sign-in, no refresh', async () => {
+test('unlinking a client stops its new sign-ins and refreshes at once, even while its document is cached', async () => {
   await ok('resource', 'add', A);
   await ok('resource', 'link', CLIENT, A);
   const cookie = await signedInUser();
@@ -310,6 +310,15 @@ test("AuthWAPI's own userinfo URL can't be registered or linked as a resource", 
     assert.notEqual(r.code, 0, args.join(' '));
     assert.match(r.stderr, /reserved/, args.join(' '));
   }
+  // An older release could have stored one (clients create --resource): unlink still removes it.
+  const db = new Database(s.paths.db);
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES ('old', ?, 'cimd', '[]', ?, ?)").run(CLIENT, now, now);
+  db.prepare("INSERT INTO oauthResource (id, identifier, name, createdAt) VALUES ('old', ?, 'userinfo', ?)").run(userinfo, now);
+  db.prepare("INSERT INTO oauthClientResource (id, clientId, resourceId, createdAt) VALUES ('old', ?, ?, ?)").run(CLIENT, userinfo, now);
+  assert.match(await ok('resource', 'unlink', CLIENT, userinfo), /Unlinked/);
+  assert.equal(db.prepare('SELECT count(*) FROM oauthClientResource').pluck().get(), 0);
+  db.close();
 });
 
 test('without a test override, client metadata is fetched with the SSRF-safe Node transport from @better-auth/cimd', () => {

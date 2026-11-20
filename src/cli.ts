@@ -13,6 +13,7 @@
 import { validateClientIdUrl } from '@better-auth/cimd';
 import type { oauthProvider } from '@better-auth/oauth-provider';
 import { betterAuth, type InferAPI } from 'better-auth';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -43,7 +44,8 @@ resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is cre
 resource add registers an API or MCP server (its URL, exactly as clients send it in resource=).
 resource link lets a client get tokens for it. For an MCP client the client_id is the https URL of its
 Client ID Metadata Document; AuthWAPI fetches that document only after it is linked, when a user signs in.
-resource unlink takes that away; an MCP client linked to no resource is refused at once (no sign-in, no refresh).
+resource unlink takes that away: an MCP client linked to no resource gets no new sign-in or refresh from then on.
+Access tokens it already holds stay valid at the resource server until they expire (at most 15 minutes).
 
 bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
 and revokes any unused earlier one. Use it when the bootstrap key is lost or expired, or no write key is left.`;
@@ -142,8 +144,9 @@ async function main(argv: string[]): Promise<void> {
     const headers = new Headers(); // Better Auth's admin endpoints require a headers object
     const context = await auth.$context;
     // The provider exempts its own userinfo endpoint from resource checks; it must never be a registered resource.
+    // Unlinking one is allowed: it removes a link an older release may have stored.
     const userinfo = `${context.baseURL}/oauth2/userinfo`;
-    for (const identifier of resource ? rest.slice(-1) : (values.resource ?? [])) {
+    for (const identifier of command === 'unlink' ? [] : resource ? rest.slice(-1) : (values.resource ?? [])) {
       if (identifier === userinfo) throw new Error(`${identifier} is reserved: it is AuthWAPI's own userinfo endpoint`);
     }
     if (resource && command === 'add') {
@@ -167,18 +170,19 @@ async function main(argv: string[]): Promise<void> {
       if (URL.canParse(clientId)) {
         const problem = validateClientIdUrl(clientId);
         if (problem) throw new Error(problem);
-        // The client row the link needs, written with the link in one transaction. It holds no metadata yet: the
-        // server fetches the document (only while the URL is linked) when a user first signs in through this client.
-        await context.adapter.transaction(async (trx) => {
-          const now = new Date();
-          const where = [{ field: 'clientId', value: clientId }];
-          if (!(await trx.findOne({ model: 'oauthClient', where }))) {
-            await trx.create({ model: 'oauthClient', data: { clientId, clientDiscoveryId: 'cimd', redirectUris: [], createdAt: now, updatedAt: now } });
-          }
-          if (!(await trx.findOne({ model: 'oauthClientResource', where: [...where, { field: 'resourceId', value: identifier }] }))) {
-            await trx.create({ model: 'oauthClientResource', data: { clientId, resourceId: identifier, createdAt: now } });
-          }
-        });
+        // The client row the link needs, written with the link in one transaction that takes SQLite's write lock up
+        // front (BEGIN IMMEDIATE), so a concurrent writer can't make it fail halfway. Rows as Better Auth writes them.
+        // The row holds no metadata yet: the server fetches the document (only while the URL is linked) when a user
+        // first signs in through this client.
+        const now = new Date().toISOString();
+        db.transaction(() => {
+          db.prepare(
+            `INSERT INTO oauthClient (id, clientId, clientDiscoveryId, redirectUris, createdAt, updatedAt) VALUES (?, ?, 'cimd', '[]', ?, ?)
+             ON CONFLICT (clientId) DO NOTHING`
+          ).run(randomUUID(), clientId, now, now);
+          db.prepare('INSERT INTO oauthClientResource (id, clientId, resourceId, createdAt) VALUES (?, ?, ?, ?) ON CONFLICT (clientId, resourceId) DO NOTHING')
+            .run(randomUUID(), clientId, identifier, now);
+        }).immediate();
       } else {
         await api.adminLinkClientResource({ headers, params });
       }

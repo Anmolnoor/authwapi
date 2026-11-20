@@ -37,9 +37,9 @@ URL without a request going out. The URL must be `https` on a public host, with 
 credentials; loopback and private addresses are always refused. The fetch resolves DNS once, refuses private
 addresses, follows no redirects, gives up after 5 seconds and accepts at most 5 KB of JSON.
 
-To take a client's access away, unlink it. A client linked to no resource is refused at once, even if its document
-is cached: no new sign-in, and its refresh tokens stop working. Access tokens it already holds last until they
-expire (15 minutes).
+To take a client's access away, unlink it. From then on a client linked to no resource gets no new sign-in, and
+its refresh tokens stop working, even if its document is cached. JWT access tokens it was already issued stay
+valid at your MCP server until they expire (at most 15 minutes).
 
 ```bash
 docker exec -u 1000 authwapi node src/cli.ts resource unlink https://client.example/oauth/metadata.json https://mcp.example.com/mcp

@@ -263,8 +263,8 @@ docker exec -u 1000 authwapi node src/cli.ts resource link https://client.exampl
   refused without a request going out. The URL must be `https` on a public host (loopback and private addresses
   are always refused); the fetch resolves DNS once, refuses private addresses and follows no redirects. The
   document's `redirect_uris` must be on its own origin, loopback, or a private-use scheme.
-- `resource unlink <client_id> <resource>` takes access away: a client linked to nothing is refused at once, and
-  its refresh tokens stop working.
+- `resource unlink <client_id> <resource>` takes access away: a client linked to nothing gets no new sign-in or
+  refresh from then on. JWT access tokens already issued stay valid at the MCP server until they expire (≤15 min).
 - A server-side client that can keep a secret but has no metadata document can use a `clients create` client
   (`client_secret_basic`), linked the same way.
 - The consent page leads with the host of the metadata URL; the client's name is shown as what it calls itself.
