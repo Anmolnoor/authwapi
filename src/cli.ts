@@ -1,6 +1,8 @@
-// Operator CLI. Registers OAuth clients (dynamic registration is off), on the same data folder as the server:
+// Operator CLI, on the same data folder as the server. Registers OAuth clients (dynamic registration is off) and
+// reissues the admin MCP bootstrap key:
 //   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
 //   node src/cli.ts clients list
+//   node src/cli.ts bootstrap-key
 // In the container: docker exec authwapi node src/cli.ts ...
 // The client secret is printed once, to stdout, and stored only as a hash. It never goes to the log.
 import type { oauthProvider } from '@better-auth/oauth-provider';
@@ -8,6 +10,7 @@ import { betterAuth, type InferAPI } from 'better-auth';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { reissueBootstrapKey } from './admin.ts';
 import { authOptions } from './auth.ts';
 import { loadConfig } from './config.ts';
 import { dataPaths, loadOrCreateSecret, prepareDataDir } from './data.ts';
@@ -18,9 +21,13 @@ import { MIGRATIONS_DIR } from './migrate.ts';
 const USAGE = `Usage:
   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
   node src/cli.ts clients list
+  node src/cli.ts bootstrap-key
 
 --resource names an API the app may request access tokens for (RFC 8707). Tokens requested with
-resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is created.`;
+resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is created.
+
+bootstrap-key writes a new one-time admin MCP key to bootstrap-admin-key in the data folder (valid 24 hours)
+and revokes any unused earlier one. Use it when the bootstrap key is lost or expired, or no write key is left.`;
 
 class UsageError extends Error {}
 
@@ -29,9 +36,11 @@ type OAuthAdminApi = InferAPI<ReturnType<typeof oauthProvider>['endpoints']>;
 
 async function main(argv: string[]): Promise<void> {
   const [group, command, ...rest] = argv;
-  if (group !== 'clients' || (command !== 'create' && command !== 'list')) throw new UsageError('unknown command');
+  const bootstrap = group === 'bootstrap-key';
+  if (bootstrap && argv.length > 1) throw new UsageError('bootstrap-key takes no options');
+  if (!bootstrap && (group !== 'clients' || (command !== 'create' && command !== 'list'))) throw new UsageError('unknown command');
   const { values } = parseArgs({
-    args: rest,
+    args: bootstrap ? [] : rest,
     options: {
       name: { type: 'string' },
       'redirect-uri': { type: 'string', multiple: true },
@@ -64,6 +73,14 @@ async function main(argv: string[]): Promise<void> {
     const pending = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && !applied.has(f));
     if (pending.length > 0) {
       throw new Error(`This database hasn't had ${pending.join(', ')} applied. Start the server (it applies migrations), then run this again.`);
+    }
+
+    if (bootstrap) {
+      const expiresAt = reissueBootstrapKey(db, paths);
+      createLogger(paths.logs)('info', 'bootstrap admin key reissued by the operator CLI', { file: paths.bootstrapKey, expiresAt });
+      console.log(`Wrote a new one-time bootstrap key to ${paths.bootstrapKey}, valid until ${expiresAt}. Any earlier unused one no longer works.`);
+      console.log('An agent uses it once, with mint_agent_key over /mcp, to get a write key.');
+      return;
     }
 
     if (command === 'list') {

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -277,6 +277,10 @@ test('the admin MCP accepts no OAuth token or session token, even one minted for
   }
   const withCookie = await fetch(MCP, { method: 'POST', headers: { cookie: user.cookie, 'content-type': 'application/json' }, body: '{}' });
   assert.equal(withCookie.status, 401);
+  // The refusals are logged, but never the token presented.
+  const logs = readdirSync(s.paths.logs).map((f) => readFileSync(path.join(s.paths.logs, f), 'utf8')).join('\n');
+  assert.match(logs, /admin MCP refused a key/);
+  for (const t of [opaque.access_token, opaque.refresh_token!, jwt.access_token, sessionToken]) assert.ok(!logs.includes(t), 'a token reached the log');
 });
 
 test('sign-out ends the session and revokes every token the user holds: JWT and opaque access, refresh, offline_access', async () => {

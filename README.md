@@ -42,7 +42,7 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
-| `logs/audit.jsonl` | One line per admin MCP call: time, key id, tool, outcome. Never contains a key. |
+| `logs/audit.jsonl` | One line per admin MCP call: time, key id, its scope, tool, outcome. Never contains a key or arguments. |
 | `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600. Valid 24 hours; deleted once used. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
@@ -111,9 +111,9 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
    24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
    `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`.
-2. **Mint an agent key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (or
-   `"read"`). The result `{"keyId", "scope", "key"}` is the only place the key ever appears: store it now. The
-   bootstrap key is spent and its file deleted.
+2. **Mint a write key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (the
+   bootstrap key mints only write keys). The result `{"keyId", "scope", "key"}` is the only place the key ever
+   appears: store it now. The bootstrap key is spent and its file deleted. Mint `read` keys with the write key.
 3. **Reconnect with the agent key** and administer. For example, in Claude Code:
    `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $KEY"`.
 
@@ -123,12 +123,17 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `revoke_agent_key` | `write` | `{keyId}` → the key stops working at once |
 | `get_status` | `read`, `write` | Version, base URL, email mode, user and agent-key counts |
 | `list_users` | `read`, `write` | `{limit?, offset?}` → users, oldest first |
-| `create_user` | `write` | `{email, name, password}` → a user who can sign in at once (the email counts as verified) |
+| `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. The email starts unverified (the user verifies it at first sign-in); `emailVerified: true` is your attestation that the address is theirs, and lets them sign in at once. |
 | `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
 
 Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
-instructions. A refused scope returns `{"error": "forbidden"}` and is audited; an unknown, revoked or expired key
-gets HTTP 401. The bootstrap key isn't reissued: if it expires unused, start on a fresh data folder.
+instructions. Each key may make 60 tool calls a minute (`{"error": "rate_limited", "retryAfterSeconds"}`). Every
+call, refused or not, writes one audit line; a refused scope returns `{"error": "forbidden"}`. An unknown, revoked
+or expired key gets HTTP 401, and the refusal is logged in `logs/app.jsonl` with the caller's IP (never the key).
+
+**Lost the bootstrap key, it expired, or no write key is left?** The operator issues a new one-time key (valid 24
+hours; any earlier unused one stops working):
+`docker exec authwapi node src/cli.ts bootstrap-key`.
 
 ## API
 
