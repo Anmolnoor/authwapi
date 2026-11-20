@@ -47,8 +47,9 @@ You need an organization (`create_org`) and, from the identity provider, an app 
      --jwks-endpoint https://idp.acme.com/jwks
    ```
 
-Both run as the organization's owner and write an audit line. Refusals: `domain_taken` (another provider has the
-domain), `organization_not_found`, and Better Auth's own (the ID is taken; an endpoint isn't publicly routable).
+Both run as the organization's owner and write an audit line in the same transaction. Refusals: `domain_taken`
+(another provider has the domain), `insecure_endpoint` (the issuer or an endpoint isn't `https://`),
+`organization_not_found`, and Better Auth's own (the ID is taken; an endpoint isn't publicly routable).
 
 | MCP tool | CLI | What |
 | --- | --- | --- |
@@ -82,9 +83,11 @@ deleting and domain-verifying providers are turned off (404).
   issuer, so this binds the identity to (organization, issuer, subject). The email domain only picks the provider;
   each domain belongs to one provider, and it is never "verified" to mean more.
 - **The first sign-in creates a new user**, a `member` of the provider's organization. Their email is stored
-  **unverified**: the organization vouches for it, not the mailbox.
+  **unverified**: the organization vouches for it, not the mailbox. Later sign-ins don't touch membership: someone
+  the organization removed isn't added back.
 - **An existing account is never joined by email**, not even a verified one with the same address. The operator
-  binds it to its subject with `sso bind` (the account's email must be verified); after that, SSO signs in as it.
+  binds it to its subject with `sso bind` (the account's email must be verified), which also makes it a member;
+  after that, SSO signs in as it.
 - **Another organization's provider can't sign in to an identity bound to this one**, even with the same identity
   provider and the same `sub`.
 
@@ -92,18 +95,20 @@ deleting and domain-verifying providers are turned off (404).
 
 An organization could register `gmail.com`, or have its identity provider assert any email. It still gets nobody
 else's account: existing accounts aren't joined by email, and an account it creates stays unverified. The real
-owner of the address takes it back with "Email me a link" on `/sign-in`. That magic link verifies the email and, in
-one step, removes everything set up before: SSO bindings, any password, Google/GitHub links, sessions, 2FA,
-passkeys, OAuth tokens and consents. The organization's provider can't sign in to it afterwards. (The verification
+owner of the address takes it back with "Email me a link" on `/sign-in` (which also verifies the email), or with
+"Forgot password?" and then the verification link with the new password. Either one first removes, in one step,
+everything set up before: SSO bindings, any password, Google/GitHub
+links, sessions, 2FA, passkeys, OAuth tokens, consents, unused authorization codes and organization memberships. The organization's provider can't sign in to it afterwards. (The verification
 email that AuthWAPI sends a new SSO user can't verify the account: it has no password.)
 
-This is also what happens if an SSO user signs in by magic link themselves: their address becomes verified and
-their SSO binding goes. The operator can bind it again with `sso bind`.
+This is also what happens if an SSO user signs in by magic link or resets their password themselves: their address
+becomes verified and their SSO binding and membership go. The operator can bind it again with `sso bind`.
 
 ## Also
 
 - **2FA still applies.** A user who turned on TOTP is asked for a code after the SSO sign-in, before any session.
-- **Deleting a provider** ends its users' sessions and revokes their OAuth tokens, in the same transaction.
+- **Deleting a provider** ends its users' sessions and revokes their OAuth tokens, in the same transaction. An
+  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are.
 - **Client secrets** are stored unencrypted in SQLite, like everything else in the data folder: keep it private.
-- **Endpoints must be publicly routable** (no `localhost`, private or link-local addresses), and they are given
-  explicitly: AuthWAPI doesn't fetch the discovery document.
+- **Endpoints must be `https://` and publicly routable** (no `localhost`, private or link-local addresses), and they
+  are given explicitly: AuthWAPI doesn't fetch the discovery document.

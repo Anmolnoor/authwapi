@@ -8,7 +8,7 @@
 //   src/oauth.ts), and signing it out revokes nothing of the target's (src/oauth.ts).
 // - Invitations are emailed with a link to the hosted accept page (src/pages.ts).
 import path from 'node:path';
-import { defineRequestState, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
+import { defineRequestState, getCurrentAdapter, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import type Database from 'better-sqlite3';
@@ -178,7 +178,10 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
             if (!user) return;
             const now = new Date();
             const session = { id: `mcp-${user.id}`, token: '', userId: user.id, createdAt: now, updatedAt: now, expiresAt: new Date(now.getTime() + 60_000) };
-            return { context: { context: { session: { session, user } } } };
+            // Inside a caller's transaction (MCP audits its write inside one), the endpoint's own queries join it: Better
+            // Auth's SSO routes use the plain adapter, which would otherwise wait on the transaction forever.
+            const adapter = await getCurrentAdapter(ctx.context.adapter);
+            return { context: { context: { session: { session, user }, adapter } } };
           }),
         },
       ],
@@ -197,9 +200,17 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
 }
 
 /** Better Auth's organization and admin plugins, and the glue above. Added to authOptions().plugins. */
-export function orgAdminPlugins({ config }: AuthDeps, deliver: Deliver): Plugin[] {
+export function orgAdminPlugins({ config, db }: AuthDeps, deliver: Deliver): Plugin[] {
   return [
     organization({
+      // M4a: an organization's SSO providers would outlive it (no foreign key), with no owner left to delete them.
+      organizationHooks: {
+        beforeDeleteOrganization: async ({ organization: org }) => {
+          if (db.prepare('SELECT 1 FROM ssoProvider WHERE organizationId = ?').get(org.id)) {
+            throw new APIError('BAD_REQUEST', { code: 'ORGANIZATION_HAS_SSO_PROVIDERS', message: 'This organization has SSO providers: delete its SSO providers first.' });
+          }
+        },
+      },
       // Organizations are made by an agent (MCP create_org, a server-side call Better Auth treats as a system action).
       allowUserToCreateOrganization: false,
       // Accepting needs a verified email that matches the invitation (also Better Auth's default here; made explicit).

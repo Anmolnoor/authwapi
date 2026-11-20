@@ -238,23 +238,27 @@ Workspace, another AuthWAPI...), through [Better Auth's SSO plugin](https://bett
 How it's kept safe:
 - **Providers change only through MCP or the CLI.** Better Auth's routes for registering, updating, deleting and
   domain-verifying providers answer 404. A provider isn't edited in place: delete it and register it again.
-  Endpoints are given explicitly (no discovery) and must be publicly routable.
+  Endpoints and the issuer are given explicitly (no discovery), must use `https://` and be publicly routable.
+  Registering and its audit line commit together.
 - **The domain only routes.** Each domain belongs to one provider. It never decides who someone is: an SSO
   identity is the provider (so the organization and issuer) plus the ID token's `sub`. The ID token's signature,
   issuer, audience and expiry are checked, the provider must say the email is verified, and a callback works once.
 - **SSO never joins an existing account by email.** A sign-in through a provider either finds the account bound to
-  that `sub` at that provider or creates a new user, a member of the organization. If an account already has the
-  email, the sign-in is refused (`error=account_exists`); the operator can bind a verified account to its subject:
-  `docker exec -u 1000 authwapi node src/cli.ts sso bind --provider sso-acme --subject <sub> --user <userId>`.
+  that `sub` at that provider or creates a new user, a member of the organization (only a user SSO creates joins:
+  someone the organization removed isn't added back by signing in again). If an account already has the email, the
+  sign-in is refused (`error=account_exists`); the operator can bind a verified account to its subject, which also
+  makes it a member: `docker exec -u 1000 authwapi node src/cli.ts sso bind --provider sso-acme --subject <sub> --user <userId>`.
   Another organization's provider can't sign in to it, even with the same identity provider and `sub`.
 - **A new SSO user's email stays unverified**: the organization vouches for it, not the mailbox. Its verification
   link can't verify it (the account has no password). If the address is someone else's (an organization claiming
-  `gmail.com`, say), its owner signs in with "Email me a link": that verifies it and, in one step, removes every
-  linked sign-in (SSO, password, Google/GitHub), session, 2FA, passkey, OAuth token and consent set up before. The
+  `gmail.com`, say), its owner signs in with "Email me a link" (or resets the password, then verifies with the new
+  one). Either first removes, in one step, every linked sign-in (SSO, password, Google/GitHub), session, 2FA,
+  passkey, OAuth token, consent, unused authorization code and organization membership set up before. The
   organization's provider can't sign in to it afterwards.
 - **2FA still applies** after an SSO sign-in, for users who turned it on.
 - **Deleting a provider** (`delete_sso_provider` or `sso delete <providerId>`) removes its bindings and ends its
-  users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets.
+  users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets. An
+  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are.
 - Client secrets are stored unencrypted in the SQLite database, like everything in the data folder: keep it private.
 
 ## Apps (OAuth 2.1 / OpenID Connect)

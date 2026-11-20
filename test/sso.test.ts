@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { chmodSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -254,6 +254,11 @@ test('an org claiming gmail.com gets no existing account, and a later mailbox ow
   const code = codeFrom(await allow(sp, attacker, consent.location!));
   const tokens = (await exchange(sp, app, code, verifier)).body;
   assert.ok(tokens.refresh_token);
+  // ...and an authorization code it hasn't exchanged yet.
+  const second = authorizeUrl(sp, app);
+  const pendingCode = codeFrom((await send(sp, attacker, 'GET', second.url, { navigate: true })).location);
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ?', user.id), 1);
+  assert.equal(count("SELECT count(*) FROM verification WHERE json_valid(value) AND json_extract(value, '$.type') = 'authorization_code' AND json_extract(value, '$.userId') = ?", user.id), 1);
 
   // The mailbox owner signs in by magic link: verified, and everything set up before is gone in one step.
   await send(sp, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'future@gmail.com', callbackURL: '/' } });
@@ -266,10 +271,48 @@ test('an org claiming gmail.com gets no existing account, and a later mailbox ow
   assert.equal(row('SELECT twoFactorEnabled FROM user WHERE id = ?', user.id)!.twoFactorEnabled, 0);
   for (const table of ['account', 'twoFactor', 'passkey', 'oauthConsent']) assert.equal(count(`SELECT count(*) FROM ${table} WHERE userId = ?`, user.id), 0, table);
   assert.equal(count("SELECT count(*) FROM oauthRefreshToken WHERE userId = ? AND revoked IS NULL", user.id), 0);
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ?', user.id), 0, 'the org membership made before the proof');
+  const codes = "SELECT count(*) FROM verification WHERE json_valid(value) AND json_extract(value, '$.type') = 'authorization_code' AND json_extract(value, '$.userId') = ?";
+  assert.equal(count(codes, user.id), 0, 'the pending authorization code');
+  assert.equal((await exchange(sp, app, pendingCode, second.verifier)).status, 400);
   assert.equal(await currentUser(sp, attacker), null);
   // And the org's IdP can't get back in: no binding, and the address is taken.
   const back = await ssoSignIn(new Jar(), await idpJarFor('future@gmail.com'), 'future@gmail.com');
   assert.equal(errorOf(back.back.location), 'account_exists');
+});
+
+test("a password reset by the mailbox owner clears what a magic link clears: the org's IdP can't get back in", async () => {
+  const { write } = await agents();
+  await ssoOrg(write, 'gmail', 'gmail.com');
+  const attacker = new Jar();
+  const idpJar = await idpUser('future@gmail.com');
+  assert.equal((await ssoSignIn(attacker, idpJar, 'future@gmail.com')).back.location, '/');
+  const user = row("SELECT id FROM user WHERE email = 'future@gmail.com'")!;
+  await enableTotp(sp, attacker, undefined);
+
+  // The owner uses "Forgot password?", then the verification link (it asks for the account's password).
+  const ownerJar = new Jar();
+  assert.equal((await send(sp, ownerJar, 'POST', '/api/auth/request-password-reset', { json: { email: 'future@gmail.com', redirectTo: '/' } })).status, 200);
+  const token = linkIn((await sp.mail('future@gmail.com', 'Reset your password')).text).pathname.split('/').pop();
+  const reset = await send(sp, ownerJar, 'POST', '/api/auth/reset-password', { json: { token, newPassword: 'owner new pass' } });
+  assert.equal(reset.status, 200, reset.body);
+  assert.equal(row('SELECT emailVerified FROM user WHERE id = ?', user.id)!.emailVerified, 0, 'a reset alone verifies nothing (M1)');
+  const verify = await fetch(linkIn((await sp.mail('future@gmail.com', 'Verify your email')).text), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: sp.base },
+    body: new URLSearchParams({ password: 'owner new pass' }),
+  });
+  assert.equal(verify.status, 200);
+
+  const after = row('SELECT emailVerified, twoFactorEnabled FROM user WHERE id = ?', user.id)!;
+  assert.deepEqual([after.emailVerified, after.twoFactorEnabled], [1, 0]);
+  assert.deepEqual(row("SELECT group_concat(providerId) AS p FROM account WHERE userId = ?", user.id)!.p, 'credential');
+  for (const table of ['twoFactor', 'passkey', 'member']) assert.equal(count(`SELECT count(*) FROM ${table} WHERE userId = ?`, user.id), 0, table);
+  assert.equal(await currentUser(sp, attacker), null);
+  assert.equal(errorOf((await ssoSignIn(new Jar(), idpJar, 'future@gmail.com')).back.location), 'account_exists');
+  const signIn = await passwordSignIn(sp, new Jar(), 'future@gmail.com', 'owner new pass');
+  assert.equal(signIn.status, 200);
+  assert.notEqual(signIn.json().twoFactorRedirect, true, 'no 2FA left from before the proof');
 });
 
 test("cross-org: org B's provider can't sign in an identity bound to org A's", async () => {
@@ -430,6 +473,98 @@ test('a user with 2FA signing in through SSO is asked for the second factor', as
   assert.equal(await currentUser(sp, next), 'alice@a.example');
 });
 
+test('registration refuses http endpoints and issuers (only the trusted loopback test IdP may use http)', async () => {
+  const { write } = await agents();
+  const organizationId = await org(write, 'a');
+  idpClient = await idpClientFor(['a']);
+  for (const field of ['issuer', 'authorizationEndpoint', 'tokenEndpoint', 'jwksEndpoint']) {
+    const args = { ...providerArgs(organizationId, 'a', 'a.example', idpClient), [field]: `http://idp.example.com/${field}` };
+    const r = await call(write, 'register_sso_provider', args);
+    assert.deepEqual([r.isError, r.data.error], [true, 'insecure_endpoint'], field);
+  }
+  assert.equal(count('SELECT count(*) FROM ssoProvider'), 0);
+});
+
+test('a provider whose audit line cannot be written is not registered', async () => {
+  const { write } = await agents();
+  const organizationId = await org(write, 'a');
+  idpClient = await idpClientFor(['a']);
+  chmodSync(path.join(sp.paths.logs, 'audit.jsonl'), 0o400);
+  try {
+    const r = await call(write, 'register_sso_provider', providerArgs(organizationId, 'a', 'a.example', idpClient)).catch((err: unknown) => ({ isError: true, data: { error: String(err) } }));
+    assert.equal(r.isError, true);
+  } finally {
+    chmodSync(path.join(sp.paths.logs, 'audit.jsonl'), 0o600);
+  }
+  assert.equal(count('SELECT count(*) FROM ssoProvider'), 0);
+});
+
+test("the owner who registered a provider can't be deleted, nor its organization, until the provider is", async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const ownerId = row("SELECT id FROM user WHERE email = 'owner@a.test'")!.id;
+  const adminId = await verifiedUser(sp, 'admin@example.com');
+  await ok(call(write, 'set_role', { userId: adminId, role: 'admin' }));
+  const admin = new Jar();
+  assert.equal((await passwordSignIn(sp, admin, 'admin@example.com')).status, 200);
+  const removed = await send(sp, admin, 'POST', '/api/auth/admin/remove-user', { json: { userId: ownerId } });
+  assert.equal(removed.status, 400, removed.body);
+  assert.match(removed.body, /SSO provider/);
+  const owner = new Jar();
+  assert.equal((await passwordSignIn(sp, owner, 'owner@a.test')).status, 200);
+  const deleted = await send(sp, owner, 'POST', '/api/auth/organization/delete', { json: { organizationId: a.organizationId } });
+  assert.equal(deleted.status, 400, deleted.body);
+  assert.match(deleted.body, /delete its SSO providers first/);
+  assert.equal(count('SELECT count(*) FROM ssoProvider'), 1);
+  assert.equal(count('SELECT count(*) FROM organization'), 1);
+  assert.equal(count('SELECT count(*) FROM user WHERE id = ?', ownerId), 1);
+
+  await ok(call(write, 'delete_sso_provider', { providerId: a.providerId }));
+  assert.equal((await send(sp, owner, 'POST', '/api/auth/organization/delete', { json: { organizationId: a.organizationId } })).status, 200);
+  assert.equal((await send(sp, admin, 'POST', '/api/auth/admin/remove-user', { json: { userId: ownerId } })).status, 200);
+});
+
+test('membership is given only to users SSO creates: a removed member signing in again is not re-added', async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const idpJar = await idpUser('alice@a.example');
+  assert.equal((await ssoSignIn(new Jar(), idpJar, 'alice@a.example')).back.location, '/');
+  const userId = row("SELECT id FROM user WHERE email = 'alice@a.example'")!.id;
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ? AND organizationId = ?', userId, a.organizationId), 1);
+  const d = db(sp);
+  d.prepare('DELETE FROM member WHERE userId = ?').run(userId); // the org removed her
+  d.close();
+  const jar = new Jar();
+  assert.equal((await ssoSignIn(jar, idpJar, 'alice@a.example')).back.location, '/');
+  assert.equal(await currentUser(sp, jar), 'alice@a.example');
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ?', userId), 0);
+});
+
+test("2FA after SSO during an app's sign-in: the 2FA page, then consent", async () => {
+  const { write } = await agents();
+  await ssoOrg(write, 'a', 'a.example');
+  const idpJar = await idpUser('alice@a.example');
+  const first = new Jar();
+  assert.equal((await ssoSignIn(first, idpJar, 'alice@a.example')).back.location, '/');
+  const { secret } = await enableTotp(sp, first, undefined);
+
+  const app = await createClient(sp);
+  const { url, verifier } = authorizeUrl(sp, app);
+  const jar = new Jar();
+  const query = new URL((await send(sp, jar, 'GET', url, { navigate: true })).location!, sp.base).search.slice(1);
+  const go = await send(sp, jar, 'POST', '/sign-in', { form: { method: 'sso', email: 'alice@a.example', oauth_query: query } });
+  let at = await send(idp, idpJar, 'GET', go.location!, { navigate: true });
+  if (at.location?.startsWith('/consent')) at = { ...at, location: await allow(idp, idpJar, at.location) };
+  const back = await send(sp, jar, 'GET', at.location!, { navigate: true });
+  assert.equal(back.location, `/two-factor?${query}`);
+  assert.equal(await currentUser(sp, jar), null);
+  const verified = await send(sp, jar, 'POST', '/two-factor', { form: { code: totp(secret), oauth_query: query } });
+  assert.equal(verified.status, 303, verified.body);
+  assert.match(verified.location ?? '', /\/consent\?/);
+  const tokens = (await exchange(sp, app, codeFrom(await allow(sp, jar, verified.location!)), verifier)).body;
+  assert.ok(tokens.id_token);
+});
+
 test('CLI: the operator registers, binds an existing verified account, lists and deletes', async () => {
   const { write } = await agents();
   const organizationId = await org(write, 'a');
@@ -450,6 +585,7 @@ test('CLI: the operator registers, binds an existing verified account, lists and
   d.close();
   await assert.rejects(cli(sp, ['sso', 'bind', '--provider', 'sso-a', '--subject', sub, '--user', 'nobody']), /user_not_found/);
   await cli(sp, ['sso', 'bind', '--provider', 'sso-a', '--subject', sub, '--user', userId]);
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ? AND organizationId = ?', userId, organizationId), 1, 'bind adds the membership');
   const jar = new Jar();
   assert.equal((await ssoSignIn(jar, idpJar, 'alice@a.example')).back.location, '/');
   assert.equal(await currentUser(sp, jar), 'alice@a.example');
@@ -459,11 +595,11 @@ test('CLI: the operator registers, binds an existing verified account, lists and
   await cli(sp, ['sso', 'delete', 'sso-a']);
   assert.equal(await currentUser(sp, jar), null);
   assert.deepEqual(
-    audit().filter((l) => l.who === 'operator-cli').map((l) => [l.tool, l.outcome, l.target]),
+    audit().filter((l) => l.who === 'operator-cli').map((l) => [l.tool, l.outcome, l.target, l.provider ?? null, l.subject ?? null]),
     [
-      ['sso register', 'ok', 'sso-a'],
-      ['sso bind', 'ok', 'sso-a'],
-      ['sso delete', 'ok', 'sso-a'],
+      ['sso register', 'ok', 'sso-a', null, null],
+      ['sso bind', 'ok', userId, 'sso-a', sub],
+      ['sso delete', 'ok', 'sso-a', null, null],
     ]
   );
 });

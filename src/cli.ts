@@ -258,7 +258,8 @@ async function sso(command: string | undefined, args: string[]): Promise<void> {
   try {
     const auth = cliAuth(config, paths, db);
     const context = await auth.$context;
-    const audit = (tool: string, target: string) => appendAudit(paths.audit, { who: 'operator-cli', scope: 'operator', tool, outcome: 'ok', target });
+    const audit = (tool: string, target: string, extra: Record<string, string> = {}) =>
+      appendAudit(paths.audit, { who: 'operator-cli', scope: 'operator', tool, outcome: 'ok', target, ...extra });
     if (command === 'list') {
       const providers = await listSsoProviders(context);
       if (providers.length === 0) console.log('No SSO providers. Add one with: node src/cli.ts sso register ...');
@@ -268,7 +269,7 @@ async function sso(command: string | undefined, args: string[]): Promise<void> {
       console.log(`Deleted ${positionals[0]}; its users' sessions and OAuth tokens are revoked.`);
     } else if (command === 'bind') {
       if (!values.provider || !values.subject || !values.user) throw new UsageError('sso bind needs --provider, --subject and --user');
-      await bindSsoIdentity(context, values.provider, values.subject, values.user, () => audit('sso bind', values.provider!));
+      await bindSsoIdentity(context, values.provider, values.subject, values.user, () => audit('sso bind', values.user!, { provider: values.provider!, subject: values.subject! }));
       console.log(`Bound subject ${values.subject} at ${values.provider} to user ${values.user}.`);
     } else {
       const input = ssoProviderInput.safeParse({
