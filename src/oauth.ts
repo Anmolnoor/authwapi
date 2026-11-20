@@ -2,11 +2,15 @@
 // - the issuer is BASE_URL, ID tokens have aud = client ID, access tokens requested with `resource` are JWTs with
 //   aud = that resource and live 15 minutes;
 // - clients are created only by the operator CLI (src/cli.ts), never over HTTP;
-// - sign-out revokes the session and every refresh and opaque access token the user holds.
+// - sign-out revokes the session and every refresh and opaque access token the user holds;
+// - (M3) a banned user gets no tokens, even when the ban races the issuance, and their tokens introspect inactive;
+// - (M3) org claims (org_id, roles) come with the organization scope, in access tokens and userinfo only, for the
+//   organization picked at sign-in (SELECT_ORG_PAGE), bound to the grant and re-checked whenever tokens are issued.
 import { randomUUID } from 'node:crypto';
+import { defineRequestState } from '@better-auth/core/context';
 import { getOAuthProviderApi, oauthProvider } from '@better-auth/oauth-provider';
 import { getCurrentAdapter, type AuthContext, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
-import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import { parseAccessTokenAuthorization } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { Hono } from 'hono';
@@ -17,6 +21,9 @@ import { isLoopback, type Config } from './config.ts';
 type Plugin = NonNullable<BetterAuthOptions['plugins']>[number];
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+
+/** The provider's postLogin page: the user picks the organization an app's organization scope is for. */
+export const SELECT_ORG_PAGE = '/select-org';
 
 /**
  * Better Auth's client and resource admin endpoints require a signed-in session. The CLI has none, so calls it
@@ -150,14 +157,44 @@ function rejectClaimsOutsideScope(ctx: HookContext, claims: unknown, scope: stri
   throw new APIError('BAD_REQUEST', { error: 'invalid_request', error_description: description });
 }
 
-/** Whether a token issued at `iat` (seconds) predates the user's last token revocation. */
-async function issuedBeforeRevocation(ctx: HookContext, userId: string, iat: number): Promise<boolean> {
+/** A ban (admin plugin fields) that hasn't expired. */
+export const isBanned = (user: unknown): boolean => {
+  const u = user as { banned?: unknown; banExpires?: Date | string | null } | null | undefined;
+  return Boolean(u?.banned) && !(u!.banExpires && new Date(u!.banExpires).getTime() <= Date.now());
+};
+
+/** Whether a token issued at `iat` (seconds) is revoked: its user is gone or banned, or it predates their last revocation. */
+async function tokenRevoked(ctx: HookContext, userId: string, iat: number): Promise<boolean> {
   const user = await ctx.context.adapter.findOne<{ tokensRevokedAt?: Date | null }>({ model: 'user', where: [{ field: 'id', value: userId }] });
+  if (!user || isBanned(user)) return true;
   // Known limit, kept on purpose (the safe direction): iat has 1s resolution, so a token minted within the same
   // second just after a revocation also reads revoked until the app refreshes it. ponytail: record a token id per
   // revocation if that ever bites.
   return Boolean(user?.tokensRevokedAt && iat * 1000 < new Date(user.tokensRevokedAt).getTime());
 }
+
+/** The user a token request is for (its code's or refresh token's), from the before-hook to the after-hook. */
+const tokenUser = defineRequestState<string | undefined>(() => undefined);
+
+async function tokenRequestUser(ctx: HookContext, opts: ProviderOptions): Promise<string | undefined> {
+  const { hashToken } = getOAuthProviderApi(ctx, opts);
+  const grantType = typeof ctx.body?.grant_type === 'string' ? ctx.body.grant_type.trim() : undefined;
+  if (grantType === 'authorization_code' && typeof ctx.body.code === 'string') {
+    const verification = await ctx.context.internalAdapter.findVerificationValue(await hashToken(ctx.body.code, 'authorization_code'));
+    const userId = verification ? (JSON.parse(verification.value) as { userId?: unknown }).userId : undefined;
+    return typeof userId === 'string' ? userId : undefined;
+  }
+  if (grantType === 'refresh_token' && typeof ctx.body.refresh_token === 'string') {
+    const stored = await ctx.context.adapter.findOne<{ userId: string }>({
+      model: 'oauthRefreshToken',
+      where: [{ field: 'token', value: await hashToken(ctx.body.refresh_token, 'refresh_token') }],
+    });
+    return stored?.userId;
+  }
+  return undefined;
+}
+
+const userBanned = () => new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'the user is banned' });
 
 function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlugin {
   return {
@@ -165,6 +202,8 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
     schema: {
       // When the user's tokens were last revoked: JWT access tokens issued before it introspect as inactive.
       user: { fields: { tokensRevokedAt: { type: 'date', required: false, input: false, returned: false } } },
+      // The organization picked on SELECT_ORG_PAGE for the authorization in progress (M3); see postLogin below.
+      session: { fields: { oauthOrgId: { type: 'string', required: false, input: false } } },
     },
     init: (context) => {
       authContexts.set(deps, context);
@@ -200,6 +239,16 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
           handler: createAuthMiddleware((ctx) => rejectResourceNotGranted(ctx, opts)),
         },
         {
+          // A banned user's code or refresh token gets nothing. The after-hook below checks again once tokens exist.
+          matcher: (ctx) => ctx.path === '/oauth2/token',
+          handler: createAuthMiddleware(async (ctx) => {
+            const userId = await tokenRequestUser(ctx, opts);
+            if (!userId) return;
+            await tokenUser.set(userId);
+            if (isBanned(await ctx.context.internalAdapter.findUserById(userId))) throw userBanned();
+          }),
+        },
+        {
           matcher: (ctx) => ctx.path === '/oauth2/authorize',
           handler: createAuthMiddleware(async (ctx) => {
             // Better Auth reads a POSTed authorization request from the body, otherwise from the query.
@@ -218,6 +267,19 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
       ],
       after: [
         {
+          // Issuance and ban are serialized by order: a ban writes `banned` and then revokes (src/orgs.ts banUser); this
+          // reads `banned` after the provider has written its tokens. A ban that landed after the check above is seen
+          // here, and what was just written is revoked (with everything else of the user's) before anyone sees it.
+          matcher: (ctx) => ctx.path === '/oauth2/token',
+          handler: createAuthMiddleware(async (ctx) => {
+            const userId = await tokenUser.get();
+            if (!userId || isAPIError(ctx.context.returned)) return;
+            if (!isBanned(await ctx.context.internalAdapter.findUserById(userId))) return;
+            await revokeUserTokens(ctx.context, userId);
+            throw userBanned();
+          }),
+        },
+        {
           // A JWT access token stays valid until it expires (D9), but introspection is where APIs ask for instant
           // revocation: one issued before the user's tokens were last revoked is inactive. Better Auth only cuts
           // off JWTs whose session (sid) is gone, and an offline refresh after the session ended mints JWTs with none.
@@ -225,7 +287,7 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
           handler: createAuthMiddleware(async (ctx) => {
             const result = ctx.context.returned as { active?: unknown; sub?: unknown; iat?: unknown } | undefined;
             if (result?.active !== true || typeof result.sub !== 'string' || typeof result.iat !== 'number') return;
-            if (await issuedBeforeRevocation(ctx, result.sub, result.iat)) return ctx.json({ active: false });
+            if (await tokenRevoked(ctx, result.sub, result.iat)) return ctx.json({ active: false });
           }),
         },
         {
@@ -242,12 +304,14 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
             const validate = async (t: unknown) => (typeof t === 'string' ? getOAuthProviderApi(ctx, opts).validateAccessToken(t) : undefined);
             const token = await validate(sent).catch(() => undefined);
             // Fail closed: a token we can't read back as the same active token, or one issued before a revocation.
-            if (token?.active !== true || token.sub !== result.sub || typeof token.iat !== 'number' || (await issuedBeforeRevocation(ctx, result.sub, token.iat))) {
+            if (token?.active !== true || token.sub !== result.sub || typeof token.iat !== 'number' || (await tokenRevoked(ctx, result.sub, token.iat))) {
               throw new APIError('UNAUTHORIZED', { error: 'invalid_token', error_description: 'the access token was revoked' });
             }
             const scopes = new Set(typeof token.scope === 'string' ? token.scope.split(' ') : []);
             const outside = Object.keys(result).filter((n) => CLAIM_SCOPE[n] !== undefined && !scopes.has(CLAIM_SCOPE[n]));
-            if (outside.length > 0) return ctx.json(Object.fromEntries(Object.entries(result).filter(([n]) => !outside.includes(n))));
+            // Org claims are copied from the validated token (customAccessTokenClaims made them for its grant).
+            const org = scopes.has('organization') && typeof token.org_id === 'string' ? { org_id: token.org_id, roles: token.roles } : undefined;
+            if (outside.length > 0 || org) return ctx.json({ ...Object.fromEntries(Object.entries(result).filter(([n]) => !outside.includes(n))), ...org });
           }),
         },
       ],
@@ -267,16 +331,48 @@ function jwtForOAuth(issuer: string): BetterAuthPlugin {
 
 /** Better Auth plugins for the OAuth/OIDC provider (oauthProvider + jwt). Added to authOptions().plugins. */
 export function oauthPlugins(deps: AuthDeps): Plugin[] {
-  const { config } = deps;
+  const { config, db } = deps;
+  // Prepared when used: scripts/new-migration.ts builds these options before the tables exist.
+  /** The user's roles in the organization now, or undefined if they aren't a member. */
+  const rolesIn = (userId: string, organizationId: string) => {
+    const role = db.prepare('SELECT role FROM member WHERE userId = ? AND organizationId = ?').pluck().get(userId, organizationId) as string | undefined;
+    return role === undefined ? undefined : role.split(',').map((r) => r.trim());
+  };
   const opts: ProviderOptions = {
     loginPage: '/sign-in',
     consentPage: '/consent',
-    scopes: ['openid', 'email', 'offline_access'], // M1 claims: sub, email, email_verified
+    scopes: ['openid', 'email', 'offline_access', 'organization'], // claims: sub, email, email_verified; org_id, roles (M3)
     grantTypes: ['authorization_code', 'refresh_token'],
     accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECONDS,
     // Better Auth puts scope claims only in userinfo; apps read email from the ID token at sign-in (D9).
     customIdTokenClaims: ({ user, scopes }) =>
       scopes.includes('email') ? { email: user.email, email_verified: user.emailVerified } : {},
+    // The grant's organization (its referenceId, from consentReferenceId below). Runs at every issuance, refresh too
+    // (and when an opaque token is introspected), so membership and role are current; no membership, no claims.
+    customAccessTokenClaims: ({ user, referenceId, scopes }) => {
+      const roles = user && referenceId && scopes.includes('organization') ? rolesIn(user.id, referenceId) : undefined;
+      return roles ? { org_id: referenceId, roles } : {};
+    },
+    postLogin: {
+      page: SELECT_ORG_PAGE,
+      // Every authorization with the organization scope picks its organization afresh on SELECT_ORG_PAGE, which
+      // records the pick on the session (oauthOrgId) and continues. A continuation that skipped the page has no pick.
+      shouldRedirect: ({ session, scopes, isContinuation }) => {
+        if (!scopes.includes('organization') || isContinuation) return false;
+        db.prepare('UPDATE session SET oauthOrgId = NULL WHERE id = ?').run(session.id);
+        return true;
+      },
+      // The provider's shared authorization step: /oauth2/authorize, /oauth2/consent (before it writes consent) and
+      // /oauth2/continue all call this before a consent write or an authorization code. Its value becomes the grant's
+      // referenceId (consent, code, refresh tokens); the session's active organization is never read.
+      consentReferenceId: ({ user, session, scopes }) => {
+        if (session.impersonatedBy) {
+          throw new APIError('FORBIDDEN', { error: 'access_denied', error_description: "An impersonated session can't authorize apps." });
+        }
+        const picked = session.oauthOrgId;
+        return scopes.includes('organization') && typeof picked === 'string' && rolesIn(user.id, picked) ? picked : undefined;
+      },
+    },
     allowDynamicClientRegistration: false,
     clientPrivileges: isOperator,
     resourcePrivileges: isOperator,

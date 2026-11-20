@@ -1,4 +1,5 @@
-// Hosted pages (sign-in, sign-up, reset, magic link, OAuth consent, 2FA, passkeys) and the Risk 8 fix (plan flow.md).
+// Hosted pages (sign-in, sign-up, reset, magic link, OAuth consent, 2FA, passkeys, organization pick, invitations) and
+// the Risk 8 fix (plan flow.md).
 // Server-rendered with hono/html, which escapes every interpolated value. Forms post back to these routes, which
 // call Better Auth through callAuth (client IP set from the TCP peer, so Better Auth's rate limits apply).
 import { verifyOAuthQueryParams } from '@better-auth/oauth-provider';
@@ -14,6 +15,8 @@ import type { AuthCall } from './app.ts';
 import { memoryRateLimit, SESSION_FRESH_AGE_SECONDS } from './auth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
+import { SELECT_ORG_PAGE } from './oauth.ts';
+import { ACCEPT_INVITATION_PAGE } from './orgs.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
 
 export interface PageDeps {
@@ -37,6 +40,7 @@ const layout = (title: string, body: Html, passkeyScript: boolean) => html`<!doc
 body{font:16px/1.5 system-ui,sans-serif;max-width:26rem;margin:3rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
 h1{font-size:1.5rem}label{display:block;margin-top:1rem;font-weight:600}
 input{display:block;width:100%;box-sizing:border-box;padding:.5rem;margin-top:.25rem;font:inherit;border:1px solid #767676;border-radius:4px}
+input[type=radio]{display:inline;width:auto;margin-right:.5rem}
 button{margin-top:1rem;padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;background:#1f4fd1;color:#fff;cursor:pointer}
 button.secondary{background:#e8e8e8;color:#1a1a1a}
 :focus-visible{outline:3px solid #1f4fd1;outline-offset:2px}
@@ -75,6 +79,7 @@ const SCOPE_WORDS: Record<string, string> = {
   profile: 'See your name',
   email: 'See your email address and whether it is verified',
   offline_access: "Stay signed in to the app while you're away",
+  organization: 'See which organization you sign in for and your role in it',
 };
 
 // Better Auth stores passwords as "salt:key" from scrypt with these parameters (@better-auth/utils/password.node).
@@ -128,6 +133,8 @@ const PAGE_PATHS = [
   '/two-factor/setup/confirm',
   '/passkeys',
   OAUTH_RESUME_PAGE,
+  SELECT_ORG_PAGE,
+  ACCEPT_INVITATION_PAGE,
 ];
 
 /**
@@ -219,7 +226,17 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   };
   /** Where a sign-in that can't carry the request in its body (magic link, social) lands once it has a session. */
   const resumeUrl = (query: string) => (query ? `${OAUTH_RESUME_PAGE}?${query}` : '/');
-  type SessionData = { session: { createdAt: string }; user: { email: string; twoFactorEnabled?: boolean } } | null;
+  type SessionData = {
+    session: { id: string; createdAt: string; oauthOrgId?: string | null };
+    user: { id: string; email: string; twoFactorEnabled?: boolean };
+  } | null;
+  const memberships = db.prepare(
+    `SELECT o.id AS id, o.name AS name, m.role AS role FROM member m JOIN organization o ON o.id = m.organizationId WHERE m.userId = ? ORDER BY o.name, o.id`
+  );
+  const membership = db.prepare(
+    `SELECT o.name AS name, m.role AS role FROM member m JOIN organization o ON o.id = m.organizationId WHERE m.userId = ? AND o.id = ?`
+  );
+  const setOrgPick = db.prepare('UPDATE session SET oauthOrgId = ? WHERE id = ?');
   /** The signed-in session, or null, also when the lookup fails (rate limited, say): pages then act signed out. */
   const currentSession = async (c: Context) => {
     const r = await ba(c, 'GET', '/get-session');
@@ -516,6 +533,15 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
     // checks its signature, so what's listed here is what's being allowed.
     const resources = params.getAll('resource');
+    // The organization this grant is for: the one picked on SELECT_ORG_PAGE, as the provider's consentReferenceId reads it.
+    let org = html``;
+    if (scopes.includes('organization')) {
+      const session = await currentSession(c);
+      const picked = session?.session.oauthOrgId ? (membership.get(session.user.id, session.session.oauthOrgId) as { name: string; role: string } | undefined) : undefined;
+      org = picked
+        ? html`<p>For the organization <strong>${picked.name}</strong>, where you are ${picked.role}.</p>`
+        : html`<p>No organization: the app won't see one.</p>`;
+    }
     return render(
       c,
       'Allow access?',
@@ -524,6 +550,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}
         </ul>
+        ${org}
         <form method="post" action="/consent">
           <input type="hidden" name="oauth_query" value="${query}">
           <button name="accept" value="yes">Allow</button>
@@ -537,6 +564,82 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const next = (r.data as { url?: string } | null)?.url;
     if (r.status !== 200 || !next) return render(c, 'Allow access?', alert(errorText('/oauth2/consent', r)), 400);
     return c.redirect(next, 303);
+  });
+
+  // ── Which organization an app's organization scope is for (the provider's postLogin page; src/oauth.ts) ──
+  // The pick is recorded on this session and the provider continues the request; consent shows it, and it becomes the
+  // grant's organization. The session's active organization (Better Auth's set-active) plays no part.
+  const orgPage = (c: Context, query: string, userId: string, error?: string, status: ContentfulStatusCode = 200) => {
+    const orgs = memberships.all(userId) as { id: string; name: string; role: string }[];
+    return render(
+      c,
+      'Choose an organization',
+      html`${alert(error)}<p>The app asks which organization you're signing in for. It will see that organization and your role in it.</p>
+        ${orgs.length > 0
+          ? html`<form method="post" action="${SELECT_ORG_PAGE}">
+              <input type="hidden" name="oauth_query" value="${query}">
+              ${orgs.map((o) => html`<label><input type="radio" name="org_id" value="${o.id}" required>${o.name} (${o.role})</label>`)}
+              <button>Continue</button>
+            </form>`
+          : html`<p>You aren't a member of any organization.</p>`}
+        <form method="post" action="${SELECT_ORG_PAGE}">
+          <input type="hidden" name="oauth_query" value="${query}">
+          <input type="hidden" name="org_id" value="">
+          <button class="secondary">Continue without an organization</button>
+        </form>`,
+      status
+    );
+  };
+  app.get(SELECT_ORG_PAGE, async (c) => {
+    const query = oauthQuery(c);
+    const session = await currentSession(c);
+    if (!query || !session) return render(c, 'Choose an organization', alert('This page needs a request from an app. Start again from the app.'), 400);
+    return orgPage(c, query, session.user.id);
+  });
+  app.post(SELECT_ORG_PAGE, async (c) => {
+    const f = await form(c);
+    const query = f('oauth_query');
+    const orgId = f('org_id');
+    const session = await currentSession(c);
+    if (!session) return c.redirect(`/sign-in?${query}`, 303);
+    if (orgId && !membership.get(session.user.id, orgId)) return orgPage(c, query, session.user.id, "You aren't a member of that organization.", 400);
+    setOrgPick.run(orgId || null, session.session.id);
+    const r = await ba(c, 'POST', '/oauth2/continue', { postLogin: true, oauth_query: query });
+    const next = (r.data as { url?: string } | null)?.url;
+    if (r.status !== 200 || !next) return orgPage(c, query, session.user.id, errorText('/oauth2/continue', r), 400);
+    return c.redirect(next, 303);
+  });
+
+  // ── Accepting an organization invitation (the emailed link; src/orgs.ts) ──
+  const invitationError = (c: Context, path: string, r: { status: number; data: unknown }) =>
+    render(c, 'Join an organization', alert(errorText(path, r)), r.status === 403 ? 403 : 400);
+  app.get(ACCEPT_INVITATION_PAGE, async (c) => {
+    const id = c.req.query('id') ?? '';
+    if (!(await currentSession(c))) {
+      return render(
+        c,
+        'Join an organization',
+        html`<p>Sign in with the email address the invitation was sent to, then open the link in the email again.</p>
+          <p><a href="/sign-in">Sign in</a></p>`
+      );
+    }
+    const r = await ba(c, 'GET', `/organization/get-invitation?id=${encodeURIComponent(id)}`);
+    if (r.status !== 200) return invitationError(c, '/organization/get-invitation', r);
+    const invitation = r.data as { organizationName: string; inviterEmail: string; role: string };
+    return render(
+      c,
+      'Join an organization',
+      html`<p><strong>${invitation.inviterEmail}</strong> invited you to join <strong>${invitation.organizationName}</strong> as ${invitation.role}.</p>
+        <form method="post" action="${ACCEPT_INVITATION_PAGE}">
+          <input type="hidden" name="id" value="${id}">
+          <button>Accept</button>
+        </form>`
+    );
+  });
+  app.post(ACCEPT_INVITATION_PAGE, async (c) => {
+    const r = await ba(c, 'POST', '/organization/accept-invitation', { invitationId: (await form(c))('id') });
+    if (r.status !== 200) return invitationError(c, '/organization/accept-invitation', r);
+    return render(c, 'Join an organization', html`<p class="ok" role="status">You're now a member of the organization.</p><p><a href="/">Continue</a></p>`);
   });
 
   // ── Back to the app after a sign-in that couldn't carry its request in the body (magic link) ──

@@ -421,12 +421,25 @@ test('tools/list shows each key only the tools its scope can call, with schemas 
   assert.deepEqual((await names(bootstrapKey())).map((t) => t.name), ['mint_agent_key']);
   const writeKey = await mintWriteKey();
   const write = await names(writeKey.key);
-  assert.deepEqual(write.map((t) => t.name).sort(), ['create_user', 'get_status', 'list_users', 'mint_agent_key', 'read_audit', 'revoke_agent_key']);
+  assert.deepEqual(write.map((t) => t.name).sort(), [
+    'ban_user',
+    'create_org',
+    'create_user',
+    'get_status',
+    'invite_member',
+    'list_orgs',
+    'list_users',
+    'mint_agent_key',
+    'read_audit',
+    'revoke_agent_key',
+    'set_role',
+    'unban_user',
+  ]);
   for (const t of write) assert.notEqual((t.inputSchema as { additionalProperties?: unknown }).additionalProperties, false, t.name);
   const w = await connect(writeKey.key);
   const readKey = (await call(w, 'mint_agent_key', { scope: 'read' })).data;
   await w.close();
-  assert.deepEqual((await names(readKey.key)).map((t) => t.name).sort(), ['get_status', 'list_users', 'read_audit']);
+  assert.deepEqual((await names(readKey.key)).map((t) => t.name).sort(), ['get_status', 'list_orgs', 'list_users', 'read_audit']);
 });
 
 test('a mint whose commit fails after its audit line was written is followed by a rolled_back line', async () => {

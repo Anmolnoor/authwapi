@@ -89,8 +89,9 @@ Connect an MCP client to `http://localhost:4000/mcp` (Streamable HTTP) with `Aut
    only with `mint_agent_key`, and only once.
 2. With it, call `mint_agent_key` with `{"scope": "write"}` (the bootstrap key mints only write keys). The
    result's `key` is shown only there: store it, then reconnect with it.
-3. Tools: `get_status`, `list_users`, `read_audit` (read or write key); `create_user`, `revoke_agent_key`,
-   `mint_agent_key` (write key). Every call is written to `logs/audit.jsonl` by key id. Each key may make 60
+3. Tools: `get_status`, `list_users`, `list_orgs`, `read_audit` (read or write key); `create_user`,
+   `create_org`, `invite_member`, `ban_user`, `unban_user`, `set_role`, `revoke_agent_key`, `mint_agent_key`
+   (write key). `set_role` with `{"role": "admin"}` makes the first admin. Every call is written to `logs/audit.jsonl` by key id. Each key may make 60
    calls a minute.
 4. `create_user` makes an unverified user and emails them a verification link (it asks for the password you set);
    they can sign in once verified. Passing `emailVerified: true` instead attests that the address is theirs: they

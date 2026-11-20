@@ -2,18 +2,25 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import type Database from 'better-sqlite3';
 import type { AuthContext } from 'better-auth';
 import { Hono, type Context } from 'hono';
-import { adminRoutes } from './admin.ts';
+import { adminRoutes, type OrgApi } from './admin.ts';
 import { CLIENT_IP_HEADER } from './auth.ts';
 import type { Config } from './config.ts';
 import type { DataPaths } from './data.ts';
 import type { Logger } from './log.ts';
 import { wellKnownRoutes } from './oauth.ts';
+import { asUser } from './orgs.ts';
 import { pageRoutes } from './pages.ts';
 
 interface AuthHandler {
   handler: (request: Request) => Promise<Response>;
   $context: Promise<AuthContext>;
   api: { sendVerificationEmail: (input: { body: { email: string } }) => Promise<unknown> };
+}
+
+/** The organization plugin's endpoints (authOptions() is typed as plain BetterAuthOptions, so auth.api doesn't list them). */
+interface OrgEndpoints {
+  createOrganization: (input: { body: Parameters<OrgApi['createOrganization']>[0] }) => ReturnType<OrgApi['createOrganization']>;
+  createInvitation: (input: { body: Parameters<OrgApi['inviteMember']>[1]; headers: Headers }) => ReturnType<OrgApi['inviteMember']>;
 }
 
 /**
@@ -70,7 +77,12 @@ export function createApp({ auth, config, db, log, paths, secret }: AppDeps): Ho
   app.route('/', wellKnownRoutes({ callAuth, config })); // lane A
   app.route('/', pageRoutes({ callAuth, config, db, log, secret })); // lane B; before the catch-all so it can intercept
   const sendVerificationEmail = (email: string) => auth.api.sendVerificationEmail({ body: { email } });
-  app.route('/', adminRoutes({ authContext: auth.$context, sendVerificationEmail, config, db, log, paths }));
+  const orgEndpoints = auth.api as unknown as OrgEndpoints;
+  const orgApi: OrgApi = {
+    createOrganization: (body) => orgEndpoints.createOrganization({ body }), // no session: Better Auth uses body.userId
+    inviteMember: (inviterId, body) => asUser(inviterId, () => orgEndpoints.createInvitation({ body, headers: new Headers() })),
+  };
+  app.route('/', adminRoutes({ authContext: auth.$context, orgApi, sendVerificationEmail, config, db, log, paths }));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
 
   return app;

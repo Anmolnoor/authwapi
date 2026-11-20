@@ -14,7 +14,7 @@ confidential client: run the flow on your backend, and keep the client secret, `
 | Discovery | `BASE_URL/.well-known/openid-configuration` |
 | Keys (JWKS) | `BASE_URL/api/auth/jwks` (EdDSA) |
 | Flow | Authorization code, PKCE with `S256` required |
-| Scopes | `openid`, `email`, `offline_access` |
+| Scopes | `openid`, `email`, `offline_access`, `organization` |
 | Client authentication | `client_secret_basic` (HTTP Basic) only. Discovery also lists other methods; clients made with the CLI can't use them. |
 
 ## 1. Register your app
@@ -71,6 +71,10 @@ http://127.0.0.1:3000/callback?code=8BF356YxVkm1oEn9ozUpBhugS0WjxCoZ&state=xyz&i
 Check that `state` is the one you sent and `iss` is your issuer.
 
 - Ask for `email` to get `email` and `email_verified`. Ask for `offline_access` to get a refresh token.
+- Ask for `organization` to learn which organization the user signs in for: AuthWAPI asks them to pick one of theirs
+  (or none), shows it on the consent page, and puts `org_id` and `roles` in the access token and userinfo (never the
+  ID token). The organization is fixed for the grant; each refresh re-checks that the user is still a member and
+  updates `roles`, and leaves both claims out once they aren't.
 - Pass `resource` only if your app needs an access token for that API. The client must have been registered with it.
 
 ## 3. Exchange the code
@@ -167,6 +171,10 @@ These revoke **every** refresh token the user has, for every app, `offline_acces
 - revoking sessions (`/revoke-session`, `/revoke-sessions`, `/revoke-other-sessions`)
 - changing the password with `revokeOtherSessions: true`
 - resetting the password
+- an admin banning the user, revoking their sessions, setting their password or removing them
+
+A banned user's refresh tokens and unused authorization codes are refused, and introspection and userinfo report
+their tokens inactive.
 
 **A JWT access token stays valid until it expires (at most 15 minutes), even after sign-out.** If your API needs
 revocation to take effect at once, ask the introspection endpoint instead of only checking the signature:
@@ -186,7 +194,7 @@ token's `exp`.
 All are in the discovery document and the [API reference](/api/):
 
 - `userinfo_endpoint`: `/api/auth/oauth2/userinfo`, returns `sub`, plus `email` and `email_verified` when the
-  token has the `email` scope.
+  token has the `email` scope, and `org_id` and `roles` when it has `organization` and the user is still a member.
 - `revocation_endpoint`: `/api/auth/oauth2/revoke`, revokes a refresh token or an opaque access token. A JWT
   access token can't be revoked; it expires.
 - A `claims` request may name `email` or `email_verified` only together with the `email` scope.

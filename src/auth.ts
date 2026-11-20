@@ -3,6 +3,7 @@ import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
 import { adminKeySchema } from './admin.ts';
 import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
+import { orgAdminPlugins } from './orgs.ts';
 import { linkingPolicy, signInPlugins, socialProviders } from './signin.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
@@ -152,6 +153,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
       }),
       // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
       ...signInPlugins(config),
+      ...orgAdminPlugins(deps, deliver), // M3: src/orgs.ts
       ...oauthPlugins(deps), // lane A
       adminKeySchema,
     ],

@@ -2,11 +2,12 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1 slice 4 of the [plan](.solofounder/flow.md), plus M2 sign-in methods).** Works today: hosted
-sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub sign-in, TOTP
-two-factor authentication with backup codes, passkeys, password reset, sessions, apps signing users in through
-AuthWAPI (OAuth 2.1 / OpenID Connect), the admin MCP server for AI agents, the data folder with export/import,
-migrations and Docker. **Not built yet:** the no-human agent test. Don't put real users on it yet.
+**Status: early (M1 slice 4 of the [plan](.solofounder/flow.md), plus M2 sign-in methods and M3 organizations).**
+Works today: hosted sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub
+sign-in, TOTP two-factor authentication with backup codes, passkeys, password reset, sessions, organizations with
+invitations and roles, admin ban and impersonation, apps signing users in through AuthWAPI (OAuth 2.1 / OpenID
+Connect), the admin MCP server for AI agents, the data folder with export/import, migrations and Docker.
+**Not built yet:** the no-human agent test. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -189,6 +190,27 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   new backup codes needs a code entered in the last 5 minutes (`POST /api/auth/two-factor/verify-totp` while signed
   in, or the code you signed in with). Five wrong codes in a row from a signed-in session end that session.
 
+## Organizations and admin
+
+- **Organizations** have members with the roles `owner`, `admin` and `member`
+  ([Better Auth's organization plugin](https://better-auth.com/docs/plugins/organization), under
+  `/api/auth/organization/`). An agent creates one with the `create_org` MCP tool and invites people with
+  `invite_member`; signed-in users can also use the HTTP routes. An invitation is emailed with a link to
+  `/accept-invitation`, where the invitee accepts while signed in with that address, verified.
+- **The first admin** is made with the `set_role` MCP tool (write key). Admins use
+  [Better Auth's admin routes](https://better-auth.com/docs/plugins/admin) under `/api/auth/admin/` with their
+  session.
+- **Banning** a user (`ban_user` over MCP, `/admin/ban-user` or the ban fields of `/admin/update-user`) ends their
+  sessions and revokes every refresh token they hold. They can't sign in, their refresh tokens and unused
+  authorization codes are refused, and introspection and userinfo report their tokens inactive at once. An API that
+  only checks JWT signatures (JWKS) still accepts an access token issued before the ban until it expires (at most
+  15 minutes). `/admin/revoke-user-session(s)`, `/admin/set-user-password` and `/admin/remove-user` revoke the
+  user's refresh tokens too.
+- **Impersonation** (`/admin/impersonate-user`) lasts 10 minutes and writes `impersonate_user` and
+  `stop_impersonating` lines to `logs/audit.jsonl`. It can't target an admin or an organization owner or admin. An
+  impersonated session can't change the password, email, linked accounts, 2FA or passkeys, delete the account, or
+  sign in to apps: no consent and no authorization code.
+
 ## Apps (OAuth 2.1 / OpenID Connect)
 
 AuthWAPI is the identity provider. Issuer: your `BASE_URL`. Discovery:
@@ -200,16 +222,20 @@ docker exec -u 1000 authwapi node src/cli.ts clients list
 ```
 The client secret is printed once and stored hashed. Plain `http://` redirect URIs are allowed only on loopback.
 
-- Authorization code flow with PKCE (S256, required). Scopes: `openid`, `email`, `offline_access`.
+- Authorization code flow with PKCE (S256, required). Scopes: `openid`, `email`, `offline_access`, `organization`.
 - ID token: `aud` = your client ID; `sub`, plus `email` and `email_verified` when you asked for `email`.
+- With `organization`, the user picks one of their organizations (`/select-org`) and the consent page shows it.
+  Access tokens and userinfo then carry `org_id` and `roles` (the user's roles in it); ID tokens don't. The
+  organization is fixed for that grant: switching the active organization changes nothing, and each refresh
+  re-checks membership and role (no longer a member: no `org_id` or `roles`).
 - Access tokens last 15 minutes. Pass `resource=<api>` on authorize and token to get a JWT with `aud` = that
   API (the client must be registered for it); verify signature, `iss` and `aud` against the JWKS. Refresh tokens
   rotate.
 - A JWT stays valid until it expires even after sign-out; use the introspection endpoint when revocation must be
   instant (it reports tokens issued before the revocation inactive; so does userinfo). Signing out, ending the
   session through the OIDC end-session endpoint (`id_token_hint` works for CLI clients), revoking sessions,
-  changing the password with `revokeOtherSessions`, or resetting the password revokes every refresh token the
-  user has, for every app.
+  changing the password with `revokeOtherSessions`, resetting the password, or a ban revokes every refresh token
+  the user has, for every app.
 - Send `resource` on the token request only if it was on the authorization request (`invalid_target` otherwise).
   A `claims` request may name `email`/`email_verified` only with the `email` scope.
 
@@ -236,6 +262,12 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `list_users` | `read`, `write` | `{limit?, offset?}` → users, oldest first |
 | `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery is asynchronous, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
 | `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
+| `list_orgs` | `read`, `write` | `{limit?, offset?}` → organizations with member counts, oldest first |
+| `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user becomes its owner |
+| `invite_member` | `write` | `{organizationId, email, role}` (`member` or `admin`) → an invitation, emailed from the organization's owner |
+| `ban_user` | `write` | `{userId, reason?}` → sessions end, OAuth tokens are revoked, sign-in is refused |
+| `unban_user` | `write` | `{userId}` → the user can sign in again |
+| `set_role` | `write` | `{userId, role}` (`admin` or `user`); this is how the first admin is made |
 
 Keys are stored only as hashes. Results are JSON: names and emails in them are user-supplied data, not
 instructions. `tools/list` shows only the tools your key's scope can call. Each key may make 60 tool calls a minute
@@ -256,7 +288,8 @@ rename failed), move that file to `bootstrap-admin-key`; the key in it already w
 Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`: `POST /sign-up/email`,
 `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `POST /request-password-reset`,
 `POST /reset-password`, `POST /sign-in/magic-link`, `POST /sign-in/social`, `POST /link-social`, the 2FA endpoints
-under `/two-factor/`, the passkey endpoints under `/passkey/`, and the OAuth endpoints under `/oauth2/`. The links in
+under `/two-factor/`, the passkey endpoints under `/passkey/`, the organization endpoints under `/organization/`,
+the admin endpoints under `/admin/`, and the OAuth endpoints under `/oauth2/`. The links in
 emails (`/api/auth/verify-email`, `/api/auth/magic-link/verify`) are pages: GET shows a form, POST acts.
 Browser-style requests must send an `Origin` equal to `BASE_URL`.
 

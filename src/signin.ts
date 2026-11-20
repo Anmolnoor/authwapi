@@ -57,6 +57,8 @@ export function socialProviders(social: SocialConfig): NonNullable<BetterAuthOpt
 // Responses that prove both factors themselves: a second factor, or a passkey with user verification (required below).
 const PROVES_BOTH_FACTORS = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code', '/passkey/verify-authentication']);
 const SECOND_FACTOR = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code']);
+// Not sign-ins (M3): an admin's session becomes an impersonation and back (src/orgs.ts); neither is a first factor.
+const IMPERSONATION = new Set(['/admin/impersonate-user', '/admin/stop-impersonating']);
 // Changes that weaken or bypass 2FA (or read its secret) need a code entered in the last few minutes on a 2FA account.
 const NEEDS_FRESH_CHECK = new Set([
   '/passkey/generate-register-options',
@@ -299,7 +301,7 @@ function mfaGlue(): BetterAuthPlugin {
           // whatever else creates one) is not enough for a 2FA user, even one already signed in. Only a renewal of
           // the session the request arrived with, or the password change that replaces a session already past 2FA
           // (not one that 2FA was turned on for meanwhile), is not a sign-in.
-          matcher: (ctx) => newSessionToken(ctx) !== undefined && !PROVES_BOTH_FACTORS.has(ctx.path ?? ''),
+          matcher: (ctx) => newSessionToken(ctx) !== undefined && !PROVES_BOTH_FACTORS.has(ctx.path ?? '') && !IMPERSONATION.has(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {
             const token = ctx.context.newSession?.session.token;
             const found = token ? await ctx.context.internalAdapter.findSession(token) : null;

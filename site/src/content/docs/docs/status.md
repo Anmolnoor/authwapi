@@ -1,6 +1,6 @@
 ---
 title: Status and roadmap
-description: What AuthWAPI does today (M1 and M2 sign-in methods), what is still being built, and where the earlier version went.
+description: What AuthWAPI does today (M1, M2 sign-in methods and M3 organizations), what is still being built, and where the earlier version went.
 ---
 
 AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted auth server built on
@@ -16,13 +16,17 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - TOTP two-factor authentication with backup codes, enforced on the server after every first step (password, magic
   link, Google, GitHub); no trusted devices
 - Passkeys with user verification required; a passkey sign-in counts as both factors
-- Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys. Every
+- Organizations with `owner`, `admin` and `member` roles, emailed invitations, and `org_id`/`roles` claims for apps
+  that ask for the `organization` scope
+- Admin ban (ends sessions and revokes OAuth tokens) and short, audited impersonation
+- Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys,
+  organization pick, invitations. Every
   sign-in method works during an app's sign-in
 - OAuth 2.1 / OpenID Connect provider: authorization code + PKCE, ID tokens, JWT access tokens per API, JWKS,
   introspection, userinfo, refresh-token rotation, RP-initiated logout; sign-out revokes refresh tokens for every app
 - Operator CLI for OAuth clients
 - **Admin MCP server** at `/mcp`: an agent bootstraps it with a one-time key, mints scoped, revocable keys, lists
-  and creates users and reads an audit log
+  and creates users, manages organizations, bans users, sets the first admin, and reads an audit log
 - Email through Resend, or an outbox folder on localhost
 - One data folder: SQLite, migrations with a backup before each upgrade, JSON logs with no tokens or links
 - `export` / `import` of the data folder, safe while the server runs (SQLite's online backup API)
@@ -34,7 +38,7 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 
 ## After M1
 
-M2 (Google and GitHub sign-in, TOTP and passkeys) is built. Next: organizations and roles; SSO (OIDC, then SAML);
+M2 (Google and GitHub sign-in, TOTP and passkeys) and M3 (organizations and admin) are built. Next: SSO (OIDC, then SAML);
 OAuth for your own MCP servers; a multi-arch image on GHCR.
 
 ## The earlier version
