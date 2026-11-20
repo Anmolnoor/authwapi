@@ -113,9 +113,11 @@ every 5 minutes. It answers an HTML page with status 429 and no `X-Retry-After`.
 - **SELinux (Fedora, RHEL):** add `:Z` to the volume. Without it the server stops with a "not writable" error.
 - **An agent or app in another container:** on Docker Desktop, reach the server at `host.docker.internal:4000`
   and start it with `-e ALLOWED_HOSTS=host.docker.internal`. On Linux, a port published on 127.0.0.1 can't be
-  reached from a container, so put both containers on one network
-  (`docker network create authwapi-net`, then `--network authwapi-net` on both) and use `http://authwapi:4000`
-  with `-e ALLOWED_HOSTS=authwapi`.
+  reached from a container, so put both containers on one network, give the server
+  `--network-alias authwapi` and `-e ALLOWED_HOSTS=authwapi`, and use `http://authwapi:4000`. Without Resend, keep
+  `BASE_URL` on a loopback name. On a shared machine, give the containers and network unique names; the
+  alias keeps the address the same. Full steps, including the bootstrap key:
+  [Agent in another container](/docs/for-ai-agents/#agent-in-another-container).
 - **Docker Desktop:** the host folder must be one Docker Desktop shares (Settings → Resources → File sharing).
   Docker may refuse a path it doesn't share (`mounts denied`); in our test on macOS, a temp folder from
   `mktemp -d` (`/var/folders/…`) instead silently became an empty folder inside Docker's VM, so nothing appeared
