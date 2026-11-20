@@ -7,7 +7,7 @@ Works today: hosted sign-in and sign-up pages, email + password with verificatio
 sign-in, TOTP two-factor authentication with backup codes, passkeys, password reset, sessions, organizations with
 invitations and roles, admin ban and impersonation, apps signing users in through AuthWAPI (OAuth 2.1 / OpenID
 Connect), the admin MCP server for AI agents, the data folder with export/import, migrations and Docker.
-**No-human agent test:** host run passed; container run pending. Don't put real users on it yet.
+**No-human agent test:** host run passed; container run passed (with the doc fixes in this PR). Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -290,6 +290,8 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
    Mint `read` keys with the write key.
 3. **Reconnect with the agent key** and administer. For example, in Claude Code:
    `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $KEY"`.
+   From an agent in another container, use `http://authwapi:4000/mcp`
+   ([Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container)).
 
 | Tool | Scope | What |
 | --- | --- | --- |

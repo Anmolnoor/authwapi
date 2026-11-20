@@ -20,17 +20,46 @@ BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)
 ```
 
 `-u 1000` is the server's user, the default `PUID`: use yours if you set one. With rootless podman and
-`--userns=keep-id`, use `podman exec -u "$(id -u)"`. On another port, set `BASE_URL` to match
-(`-p 127.0.0.1:8080:4000 -e BASE_URL=http://localhost:8080`): `/health` answers on any Host, but every other route
-refuses a Host that isn't `BASE_URL`'s (or listed in `ALLOWED_HOSTS`) with `421 unknown_host`. Podman, SELinux, other user IDs and Docker Desktop file sharing:
+`--userns=keep-id`, use `podman exec -u "$(id -u)"`. `/health` answers on any Host, but every other route
+refuses a Host that isn't `BASE_URL`'s (or listed in `ALLOWED_HOSTS`) with `421 unknown_host`. On another port of
+the host, set `BASE_URL` to match (`-p 127.0.0.1:8080:4000 -e BASE_URL=http://localhost:8080`). From another
+container, only `ALLOWED_HOSTS` works (below): a `BASE_URL` that isn't localhost refuses to start without Resend. Podman, SELinux, other user IDs and Docker Desktop file sharing:
 [Configuration](site/src/content/docs/docs/configuration.md#running-on-other-setups).
+
+## Agent in another container
+
+If your shell runs in its own container, `localhost` is that container and you have no `docker`. The host puts the
+server and your container on one user-defined network, with unique container names (others may share the machine)
+and a network alias so the server's name stays `authwapi`:
+
+```bash
+ID=$(openssl rand -hex 3)
+docker network create "authwapi-net-$ID"
+docker run -d --name "authwapi-$ID" --network "authwapi-net-$ID" --network-alias authwapi \
+  -e ALLOWED_HOSTS=authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
+docker run -d --name "agent-$ID" --network "authwapi-net-$ID" node:26-slim sleep infinity   # your agent's container
+until docker exec "authwapi-$ID" test -s /data/bootstrap-admin-key; do sleep 1; done   # written on first boot
+docker exec -u 1000 "authwapi-$ID" cat /data/bootstrap-admin-key \
+  | docker exec -i "agent-$ID" sh -c 'umask 077; set -C; cat > "$HOME/boot.key"'
+```
+
+- Keep `BASE_URL=http://localhost:4000` (the default); `ALLOWED_HOSTS=authwapi` lets the server answer
+  `http://authwapi:4000`. The `-p` is only for people on the host.
+- In your container: `BASE_URL=http://authwapi:4000`, MCP at `http://authwapi:4000/mcp`, `BOOT=$(cat ~/boot.key)`.
+  `node:*-slim` has no `curl`: install it or use Node's `fetch`.
+- Never pass a key with `-e KEY=…`: `docker inspect` shows it. Pipe a reissued key the same way (delete the spent
+  `boot.key` first).
+- You can't read the outbox, and its links start with `http://localhost:4000`, so create test users with
+  `"emailVerified": true`. A person on the server's host can read a link from the outbox and open it there.
+
+Details: [Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container).
 
 ## The bootstrap key
 
 On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder (`/data` in the container), mode 0600,
 ending with a newline: trim it. It works for 24 hours, only with `mint_agent_key`, and only once. Use it to mint
 a write key, then work with that. If it's lost or spent and no write key is left, the operator runs
-`docker exec -u 1000 authwapi node src/cli.ts bootstrap-key`.
+`docker exec -u 1000 authwapi node src/cli.ts bootstrap-key`; for an agent in a container, pipe it in as above.
 
 ## Runbooks
 
