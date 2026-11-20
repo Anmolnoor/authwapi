@@ -1,24 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { afterEach, test } from 'node:test';
-import { oauthProvider } from '@better-auth/oauth-provider';
-import { serve } from '@hono/node-server';
+import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
-import { betterAuth } from 'better-auth';
-import { getMigrations } from 'better-auth/db/migration';
-import { jwt } from 'better-auth/plugins';
-import { createApp } from '../src/app.ts';
-import { authOptions } from '../src/auth.ts';
-import { loadConfig } from '../src/config.ts';
-import { prepareDataDir } from '../src/data.ts';
-import { openDb } from '../src/db.ts';
-import { createLogger } from '../src/log.ts';
-import { migrate, MIGRATIONS_DIR } from '../src/migrate.ts';
-import { freePort, linkIn, startTestServer, type TestServer } from './helpers.ts';
+import { linkIn, startTestServer, type TestServer } from './helpers.ts';
 
 let s: TestServer;
 const up = async () => (s = await startTestServer());
@@ -305,52 +292,33 @@ test('forms refuse a cross-site POST before anything happens', async () => {
   d.close();
 });
 
-// ── OAuth pages. Lane A owns the provider config; this test enables a minimal one on its own server. ──
+// ── OAuth pages, against the real provider config (src/oauth.ts) and a client registered with the CLI. ──
 
 interface OAuthServer {
   base: string;
-  /** Registers a client as the signed-in user behind `cookie` (lane A's CLI does this in the real server). */
+  /** Registers a client with `node src/cli.ts clients create`, as an operator would. */
   createClient: (cookie: string) => Promise<string>;
   db: Database.Database;
   stop: () => Promise<void>;
 }
 async function startOAuthServer(): Promise<OAuthServer> {
-  const dir = mkdtempSync(path.join(tmpdir(), 'authwapi-pages-oauth-'));
-  const port = await freePort();
-  const base = `http://127.0.0.1:${port}`;
-  const config = loadConfig({ BASE_URL: base, HOST: '127.0.0.1', PORT: String(port), DATA_DIR: dir });
-  const paths = prepareDataDir(dir);
-  const log = createLogger(paths.logs);
-  const db = openDb(paths.db);
-  await migrate(db, MIGRATIONS_DIR, paths, log);
-  const opts = authOptions({ config, db, secret: randomBytes(32).toString('hex'), sendMail: async () => {}, log });
-  const options = {
-    ...opts,
-    disabledPaths: ['/token'], // the jwt plugin's session-JWT route, off in OAuth-provider mode
-    plugins: [...opts.plugins!, jwt(), oauthProvider({ loginPage: '/sign-in', consentPage: '/consent' })],
-  };
-  await (await getMigrations(options)).runMigrations();
-  const auth = betterAuth(options);
-  const server = serve({ fetch: createApp({ auth, config, db, log }).fetch, hostname: '127.0.0.1', port });
-  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const t = await startTestServer();
+  const db = new Database(t.paths.db);
   return {
-    base,
-    createClient: async (cookie) =>
-      (
-        await auth.api.adminCreateOAuthClient({
-          headers: new Headers({ cookie }),
-          body: { client_name: 'Notes <App>', redirect_uris: ['http://127.0.0.1:9/callback'], token_endpoint_auth_method: 'none', application_type: 'native' },
-        })
-      ).client_id,
+    base: t.base,
+    createClient: async () => {
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        ['src/cli.ts', 'clients', 'create', '--name', 'Notes <App>', '--redirect-uri', 'http://127.0.0.1:9/callback'],
+        { env: { PATH: process.env.PATH, DATA_DIR: t.paths.root, BASE_URL: t.base } }
+      );
+      return /client_id:\s+(\S+)/.exec(stdout)![1];
+    },
     db,
-    stop: () =>
-      new Promise((resolve) =>
-        server.close(() => {
-          db.close();
-          rmSync(dir, { recursive: true, force: true });
-          resolve();
-        })
-      ),
+    stop: async () => {
+      db.close();
+      await t.stop();
+    },
   };
 }
 

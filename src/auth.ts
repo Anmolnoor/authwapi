@@ -10,6 +10,12 @@ type RateLimitStorage = NonNullable<NonNullable<BetterAuthOptions['rateLimit']>[
 
 export const CLIENT_IP_HEADER = 'x-authwapi-client-ip';
 
+/**
+ * For anything Better Auth puts in our log: a refused value ("Invalid callbackURL: <value>") is blanked whatever
+ * its shape, and any other URL is cut to its origin (paths and queries can carry tokens or attacker text).
+ */
+export const scrub = (text: string): string => redactUrls(text.replace(/(URL:\s*)\S+/gi, '$1[redacted]'));
+
 /** Logs keep only a URL's origin: paths and query strings can carry tokens or attacker-chosen text. */
 export const redactUrls = (text: string): string =>
   text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (u) => (URL.canParse(u) ? `${new URL(u).origin}/[redacted]` : '[url]'));
@@ -79,10 +85,8 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     logger: {
       level: 'warn',
       log: (level, message, ...args) =>
-        // Better Auth logs a refused value as "Invalid callbackURL: <value>"; blank the whole value, whatever
-        // shape it has (//host, javascript:, uppercase schemes), then cut any remaining URL to its origin.
-        log(level === 'error' ? 'error' : 'warn', `better-auth: ${redactUrls(message.replace(/(URL:\s*)\S+/gi, '$1[redacted]'))}`, {
-          detail: redactUrls(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' ')),
+        log(level === 'error' ? 'error' : 'warn', `better-auth: ${scrub(message)}`, {
+          detail: scrub(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' ')),
         }),
     },
     // Rate limits apply everywhere (Better Auth's default is production only), keyed on the client IP

@@ -2,10 +2,10 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 2 of the [plan](.solofounder/flow.md)).** Works today: email + password
-sign-up with email verification, sign-in, sign-out, password reset, magic links, sessions, the data folder,
-migrations and Docker. **Not built yet:** hosted login pages, the OAuth/OIDC provider for apps, the admin MCP
-server, export/import. Don't put real users on it yet.
+**Status: early (M1, slice 3 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
+pages, email + password with verification, magic links, password reset, sessions, apps signing users in through
+AuthWAPI (OAuth 2.1 / OpenID Connect), the data folder, migrations and Docker. **Not built yet:** the admin MCP
+server, export/import, the no-human agent test. Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -15,6 +15,7 @@ The earlier Express + MongoDB learning version is preserved at the `v0.1-learnin
 docker build -t authwapi .
 docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi
 curl http://localhost:4000/health        # {"status":"ok"}
+open http://localhost:4000               # sign-up / sign-in pages
 ```
 
 - **Rootless podman** (podman refuses a missing folder; `keep-id` makes the container user you; `:Z` is for SELinux):
@@ -22,6 +23,9 @@ curl http://localhost:4000/health        # {"status":"ok"}
 - **Linux with a different user ID than 1000:** add `-e PUID=$(id -u) -e PGID=$(id -g)`.
 - **A different port:** set `BASE_URL` to match, e.g. `-p 127.0.0.1:8080:4000 -e BASE_URL=http://localhost:8080`.
   A request for a host that isn't `BASE_URL` (or `ALLOWED_HOSTS`) gets `421 unknown_host`.
+- **SELinux (Fedora, RHEL):** add `:Z` to the volume. Without it the server stops with a "not writable" error.
+- Docker and podman follow a symlink you pass as the host folder (`-v link:/data`); AuthWAPI can only refuse
+  symlinks inside the folder it sees.
 
 The port is published on `127.0.0.1` only. Exposing AuthWAPI beyond your machine needs HTTPS and Resend; that
 setup isn't documented yet.
@@ -62,11 +66,43 @@ database while the server runs.
 | `PORT` | `4000` | Port inside the container |
 | `DATA_DIR` | `/data` | Data folder inside the container |
 
+## Pages
+
+Server-rendered, no JavaScript: `/` · `/sign-in` (password or "email me a link") · `/sign-up` · `/forgot-password`
+· `/reset-password` · `/consent` (an app asking for access) · `/signed-out`.
+
+- **Verifying an email asks for the password you chose at sign-up.** Opening the link only shows that form, so
+  someone who signed up with *your* address can't get in when you click it: you won't know their password, and
+  "Forgot password?" replaces it and ends every session.
+- **A magic link asks "Sign in as you@example.com?"** before it signs you in, so an email scanner that opens
+  links can't use it up, and a link someone else sent you can't sign you in without you seeing whose it is.
+
+## Apps (OAuth 2.1 / OpenID Connect)
+
+AuthWAPI is the identity provider. Issuer: your `BASE_URL`. Discovery:
+`BASE_URL/.well-known/openid-configuration` (keys at `/api/auth/jwks`).
+
+```bash
+docker exec authwapi node src/cli.ts clients create --name "My app" --redirect-uri https://myapp.example/callback [--resource https://api.myapp.example]
+docker exec authwapi node src/cli.ts clients list
+```
+The client secret is printed once and stored hashed. Plain `http://` redirect URIs are allowed only on loopback.
+
+- Authorization code flow with PKCE (S256, required). Scopes: `openid`, `email`, `offline_access`.
+- ID token: `aud` = your client ID; `sub`, plus `email` and `email_verified` when you asked for `email`.
+- Access tokens last 15 minutes. Pass `resource=<api>` on authorize and token to get a JWT with `aud` = that
+  API (the client must be registered for it); verify signature, `iss` and `aud` against the JWKS. Refresh tokens
+  rotate.
+- A JWT stays valid until it expires even after sign-out; use the introspection endpoint when revocation must be
+  instant. Signing out, ending the session through the OIDC end-session endpoint, revoking sessions or resetting
+  the password revokes every refresh token the user has, for every app.
+
 ## API
 
-Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`:
-`POST /sign-up/email`, `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `GET /verify-email`,
-`POST /request-password-reset`, `POST /reset-password`, `POST /sign-in/magic-link`, `GET /magic-link/verify`.
+Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`: `POST /sign-up/email`,
+`POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `POST /request-password-reset`,
+`POST /reset-password`, `POST /sign-in/magic-link`, and the OAuth endpoints under `/oauth2/`. The links in
+emails (`/api/auth/verify-email`, `/api/auth/magic-link/verify`) are pages: GET shows a form, POST acts.
 Browser-style requests must send an `Origin` equal to `BASE_URL`.
 
 **Magic links** (`POST /api/auth/sign-in/magic-link` with `{"email", "callbackURL"}`): sign in an existing
@@ -78,8 +114,6 @@ also verifies the email; any password set before it was verified is removed (use
 **Email delivery** runs in the background, so a request never waits on the mail provider, and the answer is the
 same whether or not the account exists. A failed send is written to `logs/app.jsonl`.
 
-**Known gap (fixed in the next slice):** if someone signs up with your email and you open the verification
-email, their password works. The verification email warns about this; don't open one you didn't ask for.
 
 ## Development
 
@@ -87,7 +121,8 @@ Node 22.18+ runs the TypeScript directly; there's no build step.
 
 ```bash
 npm install
-npm test            # node --test: config, migrations, and the full email flow against a real server
+npm test            # node --test: everything, against real servers on temp folders
+scripts/container-check.sh   # Linux: builds the image, checks rootful/rootless, SELinux, refusals, 50 kill cycles
 npm run typecheck   # tsc, type check only
 DATA_DIR=./.data BASE_URL=http://localhost:4000 HOST=127.0.0.1 npm start
 ```
