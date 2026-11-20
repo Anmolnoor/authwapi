@@ -9,7 +9,8 @@ Google Workspace, Keycloak, or another AuthWAPI. AuthWAPI uses
 
 ## Set it up (agent or operator)
 
-You need an organization (`create_org`) and, from the identity provider, an app for AuthWAPI.
+You need an organization (`create_org`; its owner's email must be verified) and, from the identity provider, an app
+for AuthWAPI.
 
 1. **Pick a slug** for the provider, such as `acme`. Its ID is `sso-acme`.
 2. **At the identity provider**, create a web app (authorization code flow) with:
@@ -49,7 +50,7 @@ You need an organization (`create_org`) and, from the identity provider, an app 
 
 Both run as the organization's owner and write an audit line in the same transaction. Refusals: `domain_taken`
 (another provider has the domain), `insecure_endpoint` (the issuer or an endpoint isn't `https://`),
-`organization_not_found`, and Better Auth's own (the ID is taken; an endpoint isn't publicly routable).
+`organization_not_found`, `owner_email_not_verified`, and Better Auth's own (the ID is taken; an endpoint isn't publicly routable).
 
 | MCP tool | CLI | What |
 | --- | --- | --- |
@@ -96,10 +97,12 @@ deleting and domain-verifying providers are turned off (404).
 An organization could register `gmail.com`, or have its identity provider assert any email. It still gets nobody
 else's account: existing accounts aren't joined by email, and an account it creates stays unverified. The real
 owner of the address takes it back with "Email me a link" on `/sign-in` (which also verifies the email), or with
-"Forgot password?" and then the verification link with the new password. Either one first removes, in one step,
-everything set up before: SSO bindings, any password, Google/GitHub
-links, sessions, 2FA, passkeys, OAuth tokens, consents, unused authorization codes and organization memberships. The organization's provider can't sign in to it afterwards. (The verification
-email that AuthWAPI sends a new SSO user can't verify the account: it has no password.)
+"Forgot password?" and then the verification link with the new password. The first proof that someone holds the
+mailbox (a magic link, a reset, the verification link) removes, in the same transaction, everything set up before:
+SSO bindings, Google/GitHub links, any password but the one just checked, sessions, 2FA, passkeys, OAuth tokens,
+consents, unused authorization codes and organization memberships. An admin marking the email verified
+(`/admin/update-user`) does the same. The organization's provider can't sign in to it afterwards. (The verification
+email that AuthWAPI sends a new SSO user can't verify the account on its own: it has no password.)
 
 This is also what happens if an SSO user signs in by magic link or resets their password themselves: their address
 becomes verified and their SSO binding and membership go. The operator can bind it again with `sso bind`.
@@ -108,7 +111,8 @@ becomes verified and their SSO binding and membership go. The operator can bind 
 
 - **2FA still applies.** A user who turned on TOTP is asked for a code after the SSO sign-in, before any session.
 - **Deleting a provider** ends its users' sessions and revokes their OAuth tokens, in the same transaction. An
-  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are.
+  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
+  database enforces it too).
 - **Client secrets** are stored unencrypted in SQLite, like everything else in the data folder: keep it private.
 - **Endpoints must be `https://` and publicly routable** (no `localhost`, private or link-local addresses), and they
   are given explicitly: AuthWAPI doesn't fetch the discovery document.

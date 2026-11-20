@@ -18,6 +18,7 @@ import type { Logger } from './log.ts';
 import { SELECT_ORG_PAGE, withConsentOrg } from './oauth.ts';
 import { ACCEPT_INVITATION_PAGE } from './orgs.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
+import { purgeUnproven } from './sso.ts';
 
 export interface PageDeps {
   callAuth: AuthCall;
@@ -100,17 +101,29 @@ async function passwordMatches(stored: string, password: string): Promise<boolea
 
 /**
  * Marks the email verified only if, at that moment, the user still has this address and exactly the password hash
- * that was just checked. One UPDATE, which SQLite runs atomically, so a password reset that lands between the check
- * and here makes it change nothing. Returns whether it changed the row. This replaces Better Auth's verify-email,
- * which here sets only emailVerified and updatedAt (no verification hooks are configured, autoSignIn is off).
+ * that was just checked, so a password reset that lands between the check and here makes it change nothing. It is the
+ * mailbox owner's first proof, so in the same transaction everything set up before it goes (purgeUnproven, keeping the
+ * password just checked). Returns whether it changed the row. This replaces Better Auth's verify-email, which here
+ * sets only emailVerified and updatedAt (no verification hooks are configured, autoSignIn is off).
+ * Throws TransactionBusy while another request's Better Auth transaction holds the connection: a transaction begun
+ * now would nest inside it and be undone by its rollback.
  */
+export class TransactionBusy extends Error {}
 export function markEmailVerified(db: Database.Database) {
   const update = db.prepare(
     `UPDATE user SET emailVerified = 1, updatedAt = ? WHERE id = ? AND email = ?
      AND EXISTS (SELECT 1 FROM account WHERE userId = user.id AND providerId = 'credential' AND password = ?)`
   );
-  return (userId: string, email: string, hash: string): boolean =>
-    update.run(new Date().toISOString(), userId, email, hash).changes === 1;
+  const verified = db.prepare('SELECT emailVerified FROM user WHERE id = ?').pluck();
+  return (userId: string, email: string, hash: string): boolean => {
+    if (db.inTransaction) throw new TransactionBusy();
+    return db.transaction(() => {
+      const already = verified.get(userId) === 1; // clicking the link again purges nothing
+      if (update.run(new Date().toISOString(), userId, email, hash).changes !== 1) return false;
+      if (!already) purgeUnproven(db, userId, { keepCredential: true, verify: false });
+      return true;
+    })();
+  };
 }
 
 // Better Auth stores a magic link as sha256(token) under "magic-link:", and with verification.storeIdentifier
@@ -506,7 +519,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       return render(c, 'Verify your email', alert("We couldn't check your password, so nothing was changed. Tell whoever runs this sign-in service."), 500);
     }
     if (!matches) return verifyPage(c, "That isn't the password this account was created with.", 401, true);
-    if (!markVerified(user.userId, user.email, stored)) {
+    let changed: boolean;
+    try {
+      changed = markVerified(user.userId, user.email, stored);
+    } catch (err) {
+      if (!(err instanceof TransactionBusy)) throw err;
+      return verifyPage(c, 'The server was busy and changed nothing. Enter your password again.', 503, true);
+    }
+    if (!changed) {
       return verifyPage(c, 'The password for this account changed while you were verifying. Enter the current password.', 409, true);
     }
     return render(c, 'Email verified', html`<p class="ok" role="status">Your email is verified.</p><p><a href="/sign-in">Sign in</a></p>`);

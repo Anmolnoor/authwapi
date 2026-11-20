@@ -160,7 +160,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
       // 2FA and its enforcement must come before the OAuth provider: see signInPlugins.
       ...signInPlugins(config),
       ...orgAdminPlugins(deps, deliver), // M3: src/orgs.ts
-      ...ssoPlugins(), // M4a: src/sso.ts
+      ...ssoPlugins(db), // M4a: src/sso.ts
       ...oauthPlugins(deps), // lane A
       adminKeySchema,
     ],

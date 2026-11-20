@@ -366,6 +366,9 @@ export function adminRoutes({ authContext, orgApi, authApi, sendVerificationEmai
       }),
       run: async ({ name, slug, ownerUserId }, ok) => {
         const ctx = await authContext;
+        // An unverified owner's first mailbox proof purges their memberships (src/sso.ts), which would leave the org ownerless.
+        const owner = await ctx.internalAdapter.findUserById(ownerUserId);
+        if (owner && !owner.emailVerified) throw new ToolError('owner_email_not_verified');
         const org = await runWithTransaction(ctx.adapter, async () => {
           const created = await refusal(() => orgApi.createOrganization({ name, slug, userId: ownerUserId }));
           ok({ target: created.id });

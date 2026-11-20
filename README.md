@@ -252,13 +252,15 @@ How it's kept safe:
 - **A new SSO user's email stays unverified**: the organization vouches for it, not the mailbox. Its verification
   link can't verify it (the account has no password). If the address is someone else's (an organization claiming
   `gmail.com`, say), its owner signs in with "Email me a link" (or resets the password, then verifies with the new
-  one). Either first removes, in one step, every linked sign-in (SSO, password, Google/GitHub), session, 2FA,
-  passkey, OAuth token, consent, unused authorization code and organization membership set up before. The
-  organization's provider can't sign in to it afterwards.
+  one). The first proof that someone holds the mailbox (a magic link, a reset, the verify page) removes, in the same
+  transaction, every linked sign-in (SSO, Google/GitHub, and any password but the one just checked), session, 2FA,
+  passkey, OAuth token, consent, unused authorization code and organization membership set up before; so does an
+  admin marking the email verified. The organization's provider can't sign in to it afterwards.
 - **2FA still applies** after an SSO sign-in, for users who turned it on.
 - **Deleting a provider** (`delete_sso_provider` or `sso delete <providerId>`) removes its bindings and ends its
   users' sessions and OAuth tokens. `list_sso_providers` and `sso list` show providers without their secrets. An
-  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are.
+  organization with SSO providers can't be deleted, nor the user who registered them, until the providers are (the
+  database enforces it too). An organization's owner needs a verified email to register a provider.
 - Client secrets are stored unencrypted in the SQLite database, like everything in the data folder: keep it private.
 
 ## Apps (OAuth 2.1 / OpenID Connect)
@@ -345,7 +347,7 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `create_user` | `write` | `{email, name, password, emailVerified?}` → a new user. By default the email is unverified and AuthWAPI queues a verification email to the user (`verificationEmail: "queued"`; the link asks for this password); they can sign in once verified. Delivery is asynchronous, and delivery failures are logged in `logs/app.jsonl`. `emailVerified: true` is your attestation that the address is theirs: they can sign in at once, and no email is sent (`"not needed"`). |
 | `read_audit` | `read`, `write` | `{limit?}` → the latest `logs/audit.jsonl` entries |
 | `list_orgs` | `read`, `write` | `{limit?, offset?}` → organizations with member counts, oldest first |
-| `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user becomes its owner |
+| `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user, whose email must be verified (`owner_email_not_verified`), becomes its owner |
 | `invite_member` | `write` | `{organizationId, email, role}` (`member` or `admin`) → an invitation, emailed from the organization's owner |
 | `ban_user` | `write` | `{userId, reason?}` → an indefinite ban (it replaces a timed one): sessions end, OAuth tokens are revoked, sign-in is refused |
 | `unban_user` | `write` | `{userId}` → the user can sign in again |

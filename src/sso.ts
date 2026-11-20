@@ -5,14 +5,17 @@
 //   organization and has one issuer, so that row is the (org, issuer, subject) binding. resolveUser signs in through
 //   a binding or creates a new user; an email or domain never picks an existing account.
 // - SSO-created users keep an unverified email (trustEmailVerified stays off) and become members of the provider's
-//   organization (only then: provisionUser). Their mailbox owner takes the address over by magic link or password
-//   reset, which first clears everything set up before that proof (purgeUnproven).
+//   organization (only then, in the sign-in transaction: account.create hook). Their mailbox owner takes the address
+//   over by magic link, password reset or the verify page; each first mailbox proof clears everything set up before it
+//   (purgeUnproven), and so does an admin marking the email verified.
 // - Deleting a provider ends its users' sessions and OAuth tokens (guardProviderMutation, inside Better Auth's delete).
-//   The owner who registered a provider can't be removed while it exists (its row would cascade without that).
+//   The owner who registered a provider, and its organization, can't be deleted while it exists (ON DELETE RESTRICT,
+//   with friendlier checks in front).
 import { createHash } from 'node:crypto';
 import { sso, type SSOOptions } from '@better-auth/sso';
 import { defineRequestState, getCurrentAdapter, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
+import type Database from 'better-sqlite3';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import * as z from 'zod';
 import { isLoopback } from './config.ts';
@@ -72,22 +75,24 @@ const guardProviderMutation: NonNullable<SSOOptions['guardProviderMutation']> = 
 const b64sha256 = (s: string) => createHash('sha256').update(s).digest('base64url');
 
 /**
- * The first proof that someone controls the account's mailbox (a magic link or a password reset to an account whose
- * email isn't verified yet) removes, in one transaction, everything whoever set the account up could still use:
- * every linked account (password, SSO bindings, Google/GitHub), sessions, 2FA, passkeys, OAuth tokens, consents and
- * unused authorization codes, and organization memberships. A magic link then counts as verifying the email; after a
- * reset the owner verifies with the new password (M1's verify page, Risk 8). (Better Auth alone removes only accounts
- * and sessions, one by one, and only on a magic link.)
+ * The first proof that someone controls the account's mailbox, on an account whose email isn't verified yet (a magic
+ * link, a password reset, the verify page; or an admin marking it verified) removes everything whoever set the account
+ * up could still use: every linked account (SSO bindings, Google/GitHub, and the password unless `keepCredential`:
+ * the one just checked), sessions, 2FA, passkeys, OAuth tokens, consents and unused authorization codes, and
+ * organization memberships. `verify` also marks the email verified. (Better Auth alone removes only accounts and
+ * sessions, one by one, and only on a magic link.)
+ * Plain SQL, synchronous, and no transaction of its own: callers run it inside theirs (a Kysely transaction on this
+ * same connection includes it), so it commits or rolls back with the proof.
  */
-async function purgeUnproven(context: AuthContext, userId: string, verify: boolean): Promise<void> {
-  await runWithTransaction(context.adapter, async () => {
-    const db = await getCurrentAdapter(context.adapter);
-    const where = [{ field: 'userId', value: userId }];
-    for (const model of ['account', 'session', 'twoFactor', 'passkey', 'oauthConsent', 'member']) await db.deleteMany({ model, where });
-    await revokeUserTokens(context, userId);
-    deletePendingCodes(context, userId);
-    await db.update({ model: 'user', where: [{ field: 'id', value: userId }], update: { twoFactorEnabled: false, ...(verify ? { emailVerified: true } : {}) } });
-  });
+export function purgeUnproven(db: Database.Database, userId: string, { keepCredential, verify }: { keepCredential: boolean; verify: boolean }): void {
+  const now = new Date().toISOString();
+  db.prepare(`DELETE FROM account WHERE userId = ?${keepCredential ? " AND providerId != 'credential'" : ''}`).run(userId);
+  for (const table of ['session', 'twoFactor', 'passkey', 'oauthConsent', 'member']) db.prepare(`DELETE FROM "${table}" WHERE userId = ?`).run(userId);
+  // What revokeUserTokens (src/oauth.ts) does, in SQL.
+  db.prepare('UPDATE oauthRefreshToken SET revoked = ? WHERE userId = ?').run(now, userId);
+  db.prepare('UPDATE oauthAccessToken SET revoked = ? WHERE userId = ?').run(now, userId);
+  deletePendingCodes({ options: { database: db } } as never, userId);
+  db.prepare(`UPDATE "user" SET twoFactorEnabled = 0, tokensRevokedAt = ?, updatedAt = ?${verify ? ', emailVerified = 1' : ''} WHERE id = ?`).run(now, now, userId);
 }
 
 type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
@@ -116,12 +121,52 @@ async function unprovenUser(ctx: HookContext): Promise<string | undefined> {
   return user && !user.emailVerified ? user.id : undefined;
 }
 
-function ssoGlue(captured: { context?: AuthContext }): BetterAuthPlugin {
+const isSsoProviderId = (providerId: unknown) => typeof providerId === 'string' && providerId.startsWith(SSO_PROVIDER_PREFIX);
+
+function ssoGlue(db: Database.Database): BetterAuthPlugin {
   return {
     id: 'authwapi-sso',
-    init: (context) => {
-      captured.context = context;
+    // Neither the user who registered a provider nor its organization can be deleted while it exists: their rows would
+    // otherwise take it (or leave it) without guardProviderMutation. Replaces the SSO plugin's userId (cascade) and
+    // organizationId (no reference) fields.
+    schema: {
+      ssoProvider: {
+        fields: {
+          userId: { type: 'string', required: true, references: { model: 'user', field: 'id', onDelete: 'restrict' } },
+          organizationId: { type: 'string', required: false, references: { model: 'organization', field: 'id', onDelete: 'restrict' } },
+        },
+      },
     },
+    init: (context) => ({
+      options: {
+        databaseHooks: {
+          account: {
+            create: {
+              // Inside Better Auth's SSO sign-in transaction (an SSO account is created only with its new user: SSO never
+              // links one to an existing user, and `sso bind` writes its own): the member commits with the user.
+              before: async (account) => {
+                if (!isSsoProviderId(account.providerId)) return;
+                const trx = await getCurrentAdapter(context.adapter);
+                const provider = await trx.findOne<{ organizationId: string | null }>({ model: 'ssoProvider', where: [{ field: 'providerId', value: account.providerId }] });
+                if (!provider?.organizationId) return;
+                await trx.create({ model: 'member', data: { organizationId: provider.organizationId, userId: account.userId, role: 'member', createdAt: new Date() } });
+              },
+            },
+          },
+          user: {
+            update: {
+              // An admin marking an unverified email verified (/admin/update-user, inside its transaction): the same purge,
+              // keeping the password. The hook gets no user id, so it comes from the request.
+              before: async (data, ctx) => {
+                if (data.emailVerified !== true || ctx?.path !== '/admin/update-user' || typeof ctx.body?.userId !== 'string') return;
+                const user = db.prepare('SELECT emailVerified FROM "user" WHERE id = ?').get(ctx.body.userId) as { emailVerified: number } | undefined;
+                if (user && !user.emailVerified) purgeUnproven(db, ctx.body.userId, { keepCredential: true, verify: false });
+              },
+            },
+          },
+        },
+      },
+    }),
     hooks: {
       before: [
         {
@@ -129,7 +174,11 @@ function ssoGlue(captured: { context?: AuthContext }): BetterAuthPlugin {
           matcher: (ctx) => ctx.path === '/magic-link/verify' || ctx.path === '/reset-password',
           handler: createAuthMiddleware(async (ctx) => {
             const userId = await unprovenUser(ctx);
-            if (userId) await purgeUnproven(ctx.context, userId, ctx.path === '/magic-link/verify');
+            if (!userId) return;
+            // A Kysely transaction holds the connection, so no other request's transaction can contain this one.
+            await runWithTransaction(ctx.context.adapter, async () =>
+              purgeUnproven(db, userId, { keepCredential: false, verify: ctx.path === '/magic-link/verify' })
+            );
           }),
         },
         {
@@ -148,22 +197,17 @@ function ssoGlue(captured: { context?: AuthContext }): BetterAuthPlugin {
 }
 
 /** The SSO plugin and the recovery hook. Added to authOptions().plugins, after the organization plugin. */
-export function ssoPlugins(): Plugin[] {
-  const captured: { context?: AuthContext } = {};
+export function ssoPlugins(db: Database.Database): Plugin[] {
   return [
     sso({
       resolveUser,
       guardProviderMutation,
       // providersLimit: Better Auth's default (10 per registering owner). 0 would also refuse our own server-side calls.
-      // Better Auth's provisioning would (re)add the member on every sign-in; only users SSO creates join (provisionUser,
-      // called for new users only), and `sso bind` adds the member it binds.
+      // Better Auth's provisioning would (re)add the member on every sign-in, after the sign-in commits. Only users SSO
+      // creates join, in the same transaction (ssoGlue's account hook); `sso bind` adds the member it binds.
       organizationProvisioning: { disabled: true },
-      provisionUser: async ({ user, provider }) => {
-        if (!provider.organizationId) return;
-        await captured.context!.adapter.create({ model: 'member', data: { organizationId: provider.organizationId, userId: user.id, role: 'member', createdAt: new Date() } });
-      },
     }),
-    ssoGlue(captured),
+    ssoGlue(db),
   ];
 }
 
@@ -228,6 +272,8 @@ export async function registerSsoProvider(context: AuthContext, api: unknown, in
     if (u.protocol !== 'https:' && !(isLoopback(u) && context.isTrustedOrigin(u.href))) throw new SsoRefusal('insecure_endpoint');
   }
   const owner = await ownerOf(context, input.organizationId);
+  // An unverified owner's first mailbox proof would purge their membership, leaving a provider nobody can delete.
+  if (!(await context.internalAdapter.findUserById(owner))?.emailVerified) throw new SsoRefusal('owner_email_not_verified');
   // One transaction with the caller's audit line: a provider that can't be audited is never registered. Better Auth's
   // endpoint joins it (the owner-session hook in src/orgs.ts hands it the transaction's adapter). SQLite runs one
   // transaction at a time, so the domain check can't race another registration.

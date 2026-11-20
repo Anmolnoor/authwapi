@@ -315,6 +315,108 @@ test("a password reset by the mailbox owner clears what a magic link clears: the
   assert.notEqual(signIn.json().twoFactorRedirect, true, 'no 2FA left from before the proof');
 });
 
+/** A signed-in admin (role from set_role). */
+async function signedInAdmin(write: Client) {
+  const adminId = await verifiedUser(sp, 'admin@example.com');
+  await ok(call(write, 'set_role', { userId: adminId, role: 'admin' }));
+  const jar = new Jar();
+  assert.equal((await passwordSignIn(sp, jar, 'admin@example.com')).status, 200);
+  return jar;
+}
+
+/** future@gmail.com, created by the gmail.com org's IdP, with 2FA enrolled by that SSO session. */
+async function squatted(write: Client) {
+  await ssoOrg(write, 'gmail', 'gmail.com');
+  const attacker = new Jar();
+  const idpJar = await idpUser('future@gmail.com');
+  assert.equal((await ssoSignIn(attacker, idpJar, 'future@gmail.com')).back.location, '/');
+  await enableTotp(sp, attacker, undefined);
+  return { attacker, idpJar, userId: row("SELECT id FROM user WHERE email = 'future@gmail.com'")!.id as string };
+}
+/** Everything set up before the first mailbox proof is gone, and the org's IdP can't get back in. */
+async function purged(userId: string, attacker: Jar, idpJar: Jar) {
+  const after = row('SELECT emailVerified, twoFactorEnabled FROM user WHERE id = ?', userId)!;
+  assert.deepEqual([after.emailVerified, after.twoFactorEnabled], [1, 0]);
+  assert.equal(count("SELECT count(*) FROM account WHERE userId = ? AND providerId != 'credential'", userId), 0, 'SSO binding');
+  for (const table of ['twoFactor', 'passkey', 'member']) assert.equal(count(`SELECT count(*) FROM ${table} WHERE userId = ?`, userId), 0, table);
+  assert.equal(await currentUser(sp, attacker), null);
+  assert.equal(errorOf((await ssoSignIn(new Jar(), idpJar, 'future@gmail.com')).back.location), 'account_exists');
+}
+
+test('verifying with a password an admin set is a first mailbox proof too: it purges in the same step', async () => {
+  const { write } = await agents();
+  const { attacker, idpJar, userId } = await squatted(write);
+  const admin = await signedInAdmin(write);
+  const set = await send(sp, admin, 'POST', '/api/auth/admin/set-user-password', { json: { userId, newPassword: 'admin set pass' } });
+  assert.equal(set.status, 200, set.body);
+  const verify = await fetch(linkIn((await sp.mail('future@gmail.com', 'Verify your email')).text), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: sp.base },
+    body: new URLSearchParams({ password: 'admin set pass' }),
+  });
+  assert.equal(verify.status, 200);
+  await purged(userId, attacker, idpJar);
+  assert.equal(count("SELECT count(*) FROM account WHERE userId = ? AND providerId = 'credential'", userId), 1, 'the password just checked stays');
+  assert.equal((await passwordSignIn(sp, new Jar(), 'future@gmail.com', 'admin set pass')).status, 200);
+});
+
+test("an admin marking an unverified SSO user's email verified purges the same way", async () => {
+  const { write } = await agents();
+  const { attacker, idpJar, userId } = await squatted(write);
+  const admin = await signedInAdmin(write);
+  const r = await send(sp, admin, 'POST', '/api/auth/admin/update-user', { json: { userId, data: { emailVerified: true } } });
+  assert.equal(r.status, 200, r.body);
+  await purged(userId, attacker, idpJar);
+});
+
+test("an organization's owner must have a verified email: create_org and register_sso_provider refuse otherwise", async () => {
+  const { write } = await agents();
+  const unverified = await ok(call(write, 'create_user', { email: 'owner@u.test', name: 'Owner', password: 'correct horse' }));
+  const refused = await call(write, 'create_org', { name: 'u', slug: 'u', ownerUserId: unverified.user.id });
+  assert.deepEqual([refused.isError, refused.data.error], [true, 'owner_email_not_verified']);
+  // An organization made before this rule, whose owner is unverified, gets no provider either.
+  const organizationId = await org(write, 'a');
+  const d = db(sp);
+  d.prepare("UPDATE user SET emailVerified = 0 WHERE email = 'owner@a.test'").run();
+  d.close();
+  idpClient = await idpClientFor(['a']);
+  const r = await call(write, 'register_sso_provider', providerArgs(organizationId, 'a', 'a.example', idpClient));
+  assert.deepEqual([r.isError, r.data.error], [true, 'owner_email_not_verified']);
+  assert.equal(count('SELECT count(*) FROM ssoProvider'), 0);
+});
+
+test('the database refuses to delete the user who registered a provider, or its organization (RESTRICT)', async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const d = db(sp);
+  d.pragma('foreign_keys = ON');
+  try {
+    assert.throws(() => d.prepare('DELETE FROM organization WHERE id = ?').run(a.organizationId), /FOREIGN KEY/);
+    assert.throws(() => d.prepare("DELETE FROM user WHERE email = 'owner@a.test'").run(), /FOREIGN KEY/);
+  } finally {
+    d.close();
+  }
+  assert.match(readFileSync(new URL('../migrations/0007_sso.sql', import.meta.url), 'utf8'), /"userId" text not null references "user" \("id"\) on delete restrict.*"organizationId" text references "organization" \("id"\) on delete restrict/);
+});
+
+test("a new SSO user's membership commits with the user: if it can't be written, no user is created, and a retry works", async () => {
+  const { write } = await agents();
+  const a = await ssoOrg(write, 'a', 'a.example');
+  const idpJar = await idpUser('alice@a.example');
+  const d = db(sp);
+  d.exec("CREATE TRIGGER fail_member BEFORE INSERT ON member BEGIN SELECT RAISE(ABORT, 'injected'); END");
+  const failed = await ssoSignIn(new Jar(), idpJar, 'alice@a.example');
+  assert.notEqual(failed.back.location, '/');
+  assert.equal(count("SELECT count(*) FROM user WHERE email = 'alice@a.example'"), 0);
+  assert.equal(count("SELECT count(*) FROM account WHERE providerId = 'sso-a'"), 0);
+  d.exec('DROP TRIGGER fail_member');
+  d.close();
+  const jar = new Jar();
+  assert.equal((await ssoSignIn(jar, idpJar, 'alice@a.example')).back.location, '/');
+  const userId = row("SELECT id FROM user WHERE email = 'alice@a.example'")!.id;
+  assert.equal(count('SELECT count(*) FROM member WHERE userId = ? AND organizationId = ?', userId, a.organizationId), 1);
+});
+
 test("cross-org: org B's provider can't sign in an identity bound to org A's", async () => {
   const { write } = await agents();
   await ssoOrg(write, 'a', 'a.example');
