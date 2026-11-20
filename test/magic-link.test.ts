@@ -25,10 +25,16 @@ const db = () => new Database(s.paths.db);
 
 async function verifiedUser(email: string) {
   await post('/api/auth/sign-up/email', { email, password: 'correct horse', name: 'User' });
-  await fetch(linkIn((await s.mail(email, 'Verify your email')).text), { redirect: 'manual' });
+  const verify = await fetch(linkIn((await s.mail(email, 'Verify your email')).text), {
+    method: 'POST', // a GET shows the password form and verifies nothing
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: s.base },
+    body: new URLSearchParams({ password: 'correct horse' }),
+  });
+  assert.equal(verify.status, 200);
 }
+/** Signs in the way the confirm page does: POST to the link (a GET only asks "Sign in as ...?"). */
 const signedIn = async (link: URL) => {
-  const cookie = cookieOf(await fetch(link, { redirect: 'manual' }));
+  const cookie = cookieOf(await fetch(link, { method: 'POST', redirect: 'manual', headers: { origin: s.base } }));
   return cookie !== '' && (await session(cookie)) !== null;
 };
 

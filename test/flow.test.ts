@@ -21,11 +21,19 @@ const post = (p: string, body: unknown, { cookie = '', origin = s.base, headers 
 const session = async (cookie: string) =>
   (await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie } })).json();
 const cookieOf = (res: Response) => res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+/** Verifies an email the way the page does: POST the sign-up password to the link (a GET verifies nothing). */
+const verifyEmail = (link: URL, password: string, cookie = '') =>
+  fetch(link, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: s.base, ...(cookie ? { cookie } : {}) },
+    body: new URLSearchParams({ password }),
+  });
 
 /** Sign up, open the verification link, sign in. Returns the session cookie. */
 async function verifiedUser(email: string, password = 'correct horse') {
   assert.equal((await post('/api/auth/sign-up/email', { email, password, name: 'User' })).status, 200);
-  await fetch(linkIn((await s.mail(email, 'Verify your email')).text), { redirect: 'manual' });
+  assert.equal((await verifyEmail(linkIn((await s.mail(email, 'Verify your email')).text), password)).status, 200);
   const res = await post('/api/auth/sign-in/email', { email, password });
   assert.equal(res.status, 200);
   return cookieOf(res);
@@ -46,8 +54,8 @@ test('sign up → sign-in refused until verified → verify → sign in → sign
   assert.equal((await post('/api/auth/sign-up/email', { email, password: 'correct horse', name: 'Ada' })).status, 200);
   assert.equal((await post('/api/auth/sign-in/email', { email, password: 'correct horse' })).status, 403);
 
-  const verify = await fetch(linkIn((await s.mail(email, 'Verify your email')).text), { redirect: 'manual' });
-  assert.ok([200, 302].includes(verify.status), `verify status ${verify.status}`);
+  const verify = await verifyEmail(linkIn((await s.mail(email, 'Verify your email')).text), 'correct horse');
+  assert.equal(verify.status, 200);
 
   const signIn = await post('/api/auth/sign-in/email', { email, password: 'correct horse' });
   assert.equal(signIn.status, 200);
@@ -60,10 +68,8 @@ test('sign up → sign-in refused until verified → verify → sign in → sign
 test("opening someone else's verification link does not switch your session", async () => {
   const mine = await verifiedUser('me@example.com');
   await post('/api/auth/sign-up/email', { email: 'them@example.com', password: 'their password', name: 'Them' });
-  const res = await fetch(linkIn((await s.mail('them@example.com', 'Verify your email')).text), {
-    redirect: 'manual',
-    headers: { cookie: mine },
-  });
+  const res = await verifyEmail(linkIn((await s.mail('them@example.com', 'Verify your email')).text), 'their password', mine);
+  assert.equal(res.status, 200);
   assert.ok(!cookieOf(res).includes('session_token'), 'verification set a session cookie');
   assert.equal((await session(mine)).user.email, 'me@example.com');
 });

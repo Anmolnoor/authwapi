@@ -41,7 +41,8 @@ export function prepareDataDir(dataDir: string): DataPaths {
   } catch (err) {
     throw new Error(
       `Data folder ${root} is not writable by uid ${process.getuid?.()}. ` +
-        'Rootless podman: add --userns=keep-id. Otherwise make the folder owned by PUID:PGID.',
+        'Rootless podman: add --userns=keep-id. On SELinux (Fedora, RHEL), add :Z to the volume (-v "$PWD/authwapi-data:/data:Z"). ' +
+        'Otherwise make the folder owned by PUID:PGID.',
       { cause: err }
     );
   }
