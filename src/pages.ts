@@ -521,8 +521,13 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── OAuth consent (the provider's consentPage) ──
-  app.get('/consent', async (c) => {
-    const query = oauthQuery(c);
+  /** The organization this session picked on SELECT_ORG_PAGE, if it is still a member: what consentReferenceId binds. */
+  const orgPick = (session: SessionData) => {
+    const id = session?.session.oauthOrgId;
+    const found = id ? (membership.get(session.user.id, id) as { name: string; role: string } | undefined) : undefined;
+    return found && id ? { id, ...found } : undefined;
+  };
+  const consentPage = async (c: Context, query: string, error?: string, status: ContentfulStatusCode = 200) => {
     const params = new URLSearchParams(query);
     const clientId = params.get('client_id');
     if (!query || !clientId) return render(c, 'Allow access?', alert('This page needs a request from an app. Start again from the app.'), 400);
@@ -533,19 +538,20 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
     // checks its signature, so what's listed here is what's being allowed.
     const resources = params.getAll('resource');
-    // The organization this grant is for: the one picked on SELECT_ORG_PAGE, as the provider's consentReferenceId reads it.
+    // The organization this grant is for. Allow posts back the one shown here; POST /consent refuses a mismatch.
     let org = html``;
+    let orgField = html``;
     if (scopes.includes('organization')) {
-      const session = await currentSession(c);
-      const picked = session?.session.oauthOrgId ? (membership.get(session.user.id, session.session.oauthOrgId) as { name: string; role: string } | undefined) : undefined;
+      const picked = orgPick(await currentSession(c));
       org = picked
         ? html`<p>For the organization <strong>${picked.name}</strong>, where you are ${picked.role}.</p>`
         : html`<p>No organization: the app won't see one.</p>`;
+      orgField = html`<input type="hidden" name="org_id" value="${picked?.id ?? ''}">`;
     }
     return render(
       c,
       'Allow access?',
-      html`<p><strong>${name}</strong> wants to:</p>
+      html`${alert(error)}<p><strong>${name}</strong> wants to:</p>
         <ul>
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}
@@ -553,14 +559,25 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         ${org}
         <form method="post" action="/consent">
           <input type="hidden" name="oauth_query" value="${query}">
+          ${orgField}
           <button name="accept" value="yes">Allow</button>
           <button name="accept" value="no" class="secondary">Deny</button>
-        </form>`
+        </form>`,
+      status
     );
-  });
+  };
+  app.get('/consent', (c) => consentPage(c, oauthQuery(c)));
   app.post('/consent', async (c) => {
     const f = await form(c);
-    const r = await ba(c, 'POST', '/oauth2/consent', { accept: f('accept') === 'yes', oauth_query: f('oauth_query') });
+    const query = f('oauth_query');
+    const accept = f('accept') === 'yes';
+    // The grant binds the session's pick as it is now. If another authorization in this session picked since this
+    // page was shown, show consent again with the current pick instead of approving one the user didn't see.
+    const scopes = (new URLSearchParams(query).get('scope') ?? '').split(' ');
+    if (accept && scopes.includes('organization') && (orgPick(await currentSession(c))?.id ?? '') !== f('org_id')) {
+      return consentPage(c, query, 'The organization for this request changed in another tab. Check it and allow again.', 409);
+    }
+    const r = await ba(c, 'POST', '/oauth2/consent', { accept, oauth_query: query });
     const next = (r.data as { url?: string } | null)?.url;
     if (r.status !== 200 || !next) return render(c, 'Allow access?', alert(errorText('/oauth2/consent', r)), 400);
     return c.redirect(next, 303);

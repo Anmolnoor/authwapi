@@ -22,6 +22,9 @@ type Plugin = NonNullable<BetterAuthOptions['plugins']>[number];
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 
+/** What an authorization request without `scope` gets (M1's scopes; `organization` must be asked for). */
+const DEFAULT_SCOPE = 'openid email offline_access';
+
 /** The provider's postLogin page: the user picks the organization an app's organization scope is for. */
 export const SELECT_ORG_PAGE = '/select-org';
 
@@ -64,6 +67,7 @@ export async function revokeUserTokens(context: Pick<AuthContext, 'adapter'>, us
  * the error and report success. A request Better Auth then refuses (wrong current password, say) has still revoked
  * the tokens: only someone holding the user's session or reset token can cause that.
  * Clearing an expired session is not on this list: offline_access tokens outlive the browser session.
+ * An impersonated session (M3) ending itself or the target's sessions revokes none of the target's tokens.
  */
 const SIGN_OUT_PATHS = new Set(['/sign-out', '/revoke-session', '/revoke-sessions', '/revoke-other-sessions', '/change-password', '/reset-password']);
 
@@ -79,7 +83,8 @@ async function userEndingSessions(ctx: HookContext): Promise<string | undefined>
   // The session the cookie names, expired or not, exactly as /sign-out finds it.
   const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret);
   if (!token) return undefined;
-  return (await ctx.context.internalAdapter.findSession(token))?.session.userId;
+  const session = (await ctx.context.internalAdapter.findSession(token))?.session as { userId: string; impersonatedBy?: string | null } | undefined;
+  return session?.impersonatedBy ? undefined : session?.userId;
 }
 
 /** Each auth instance's context, by the deps it was built from, for revokeTokensAfterPasswordReset. */
@@ -173,8 +178,15 @@ async function tokenRevoked(ctx: HookContext, userId: string, iat: number): Prom
   return Boolean(user?.tokensRevokedAt && iat * 1000 < new Date(user.tokensRevokedAt).getTime());
 }
 
-/** The user a token request is for (its code's or refresh token's), from the before-hook to the after-hook. */
-const tokenUser = defineRequestState<string | undefined>(() => undefined);
+/**
+ * The user a token request is for (its code's or refresh token's) and their last revocation time as the request
+ * began, from the before-hook to the after-hook.
+ */
+const tokenUser = defineRequestState<{ id: string; revokedAt: number } | undefined>(() => undefined);
+type RevocationState = { tokensRevokedAt?: Date | string | null; banned?: unknown; banExpires?: Date | string | null };
+const findRevocationState = (ctx: HookContext, userId: string) =>
+  ctx.context.adapter.findOne<RevocationState>({ model: 'user', where: [{ field: 'id', value: userId }] });
+const revokedAtMs = (user: RevocationState | null) => (user?.tokensRevokedAt ? new Date(user.tokensRevokedAt).getTime() : 0);
 
 async function tokenRequestUser(ctx: HookContext, opts: ProviderOptions): Promise<string | undefined> {
   const { hashToken } = getOAuthProviderApi(ctx, opts);
@@ -195,6 +207,7 @@ async function tokenRequestUser(ctx: HookContext, opts: ProviderOptions): Promis
 }
 
 const userBanned = () => new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'the user is banned' });
+const tokensRevoked = () => new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: "the user's tokens were revoked" });
 
 function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlugin {
   return {
@@ -213,7 +226,8 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
             session: {
               delete: {
                 before: async (session, ctx) => {
-                  if (ctx?.path && END_SESSION_PATHS.has(ctx.path)) await revokeUserTokens(ctx.context, session.userId);
+                  const impersonated = (session as { impersonatedBy?: string | null }).impersonatedBy;
+                  if (ctx?.path && END_SESSION_PATHS.has(ctx.path) && !impersonated) await revokeUserTokens(ctx.context, session.userId);
                 },
               },
             },
@@ -244,16 +258,22 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
           handler: createAuthMiddleware(async (ctx) => {
             const userId = await tokenRequestUser(ctx, opts);
             if (!userId) return;
-            await tokenUser.set(userId);
-            if (isBanned(await ctx.context.internalAdapter.findUserById(userId))) throw userBanned();
+            const user = await findRevocationState(ctx, userId);
+            await tokenUser.set({ id: userId, revokedAt: revokedAtMs(user) });
+            if (isBanned(user)) throw userBanned();
           }),
         },
         {
           matcher: (ctx) => ctx.path === '/oauth2/authorize',
           handler: createAuthMiddleware(async (ctx) => {
             // Better Auth reads a POSTed authorization request from the body, otherwise from the query.
-            const params = (ctx.request?.method === 'POST' ? ctx.body : ctx.query) ?? {};
-            rejectClaimsOutsideScope(ctx, params.claims, params.scope);
+            const post = ctx.request?.method === 'POST';
+            const params = (post ? ctx.body : ctx.query) ?? {};
+            // Without `scope` Better Auth grants every configured scope; here it means the M1 ones, so the organization
+            // step and org claims come only when an app asks for `organization`.
+            const scope = params.scope === undefined || params.scope === '' ? DEFAULT_SCOPE : params.scope;
+            rejectClaimsOutsideScope(ctx, params.claims, scope);
+            if (scope !== params.scope) return { context: post ? { body: { ...params, scope } } : { query: { ...params, scope } } };
           }),
         },
         {
@@ -268,15 +288,18 @@ function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlu
       after: [
         {
           // Issuance and ban are serialized by order: a ban writes `banned` and then revokes (src/orgs.ts banUser); this
-          // reads `banned` after the provider has written its tokens. A ban that landed after the check above is seen
-          // here, and what was just written is revoked (with everything else of the user's) before anyone sees it.
+          // reads the user after the provider has written its tokens. A ban that landed after the check above is seen
+          // here, and so is a revocation (tokensRevokedAt moved) even if its ban was already lifted again: what was
+          // just written is revoked (with everything else of the user's) before anyone sees it.
           matcher: (ctx) => ctx.path === '/oauth2/token',
           handler: createAuthMiddleware(async (ctx) => {
-            const userId = await tokenUser.get();
-            if (!userId || isAPIError(ctx.context.returned)) return;
-            if (!isBanned(await ctx.context.internalAdapter.findUserById(userId))) return;
-            await revokeUserTokens(ctx.context, userId);
-            throw userBanned();
+            const started = await tokenUser.get();
+            if (!started || isAPIError(ctx.context.returned)) return;
+            const user = await findRevocationState(ctx, started.id);
+            const banned = isBanned(user);
+            if (!banned && revokedAtMs(user) === started.revokedAt) return;
+            await revokeUserTokens(ctx.context, started.id);
+            throw banned ? userBanned() : tokensRevoked();
           }),
         },
         {

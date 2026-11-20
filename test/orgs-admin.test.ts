@@ -111,11 +111,14 @@ async function introspect(client: OAuthClient, token: string): Promise<boolean> 
 const userinfo = async (accessToken: string) =>
   (await fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: `Bearer ${accessToken}` } })).json() as Promise<Record<string, unknown>>;
 
-/**
- * A browser signed in as `jar` goes through the app's authorization: the organization page (picking `org`, or
- * none), `beforeConsent`, the consent page (Allow), then the code is exchanged. Returns the code's redirect and pages seen.
- */
-async function authorizeAs(
+/** The consent page's form fields: the signed request and the organization it showed (if it shows one). */
+const consentForm = (page: string) => ({
+  oauth_query: /name="oauth_query" value="([^"]*)"/.exec(page)![1].replaceAll('&amp;', '&'),
+  ...(/name="org_id" value="([^"]*)"/.test(page) ? { org_id: /name="org_id" value="([^"]*)"/.exec(page)![1] } : {}),
+});
+
+/** Authorization up to the consent page: the organization page (picking `org`, or none), then `beforeConsent`. */
+async function toConsent(
   jar: Jar,
   client: OAuthClient,
   { scope = 'openid email offline_access', resource, org, beforeConsent }: { scope?: string; resource?: string; org?: string; beforeConsent?: () => Promise<void> } = {}
@@ -133,10 +136,15 @@ async function authorizeAs(
     location = r.location!;
   }
   await beforeConsent?.();
-  const consent = new URL(location, s.base);
-  assert.equal(consent.pathname, '/consent', location);
+  assert.equal(new URL(location, s.base).pathname, '/consent', location);
   const consentPage = (await send(s, jar, 'GET', location, { navigate: true })).body;
-  r = await send(s, jar, 'POST', '/consent', { form: { oauth_query: consent.search.slice(1), accept: 'yes' } });
+  return { verifier, orgPage, consentPage };
+}
+
+/** A browser signed in as `jar` goes through the app's authorization (toConsent), then Allow. Returns the code and pages seen. */
+async function authorizeAs(jar: Jar, client: OAuthClient, opts: Parameters<typeof toConsent>[2] = {}) {
+  const { verifier, orgPage, consentPage } = await toConsent(jar, client, opts);
+  const r = await send(s, jar, 'POST', '/consent', { form: { ...consentForm(consentPage), accept: 'yes' } });
   assert.equal(r.status, 303, r.body);
   return { code: codeFrom(r.location), verifier, orgPage, consentPage };
 }
@@ -274,6 +282,8 @@ test('ban_user ends sessions, refuses refresh and code exchange, and introspecti
   assert.equal(unrevokedRefreshTokens(u.id), 0);
   const d = db(s);
   assert.equal(d.prepare('SELECT count(*) FROM session WHERE userId = ?').pluck().get(u.id), 0);
+  const codes = `SELECT count(*) FROM verification WHERE value LIKE '%"type":"authorization_code"%' AND value LIKE ?`;
+  assert.equal(d.prepare(codes).pluck().get(`%"userId":"${u.id}"%`), 0, 'the pending code was not deleted');
   d.close();
   assert.equal((await passwordSignIn(s, new Jar(), u.email)).status, 403);
 
@@ -458,7 +468,15 @@ test('an impersonated session gets no authorization code or consent write (autho
   assert.equal(codeCount(), codesBefore);
   assert.equal(JSON.stringify(db(s).prepare('SELECT * FROM oauthConsent ORDER BY id').all()), consentsBefore);
 
+  const consentId = db(s).prepare('SELECT id FROM oauthConsent WHERE userId = ?').pluck().get(target.id) as string;
   for (const [method, route, body] of [
+    // Consent edits outside the authorization step (they never call consentReferenceId).
+    ['POST', '/api/auth/oauth2/update-consent', { id: consentId, update: { scopes: ['openid'] } }],
+    ['POST', '/api/auth/oauth2/delete-consent', { id: consentId }],
+    // Linked providers' credentials.
+    ['POST', '/api/auth/get-access-token', { providerId: 'google' }],
+    ['POST', '/api/auth/refresh-token', { providerId: 'google' }],
+    ['GET', '/api/auth/account-info', undefined],
     ['POST', '/api/auth/change-password', { currentPassword: 'correct horse', newPassword: 'another horse' }],
     ['POST', '/api/auth/two-factor/enable', { password: 'correct horse' }],
     ['GET', '/api/auth/passkey/generate-register-options', undefined],
@@ -580,4 +598,137 @@ test('refresh re-checks membership and role: a role change shows, a removed memb
   const claims = decodeJwt(next.access_token);
   assert.equal(claims.org_id, undefined);
   assert.equal(claims.roles, undefined);
+});
+
+// ── Review round 1 ──
+
+test('consent binds exactly the organization it showed: a pick made in another tab meanwhile re-renders consent', async () => {
+  const { alice, acme, globex } = await orgs();
+  const client = await oauthClient(API);
+  const scope = 'openid offline_access organization';
+  const tabA = await toConsent(alice.jar, client, { scope, resource: API, org: acme });
+  const tabB = await toConsent(alice.jar, client, { scope, resource: API, org: globex }); // same session, later pick
+  const formA = consentForm(tabA.consentPage);
+  assert.equal(formA.org_id, acme);
+  const allowA = await send(s, alice.jar, 'POST', '/consent', { form: { ...formA, accept: 'yes' } });
+  assert.equal(allowA.status, 409, allowA.body); // shown Acme, the session now holds Globex: shown again, not approved
+  assert.match(allowA.body, /Globex/);
+  assert.equal(allowA.location, undefined);
+  const allowB = await send(s, alice.jar, 'POST', '/consent', { form: { ...consentForm(tabB.consentPage), accept: 'yes' } });
+  assert.equal(allowB.status, 303, allowB.body);
+  const res = await exchange(client, codeFrom(allowB.location), tabB.verifier, API);
+  assert.equal(decodeJwt(((await res.json()) as Tokens).access_token).org_id, globex);
+});
+
+test('an impersonated session is never refreshed past its own expiry', async () => {
+  const { write } = await agents();
+  const admin = await adminUser(write);
+  const target = await mcpUser(write, 'target@example.com');
+  assert.equal((await send(s, admin.jar, 'POST', '/api/auth/admin/impersonate-user', { json: { userId: target } })).status, 200);
+  const expiry = () => db(s).prepare('SELECT expiresAt FROM session WHERE impersonatedBy = ?').pluck().get(admin.id) as string;
+  const before = expiry();
+  // Without the dont_remember cookie Better Auth would refresh it: 10 minutes left is well past updateAge (1 day).
+  admin.jar.add(['better-auth.dont_remember=']);
+  assert.equal((await send(s, admin.jar, 'GET', '/api/auth/get-session')).json().user.email, 'target@example.com');
+  assert.equal(expiry(), before);
+  await write.close();
+});
+
+test("an impersonator's sign-out or session revocation doesn't revoke the target's refresh tokens", async () => {
+  const { write } = await agents();
+  const admin = await adminUser(write);
+  const target = await user('target@example.com');
+  const client = await oauthClient();
+  let refreshToken = (await tokensFor(target.jar, client)).tokens.refresh_token!;
+  for (const route of ['/api/auth/sign-out', '/api/auth/revoke-sessions']) {
+    const jar = route === '/api/auth/sign-out' ? admin.jar : new Jar(); // sign-in is limited to 3 per 10 seconds
+    if (jar !== admin.jar) assert.equal((await passwordSignIn(s, jar, admin.email)).status, 200);
+    assert.equal((await send(s, jar, 'POST', '/api/auth/admin/impersonate-user', { json: { userId: target.id } })).status, 200);
+    assert.equal((await send(s, jar, 'POST', route, { json: {} })).status, 200);
+    const res = await refresh(client, refreshToken);
+    assert.equal(res.status, 200, `${route}: ${await res.clone().text()}`);
+    refreshToken = ((await res.json()) as Tokens).refresh_token!;
+  }
+  await write.close();
+});
+
+test('ban_user is indefinite: it re-bans after an expired timed ban and replaces an active one; an HTTP timed ban keeps its expiry', async () => {
+  const { write } = await agents();
+  const admin = await adminUser(write);
+  const u = await mcpUser(write, 'timed@example.com');
+  const banExpires = () => db(s).prepare('SELECT banExpires FROM "user" WHERE id = ?').pluck().get(u);
+  const r = await send(s, admin.jar, 'POST', '/api/auth/admin/ban-user', { json: { userId: u, banExpiresIn: 3600 } });
+  assert.equal(r.status, 200, r.body);
+  assert.notEqual(banExpires(), null);
+  await ok(call(write, 'ban_user', { userId: u }));
+  assert.equal(banExpires(), null);
+
+  const d = db(s);
+  d.prepare('UPDATE "user" SET banned = 1, banExpires = ? WHERE id = ?').run(new Date(Date.now() - 60_000).toISOString(), u);
+  d.close();
+  await ok(call(write, 'ban_user', { userId: u }));
+  assert.equal(banExpires(), null);
+  assert.equal((await passwordSignIn(s, new Jar(), 'timed@example.com')).status, 403);
+  await write.close();
+});
+
+test('a revocation that lands (and a ban lifted) while tokens are being issued: issuance revokes what it wrote', async () => {
+  const u = await user('lifted@example.com');
+  const client = await oauthClient();
+  const { tokens } = await tokensFor(u.jar, client);
+  // A ban revoked the user's tokens and was lifted between the checks and the write: only tokensRevokedAt moved.
+  const d = db(s);
+  d.exec(`CREATE TRIGGER revoke_mid_issue BEFORE INSERT ON oauthRefreshToken BEGIN
+    UPDATE "user" SET tokensRevokedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = NEW.userId; END`);
+  d.close();
+  const res = await refresh(client, tokens.refresh_token!);
+  assert.equal(res.status, 400, await res.clone().text());
+  assert.equal(((await res.json()) as { error: string }).error, 'invalid_grant');
+  assert.equal(unrevokedRefreshTokens(u.id), 0);
+});
+
+test('an authorization request without scope gets the M1 scopes, never the organization step or org claims', async () => {
+  const { alice } = await orgs();
+  const client = await oauthClient(API);
+  const { url, verifier } = authorizeUrl(client, 'unused', { prompt: 'consent', resource: API });
+  const noScope = new URL(url, s.base);
+  noScope.searchParams.delete('scope');
+  const r = await send(s, alice.jar, 'GET', noScope.pathname + noScope.search, { navigate: true });
+  assert.equal(r.status, 302, r.body);
+  const consent = new URL(r.location!, s.base);
+  assert.equal(consent.pathname, '/consent', String(r.location));
+  assert.equal(consent.searchParams.get('scope'), 'openid email offline_access');
+  const page = (await send(s, alice.jar, 'GET', r.location!, { navigate: true })).body;
+  const allow = await send(s, alice.jar, 'POST', '/consent', { form: { ...consentForm(page), accept: 'yes' } });
+  const res = await exchange(client, codeFrom(allow.location), verifier, API);
+  const t = (await res.json()) as Tokens & { scope: string };
+  assert.equal(t.scope, 'openid email offline_access');
+  assert.equal(decodeJwt(t.access_token).org_id, undefined);
+});
+
+test('signed-in users cannot create organizations over HTTP; create_org (a system action) still can', async () => {
+  const { write } = await agents();
+  const u = await user('creator@example.com');
+  const r = await send(s, u.jar, 'POST', '/api/auth/organization/create', { json: { name: 'Mine', slug: 'mine' } });
+  assert.equal(r.status, 403, r.body);
+  await ok(call(write, 'create_org', { name: 'Mine', slug: 'mine', ownerUserId: u.id }));
+  await write.close();
+});
+
+test('invite_member emails only once its audited transaction has committed', async () => {
+  const { write } = await agents();
+  const alice = await verifiedUser(s, 'alice@example.com');
+  const { organization } = await ok(call(write, 'create_org', { name: 'Acme', slug: 'acme', ownerUserId: alice }));
+  // A deferred foreign key violated by a trigger on invitation: every statement succeeds, COMMIT fails.
+  const d = db(s);
+  d.exec(`CREATE TABLE trap_parent (id INTEGER PRIMARY KEY);
+    CREATE TABLE trap_child (pid INTEGER REFERENCES trap_parent (id) DEFERRABLE INITIALLY DEFERRED);
+    CREATE TRIGGER trap AFTER INSERT ON invitation BEGIN INSERT INTO trap_child VALUES (1); END;`);
+  d.close();
+  const r = await call(write, 'invite_member', { organizationId: organization.id, email: 'bob@example.com', role: 'member' });
+  assert.equal(r.isError, true, JSON.stringify(r.data));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(s.outbox().filter((m) => m.to === 'bob@example.com').length, 0, 'an invitation that was rolled back was emailed');
+  assert.equal(db(s).prepare('SELECT count(*) FROM invitation').pluck().get(), 0);
+  await write.close();
 });

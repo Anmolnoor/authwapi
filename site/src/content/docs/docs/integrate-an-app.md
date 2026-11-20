@@ -74,7 +74,10 @@ Check that `state` is the one you sent and `iss` is your issuer.
 - Ask for `organization` to learn which organization the user signs in for: AuthWAPI asks them to pick one of theirs
   (or none), shows it on the consent page, and puts `org_id` and `roles` in the access token and userinfo (never the
   ID token). The organization is fixed for the grant; each refresh re-checks that the user is still a member and
-  updates `roles`, and leaves both claims out once they aren't.
+  updates `roles`, and leaves both claims out once they aren't. Because the user picks the organization each time,
+  `prompt=none` with `organization` always returns `interaction_required`: keep the user signed in to your app with
+  the refresh token instead.
+- Without `scope`, the request gets `openid email offline_access`; `organization` is only granted when asked for.
 - Pass `resource` only if your app needs an access token for that API. The client must have been registered with it.
 
 ## 3. Exchange the code

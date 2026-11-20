@@ -194,22 +194,25 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
 
 - **Organizations** have members with the roles `owner`, `admin` and `member`
   ([Better Auth's organization plugin](https://better-auth.com/docs/plugins/organization), under
-  `/api/auth/organization/`). An agent creates one with the `create_org` MCP tool and invites people with
-  `invite_member`; signed-in users can also use the HTTP routes. An invitation is emailed with a link to
-  `/accept-invitation`, where the invitee accepts while signed in with that address, verified.
+  `/api/auth/organization/`). Only an agent creates one, with the `create_org` MCP tool (signed-in users can't over
+  HTTP); it invites people with `invite_member`, and members manage invitations and members over the HTTP routes as
+  their role allows. An invitation is emailed with a link to `/accept-invitation`, where the invitee accepts while
+  signed in with that address, verified.
 - **The first admin** is made with the `set_role` MCP tool (write key). Admins use
   [Better Auth's admin routes](https://better-auth.com/docs/plugins/admin) under `/api/auth/admin/` with their
   session.
-- **Banning** a user (`ban_user` over MCP, `/admin/ban-user` or the ban fields of `/admin/update-user`) ends their
-  sessions and revokes every refresh token they hold. They can't sign in, their refresh tokens and unused
+- **Banning** a user (`ban_user` over MCP, indefinite; `/admin/ban-user` or the ban fields of `/admin/update-user`,
+  which may set an expiry) ends their sessions, revokes every refresh token they hold and deletes their unused
+  authorization codes. They can't sign in, their refresh tokens and unused
   authorization codes are refused, and introspection and userinfo report their tokens inactive at once. An API that
   only checks JWT signatures (JWKS) still accepts an access token issued before the ban until it expires (at most
   15 minutes). `/admin/revoke-user-session(s)`, `/admin/set-user-password` and `/admin/remove-user` revoke the
-  user's refresh tokens too.
-- **Impersonation** (`/admin/impersonate-user`) lasts 10 minutes and writes `impersonate_user` and
+  user's refresh tokens too. A revocation that lands while tokens are being issued revokes them as well.
+- **Impersonation** (`/admin/impersonate-user`) lasts 10 minutes, never extended, and writes `impersonate_user` and
   `stop_impersonating` lines to `logs/audit.jsonl`. It can't target an admin or an organization owner or admin. An
-  impersonated session can't change the password, email, linked accounts, 2FA or passkeys, delete the account, or
-  sign in to apps: no consent and no authorization code.
+  impersonated session can't change the password, email, linked accounts, 2FA or passkeys, delete the account, read
+  or refresh linked providers' tokens, edit app consents, or sign in to apps: no consent and no authorization code.
+  Signing it out ends only that session; the user's own refresh tokens stay.
 
 ## Apps (OAuth 2.1 / OpenID Connect)
 
@@ -224,7 +227,9 @@ The client secret is printed once and stored hashed. Plain `http://` redirect UR
 
 - Authorization code flow with PKCE (S256, required). Scopes: `openid`, `email`, `offline_access`, `organization`.
 - ID token: `aud` = your client ID; `sub`, plus `email` and `email_verified` when you asked for `email`.
-- With `organization`, the user picks one of their organizations (`/select-org`) and the consent page shows it.
+- Without `scope`, a request gets `openid email offline_access`. With `organization`, the user picks one of their
+  organizations (`/select-org`) and the consent page shows it (if another tab picks a different one meanwhile,
+  consent is shown again).
   Access tokens and userinfo then carry `org_id` and `roles` (the user's roles in it); ID tokens don't. The
   organization is fixed for that grant: switching the active organization changes nothing, and each refresh
   re-checks membership and role (no longer a member: no `org_id` or `roles`).
@@ -265,7 +270,7 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 | `list_orgs` | `read`, `write` | `{limit?, offset?}` → organizations with member counts, oldest first |
 | `create_org` | `write` | `{name, slug, ownerUserId}` → a new organization; that user becomes its owner |
 | `invite_member` | `write` | `{organizationId, email, role}` (`member` or `admin`) → an invitation, emailed from the organization's owner |
-| `ban_user` | `write` | `{userId, reason?}` → sessions end, OAuth tokens are revoked, sign-in is refused |
+| `ban_user` | `write` | `{userId, reason?}` → an indefinite ban (it replaces a timed one): sessions end, OAuth tokens are revoked, sign-in is refused |
 | `unban_user` | `write` | `{userId}` → the user can sign in again |
 | `set_role` | `write` | `{userId, role}` (`admin` or `user`); this is how the first admin is made |
 

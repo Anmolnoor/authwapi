@@ -388,14 +388,14 @@ export function adminRoutes({ authContext, orgApi, sendVerificationEmail, config
       },
     },
     ban_user: {
-      description: "Ban a user: they can't sign in, their sessions end, and every OAuth token they hold is revoked.",
+      description: "Ban a user indefinitely: they can't sign in, their sessions end, and every OAuth token they hold is revoked.",
       scopes: ['write'],
       input: z.object({ userId: z.string().min(1).max(200), reason: z.string().min(1).max(200).optional() }),
       run: async ({ userId, reason }, ok) => {
         const ctx = await authContext;
         await runWithTransaction(ctx.adapter, async () => {
           if (!(await ctx.internalAdapter.findUserById(userId))) throw new ToolError('user_not_found');
-          await banUser(ctx, userId, reason);
+          await banUser(ctx, userId, { banExpires: null, ...(reason ? { banReason: reason } : {}) }); // indefinite
           ok({ target: userId });
         });
         return { userId, banned: true };

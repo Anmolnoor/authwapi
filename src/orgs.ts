@@ -2,11 +2,12 @@
 // and the policy around them. Org claims and the OAuth side of the ban live in src/oauth.ts; MCP tools in src/admin.ts.
 // - banUser: the one ban operation, for HTTP (/admin/ban-user, /admin/update-user) and MCP (ban_user).
 // - /admin/revoke-user-session(s), /admin/set-user-password and /admin/remove-user also revoke OAuth tokens.
-// - Impersonation: 10 minutes, audited, never an admin or an organization owner/admin, and no credential changes. It
-//   also gets no consent or authorization code (consentReferenceId in src/oauth.ts).
+// - Impersonation: 10 minutes (never refreshed), audited, never an admin or an organization owner/admin; no credential
+//   or consent changes, no linked-provider tokens. It also gets no authorization code (consentReferenceId in
+//   src/oauth.ts), and signing it out revokes nothing of the target's (src/oauth.ts).
 // - Invitations are emailed with a link to the hosted accept page (src/pages.ts).
 import path from 'node:path';
-import { defineRequestState, runWithRequestState } from '@better-auth/core/context';
+import { defineRequestState, getCurrentAdapter, queueAfterTransactionHook, runWithRequestState, runWithTransaction } from '@better-auth/core/context';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import { admin, organization } from 'better-auth/plugins';
@@ -26,14 +27,30 @@ export const ACCEPT_INVITATION_PAGE = '/accept-invitation';
 const roleList = (role: unknown) => (typeof role === 'string' ? role.split(',').map((r) => r.trim()) : []);
 
 /**
- * The one ban operation. The ban is written first, then sessions and OAuth tokens go: a token issued at the same time
- * is either revoked here, or written after the ban and then revoked by /oauth2/token's own re-check (src/oauth.ts).
- * Idempotent, so the HTTP routes run it again after Better Auth has written their ban.
+ * The one ban operation, in one transaction: the ban, the end of the user's sessions, the revocation of their OAuth
+ * tokens and the deletion of their unused authorization codes. The ban is written first: a token issued at the same
+ * time is either revoked here, or written after it and revoked by /oauth2/token's own re-check (src/oauth.ts).
+ * Idempotent, so the HTTP routes run it again after Better Auth has written their ban (keeping its banExpires);
+ * MCP's ban_user passes banExpires: null, an indefinite ban.
  */
-export async function banUser(context: Pick<AuthContext, 'adapter' | 'internalAdapter'>, userId: string, banReason?: string): Promise<void> {
-  await context.internalAdapter.updateUser(userId, { banned: true, ...(banReason ? { banReason } : {}) });
-  await context.internalAdapter.deleteUserSessions(userId);
-  await revokeUserTokens(context, userId);
+export async function banUser(
+  context: Pick<AuthContext, 'adapter' | 'internalAdapter'>,
+  userId: string,
+  fields: { banReason?: string; banExpires?: null } = {}
+): Promise<void> {
+  await runWithTransaction(context.adapter, async () => {
+    await context.internalAdapter.updateUser(userId, { banned: true, ...fields });
+    await context.internalAdapter.deleteUserSessions(userId);
+    await revokeUserTokens(context, userId);
+    // The provider stores a code as a verification row whose JSON value names its type and user.
+    await (await getCurrentAdapter(context.adapter)).deleteMany({
+      model: 'verification',
+      where: [
+        { field: 'value', operator: 'contains', value: '"type":"authorization_code"' },
+        { field: 'value', operator: 'contains', value: `"userId":${JSON.stringify(userId)}` },
+      ],
+    });
+  });
 }
 
 /** The user a server-side Better Auth call (no HTTP request) acts as: MCP has no session. See asUser. */
@@ -46,11 +63,25 @@ export const asUser = <T>(userId: string, call: () => Promise<T>): Promise<T> =>
     return call();
   }) as Promise<T>;
 
-// Credential changes an impersonated session may not make: password, email, linked accounts, 2FA, passkeys, deletion.
-const CREDENTIAL_PATHS = new Set(['/change-password', '/set-password', '/change-email', '/delete-user', '/link-social', '/unlink-account']);
-const changesCredentials = (p: string) => CREDENTIAL_PATHS.has(p) || p.startsWith('/two-factor/') || p.startsWith('/passkey/');
+// What an impersonated session may not do: change credentials (password, email, linked accounts, 2FA, passkeys),
+// delete the account, edit consent outside the authorization step, or get or refresh linked providers' tokens.
+const IMPERSONATION_REFUSED = new Set([
+  '/change-password',
+  '/set-password',
+  '/change-email',
+  '/delete-user',
+  '/link-social',
+  '/unlink-account',
+  '/oauth2/update-consent',
+  '/oauth2/delete-consent',
+  '/get-access-token',
+  '/refresh-token',
+  '/account-info',
+]);
+const refusedWhenImpersonated = (p: string) => IMPERSONATION_REFUSED.has(p) || p.startsWith('/two-factor/') || p.startsWith('/passkey/');
 // Admin routes that end a user's sessions or replace their password: their OAuth tokens go too (by body.userId).
-const REVOKES_TOKENS = new Set(['/admin/revoke-user-sessions', '/admin/set-user-password', '/admin/remove-user']);
+// /admin/remove-user needs nothing: deleting the user deletes their tokens (foreign keys cascade).
+const REVOKES_TOKENS = new Set(['/admin/revoke-user-sessions', '/admin/set-user-password']);
 
 function orgAdminGlue(auditFile: string): BetterAuthPlugin {
   const audit = (tool: string, who: string, target: string) => appendAudit(auditFile, { who, scope: 'admin-session', tool, outcome: 'ok', target });
@@ -73,6 +104,14 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
                 audit('impersonate_user', by, session.userId); // a line that can't be written stops the impersonation
               },
             },
+            update: {
+              // Better Auth's session refresh (get-session past updateAge) would push an impersonation to the normal
+              // 7 days; it keeps its own expiry. Better Auth sets ctx.context.session to the session it refreshes.
+              before: async (data, ctx) => {
+                const current = ctx?.context.session?.session as { expiresAt: Date; impersonatedBy?: string | null } | undefined;
+                if ('expiresAt' in data && current?.impersonatedBy) return { data: { expiresAt: current.expiresAt } };
+              },
+            },
             delete: {
               before: async (session, ctx) => {
                 const by = (session as { impersonatedBy?: string | null }).impersonatedBy;
@@ -87,12 +126,12 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
     hooks: {
       before: [
         {
-          matcher: (ctx) => ctx.path !== undefined && changesCredentials(ctx.path),
+          matcher: (ctx) => ctx.path !== undefined && refusedWhenImpersonated(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret);
             const found = token ? await ctx.context.internalAdapter.findSession(token) : null;
             if ((found?.session as { impersonatedBy?: string | null } | undefined)?.impersonatedBy) {
-              throw new APIError('FORBIDDEN', { code: 'IMPERSONATED_SESSION', message: "An impersonated session can't change credentials." });
+              throw new APIError('FORBIDDEN', { code: 'IMPERSONATED_SESSION', message: "An impersonated session can't do this." });
             }
           }),
         },
@@ -134,16 +173,20 @@ function orgAdminGlue(auditFile: string): BetterAuthPlugin {
 export function orgAdminPlugins({ config }: AuthDeps, deliver: Deliver): Plugin[] {
   return [
     organization({
+      // Organizations are made by an agent (MCP create_org, a server-side call Better Auth treats as a system action).
+      allowUserToCreateOrganization: false,
       // Accepting needs a verified email that matches the invitation (also Better Auth's default here; made explicit).
       requireEmailVerificationOnInvitation: true,
-      sendInvitationEmail: async ({ id, email, role, organization: org, inviter }) =>
-        deliver('invitation', {
+      // Queued until the invitation commits (MCP invite_member writes it inside its audited transaction), so a
+      // rolled-back invitation is never emailed. Outside a transaction it is queued at once.
+      sendInvitationEmail: ({ id, email, role, organization: org, inviter }) =>
+        queueAfterTransactionHook(async () => deliver('invitation', {
           to: email,
           subject: 'You are invited to join an organization on AuthWAPI',
           text:
             `${inviter.user.email} invited you to join the organization "${org.name}" as ${role}. To accept, sign in with this ` +
             `email address and open:\n\n${config.baseUrl.origin}${ACCEPT_INVITATION_PAGE}?id=${id}\n\nIf you don't know them, ignore this email.`,
-        }),
+        })),
     }),
     admin({ impersonationSessionDuration: IMPERSONATION_SECONDS }),
     orgAdminGlue(dataPaths(path.resolve(config.dataDir)).audit),
