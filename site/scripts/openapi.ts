@@ -188,7 +188,7 @@ function correct(path: string, method: string, op: any): void {
         description: 'Redirects to the callbackURL with `?token=<token>`, or with `?error=INVALID_TOKEN` if the token is invalid or expired',
         headers: { Location: { schema: { type: 'string' } } },
       },
-      403: json('The callbackURL is not on BASE_URL or an ALLOWED_HOSTS name', { message: 'Invalid callbackURL', code: 'INVALID_CALLBACK_URL' }),
+      403: json('The callbackURL failed validation. Use a safe relative path or an absolute URL on a trusted origin (BASE_URL or an ALLOWED_HOSTS origin).', { message: 'Invalid callbackURL', code: 'INVALID_CALLBACK_URL' }),
       429: { description: 'Too many requests', headers: { 'X-Retry-After': { schema: { type: 'integer' }, description: 'Seconds to wait' } } },
     };
   }

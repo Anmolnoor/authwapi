@@ -900,7 +900,7 @@
             }
           },
           "403": {
-            "description": "The callbackURL is not on BASE_URL or an ALLOWED_HOSTS name",
+            "description": "The callbackURL failed validation. Use a safe relative path or an absolute URL on a trusted origin (BASE_URL or an ALLOWED_HOSTS origin).",
             "content": {
               "application/json": {
                 "example": {
