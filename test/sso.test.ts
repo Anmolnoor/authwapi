@@ -713,7 +713,7 @@ test('MCP: register needs write and a domain no other provider has; list never s
 
   const listed = await ok(call(read, 'list_sso_providers'));
   assert.deepEqual(listed.providers, [
-    { providerId: 'sso-a', organizationId: a.organizationId, domain: 'a.example', issuer: idp.base, redirectUri: `${sp.base}/api/auth/sso/callback/sso-a` },
+    { providerId: 'sso-a', organizationId: a.organizationId, domain: 'a.example', issuer: idp.base, protocol: 'oidc', redirectUri: `${sp.base}/api/auth/sso/callback/sso-a` },
   ]);
   assert.doesNotMatch(JSON.stringify(listed), new RegExp(idpClient!.secret));
   assert.doesNotMatch(readFileSync(path.join(sp.paths.logs, 'audit.jsonl'), 'utf8') + readFileSync(path.join(sp.paths.logs, 'app.jsonl'), 'utf8'), new RegExp(idpClient!.secret));

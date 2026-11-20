@@ -11,9 +11,16 @@
 // - Deleting a provider ends its users' sessions and OAuth tokens (guardProviderMutation, inside Better Auth's delete).
 //   The owner who registered a provider, and its organization, can't be deleted while it exists (ON DELETE RESTRICT),
 //   and the organization always keeps an owner (migrations/0008's triggers); src/orgs.ts words those refusals.
-import { createHash } from 'node:crypto';
-import { sso, type SSOOptions } from '@better-auth/sso';
-import { defineRequestState, getCurrentAdapter, runWithTransaction } from '@better-auth/core/context';
+// M4b SAML (plan flow.md, M4b in "Rev 9 execution"), through the same plugin (samlify) and the same rules. A SAML
+// identity is (provider, NameID): the provider fixes the org, its IdP entity ID and signing certificate. Every
+// provider requires signed assertions and persistent NameIDs; responses must answer an AuthnRequest of ours (no
+// IdP-initiated sign-in), carry timestamps, and are signed with SHA-256 or stronger. The IdP's metadata and
+// certificate sit in the ssoProvider row, unencrypted, like OIDC client secrets: the data folder is the secret.
+import { createHash, X509Certificate } from 'node:crypto';
+import { deriveSAMLIdentityProviderEntityID, sso, type SAMLConfig, type SSOOptions, type SSOSAMLUserResolutionInput } from '@better-auth/sso';
+import { defineRequestState, getCurrentAdapter, getCurrentAuthEndpointContext, runWithTransaction } from '@better-auth/core/context';
+import { DOMParser, type Element } from '@xmldom/xmldom';
+import samlify from 'samlify';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import type Database from 'better-sqlite3';
 import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError, resetPassword } from 'better-auth/api';
@@ -44,9 +51,13 @@ const reject = (code: string, message: string) => ({ action: 'reject' as const, 
  * that email (it is never linked by email: the operator binds it with `sso bind`).
  */
 const resolveUser: NonNullable<SSOOptions['resolveUser']> = async (input, { database }) => {
-  if (input.protocol !== 'oidc') return reject('sso_protocol_not_supported', 'Only OIDC providers are supported.');
-  // The claims the profile came from (the verified ID token: providers have no userinfo endpoint here).
-  if (input.providerClaims.email_verified !== true) return reject('email_not_verified', "The identity provider didn't confirm this email address.");
+  if (input.protocol === 'saml') {
+    const refused = checkSamlAssertion(input);
+    if (refused) return refused;
+  } else if (input.providerClaims.email_verified !== true) {
+    // The claims the profile came from (the verified ID token: providers have no userinfo endpoint here).
+    return reject('email_not_verified', "The identity provider didn't confirm this email address.");
+  }
   const binding = [
     { field: 'providerId', value: input.providerId },
     { field: 'accountId', value: input.accountKey.accountId },
@@ -71,6 +82,43 @@ const guardProviderMutation: NonNullable<SSOOptions['guardProviderMutation']> = 
   }
   (await providerDeleted.get())?.();
 };
+
+export const PERSISTENT_NAMEID = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
+const SAML_ASSERTION_NS = 'urn:oasis:names:tc:SAML:2.0:assertion';
+const XMLDSIG_NS = 'http://www.w3.org/2000/09/xmldsig#';
+const STRONG_SIGNATURE = /^http:\/\/www\.w3\.org\/2001\/04\/xmldsig-more#(rsa|ecdsa)-sha(256|384|512)$/;
+const STRONG_DIGEST = /^http:\/\/www\.w3\.org\/2001\/04\/(xmlenc#sha256|xmldsig-more#sha384|xmlenc#sha512)$/;
+const children = (parent: Element | undefined, ns: string, name: string) =>
+  parent ? (Array.from(parent.childNodes) as Element[]).filter((n) => n.nodeType === 1 && n.namespaceURI === ns && n.localName === name) : [];
+
+/**
+ * What a SAML assertion needs beyond Better Auth's checks (signature, audience, recipient, InResponseTo, timestamps,
+ * replay), read from the response the ACS was posted. Better Auth has already accepted exactly one assertion, the
+ * signed child of the Response, so its Subject/NameID is the signed one; the NameID's text must also be the one
+ * Better Auth extracted.
+ * - Signatures and digests are SHA-256 or stronger. (Better Auth's `onDeprecated: 'reject'` reads the algorithm
+ *   only from a redirect binding's query string; the ACS takes POST, whose algorithm is inside the XML.)
+ * - The NameID is persistent: transient ones change every sign-in, email ones change with the address.
+ * - An `email` attribute carries the address (otherwise Better Auth would fall back to the NameID).
+ */
+function checkSamlAssertion(input: SSOSAMLUserResolutionInput) {
+  const posted = (getCurrentAuthEndpointContext().body as { SAMLResponse: string }).SAMLResponse;
+  const doc = new DOMParser().parseFromString(Buffer.from(posted.replace(/\s+/g, ''), 'base64').toString('utf8'), 'text/xml');
+  const algorithms = (name: string) => Array.from(doc.getElementsByTagNameNS(XMLDSIG_NS, name)).map((e) => e.getAttribute('Algorithm') ?? '');
+  if (!algorithms('SignatureMethod').every((a) => STRONG_SIGNATURE.test(a)) || !algorithms('DigestMethod').every((a) => STRONG_DIGEST.test(a))) {
+    return reject('saml_deprecated_algorithm', 'The identity provider must sign with SHA-256 or stronger.');
+  }
+  const [assertion] = children(doc.documentElement ?? undefined, SAML_ASSERTION_NS, 'Assertion');
+  const nameIds = children(children(assertion, SAML_ASSERTION_NS, 'Subject')[0], SAML_ASSERTION_NS, 'NameID');
+  if (nameIds.length !== 1 || nameIds[0].getAttribute('Format') !== PERSISTENT_NAMEID || nameIds[0].textContent?.trim() !== input.accountKey.accountId) {
+    return reject('nameid_not_persistent', 'The identity provider must send a persistent NameID.');
+  }
+  const email = input.providerAttributes.email;
+  if (typeof email !== 'string' || !z.email().safeParse(email).success || email.toLowerCase() !== input.providerUser.email) {
+    return reject('email_missing', 'The identity provider must send the email address in an "email" attribute.');
+  }
+  return null;
+}
 
 const b64sha256 = (s: string) => createHash('sha256').update(s).digest('base64url');
 
@@ -241,33 +289,103 @@ export function ssoPlugins(db: Database.Database): Plugin[] {
       // Better Auth's provisioning would (re)add the member on every sign-in, after the sign-in commits. Only users SSO
       // creates join, in the same transaction (ssoGlue's account hook); `sso bind` adds the member it binds.
       organizationProvisioning: { disabled: true },
+      saml: {
+        enableInResponseToValidation: true, // a response must answer a stored AuthnRequest, for this provider
+        allowIdpInitiated: false, // global in Better Auth: no unsolicited responses for any provider
+        requireTimestamps: true, // NotBefore/NotOnOrAfter in Conditions
+        algorithms: { onDeprecated: 'reject' }, // SHA-1/RSA1_5/3DES (redirect binding, encryption); POST: checkSamlAssertion
+        // Replay: Better Auth always records each assertion ID until its NotOnOrAfter (no option).
+      },
     }),
     ssoGlue(db),
   ];
 }
 
 const url = z.url({ protocol: /^https?$/ }).max(2048);
-/** What registering an OIDC provider takes (admin MCP register_sso_provider, CLI `sso register`). Endpoints are explicit: no discovery. */
-export const ssoProviderInput = z.object({
+const common = {
   organizationId: z.string().min(1).max(200),
   slug: z.string().max(48).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/), // the provider ID is sso-<slug>
   domain: z.string().max(253).regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/), // routes sign-ins only
+};
+/** OIDC: endpoints are explicit (no discovery). */
+const oidcFields = {
   issuer: url,
   clientId: z.string().min(1).max(500),
   clientSecret: z.string().min(1).max(2000),
   authorizationEndpoint: url,
   tokenEndpoint: url,
   jwksEndpoint: url,
-});
+};
+/** SAML: the IdP's metadata XML, or its entity ID, SSO URL (HTTP-Redirect binding) and signing certificate (PEM). */
+const samlFields = {
+  idpMetadata: z.string().min(1).max(100_000),
+  idpEntityId: z.string().min(1).max(1024),
+  idpSsoUrl: url,
+  idpSigningCert: z.string().min(1).max(20_000),
+};
+const oidcInput = z.strictObject({ protocol: z.literal('oidc'), ...common, ...oidcFields });
+const samlInput = z
+  .strictObject({ protocol: z.literal('saml'), ...common, ...z.object(samlFields).partial().shape })
+  .refine((v) => (v.idpMetadata ? !v.idpEntityId && !v.idpSsoUrl && !v.idpSigningCert : !!(v.idpEntityId && v.idpSsoUrl && v.idpSigningCert)), {
+    message: 'Give idpMetadata, or idpEntityId, idpSsoUrl and idpSigningCert (not both).',
+  });
+/** The protocol's own (strict) schema: another protocol's fields are refused. Fields left undefined don't count. */
+const byProtocol = (v: { protocol: 'oidc' | 'saml' }) =>
+  (v.protocol === 'saml' ? samlInput : oidcInput).safeParse(Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined)));
+/** What registering a provider takes (admin MCP register_sso_provider, CLI `sso register`): OIDC (the default) or SAML. */
+export const ssoProviderInput = z
+  .object({ protocol: z.enum(['oidc', 'saml']).default('oidc'), ...common, ...z.object(oidcFields).partial().shape, ...z.object(samlFields).partial().shape })
+  .superRefine((v, ctx) => {
+    for (const issue of byProtocol(v).error?.issues ?? []) ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  });
 export type SsoProviderInput = z.infer<typeof ssoProviderInput>;
 
-/** What callers see of a provider: never the client secret. */
-export interface SsoProviderSummary {
-  providerId: string;
-  organizationId: string;
-  domain: string;
-  issuer: string;
-  redirectUri: string;
+/** What callers see of a provider: never the client secret. SAML: what the IdP admin enters (ACS URL, SP entity ID). */
+export type SsoProviderSummary = { providerId: string; organizationId: string; domain: string; issuer: string } & (
+  | { protocol: 'oidc'; redirectUri: string }
+  | { protocol: 'saml'; acsUrl: string; spEntityId: string }
+);
+/** The SP entity ID is also the URL of the provider's SP metadata, for the IdP admin to import. */
+const spEntityId = (context: AuthContext, providerId: string) => `${context.baseURL}/sso/saml2/sp/metadata?providerId=${providerId}`;
+function summary(context: AuthContext, p: { providerId: string; organizationId: string; domain: string; issuer: string; samlConfig: object | null }): SsoProviderSummary {
+  const { providerId, organizationId, domain } = p;
+  if (!p.samlConfig) return { providerId, organizationId, domain, issuer: p.issuer, protocol: 'oidc', redirectUri: ssoRedirectUri(context, providerId) };
+  const issuer = deriveSAMLIdentityProviderEntityID(p.samlConfig as SAMLConfig);
+  return { providerId, organizationId, domain, issuer, protocol: 'saml', acsUrl: `${context.baseURL}/sso/saml2/sp/acs/${providerId}`, spEntityId: p.issuer };
+}
+
+/** https only; plain http just for a loopback origin the operator listed as trusted (ALLOWED_HOSTS; a test IdP). */
+const secureUrl = (context: AuthContext, raw: unknown) => {
+  const u = typeof raw === 'string' && URL.canParse(raw) ? new URL(raw) : null;
+  return !!u && (u.protocol === 'https:' || (u.protocol === 'http:' && isLoopback(u) && context.isTrustedOrigin(u.href)));
+};
+
+/**
+ * The samlConfig every SAML provider gets: signed assertions required, persistent NameIDs asked for. IdP metadata
+ * must name a signing certificate and an HTTP-Redirect SSO URL (the AuthnRequest's binding).
+ */
+function samlConfig(context: AuthContext, input: z.infer<typeof samlInput>) {
+  const fixed = { wantAssertionsSigned: true, identifierFormat: PERSISTENT_NAMEID };
+  if (!input.idpMetadata) {
+    if (!secureUrl(context, input.idpSsoUrl)) throw new SsoRefusal('insecure_endpoint');
+    try {
+      new X509Certificate(input.idpSigningCert!);
+    } catch {
+      throw new SsoRefusal('invalid_idp_signing_cert');
+    }
+    return { ...fixed, idpMetadata: { entityID: input.idpEntityId }, entryPoint: input.idpSsoUrl, cert: input.idpSigningCert };
+  }
+  let meta;
+  try {
+    meta = samlify.IdPMetadata(input.idpMetadata);
+    meta.getEntityID();
+  } catch {
+    throw new SsoRefusal('invalid_idp_metadata');
+  }
+  const ssoUrl = meta.getSingleSignOnService('redirect');
+  if (!secureUrl(context, ssoUrl)) throw new SsoRefusal('insecure_endpoint');
+  if ([meta.getX509Certificate('signing')].flat().filter(Boolean).length === 0) throw new SsoRefusal('idp_signing_cert_missing');
+  return { ...fixed, idpMetadata: { metadata: input.idpMetadata }, entryPoint: ssoUrl as string }; // Better Auth requires entryPoint; the metadata's wins
 }
 
 /** The SSO plugin's endpoints, called in-process (authOptions() is typed as plain BetterAuthOptions, so auth.api doesn't list them). */
@@ -294,17 +412,35 @@ const providerWithDomain = async (context: AuthContext, domain: string) =>
   (await getCurrentAdapter(context.adapter)).findMany<{ providerId: string }>({ model: 'ssoProvider', where: [{ field: 'domain', value: domain }] });
 
 /**
- * Registers an OIDC provider for an organization, through Better Auth's /sso/register run as the organization's
+ * Registers an OIDC or SAML provider for an organization, through Better Auth's /sso/register run as the organization's
  * owner (it checks the owner role, reserved and taken IDs, and that endpoints aren't private hosts). A domain belongs
  * to one provider. `audit` writes the caller's line; if it can't, the provider is deleted again.
  */
-export async function registerSsoProvider(context: AuthContext, api: unknown, input: SsoProviderInput, audit: (providerId: string) => void): Promise<SsoProviderSummary> {
+export async function registerSsoProvider(context: AuthContext, api: unknown, raw: SsoProviderInput, audit: (providerId: string) => void): Promise<SsoProviderSummary> {
   const endpoints = api as SsoEndpoints;
+  const parsed = byProtocol(raw);
+  if (!parsed.success) throw new SsoRefusal('invalid_input');
+  const input = parsed.data;
   const providerId = `${SSO_PROVIDER_PREFIX}${input.slug}`;
-  // https only; plain http just for a loopback origin the operator listed as trusted (ALLOWED_HOSTS; the test IdP).
-  for (const raw of [input.issuer, input.authorizationEndpoint, input.tokenEndpoint, input.jwksEndpoint]) {
-    const u = new URL(raw);
-    if (u.protocol !== 'https:' && !(isLoopback(u) && context.isTrustedOrigin(u.href))) throw new SsoRefusal('insecure_endpoint');
+  let protocolConfig;
+  if (input.protocol === 'saml') {
+    protocolConfig = { issuer: spEntityId(context, providerId), samlConfig: samlConfig(context, input) };
+  } else {
+    if (![input.issuer, input.authorizationEndpoint, input.tokenEndpoint, input.jwksEndpoint].every((u) => secureUrl(context, u))) throw new SsoRefusal('insecure_endpoint');
+    protocolConfig = {
+      issuer: input.issuer,
+      oidcConfig: {
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+        authorizationEndpoint: input.authorizationEndpoint,
+        tokenEndpoint: input.tokenEndpoint,
+        jwksEndpoint: input.jwksEndpoint,
+        tokenEndpointAuthentication: 'client_secret_basic',
+        scopes: ['openid', 'email'],
+        pkce: true,
+        skipDiscovery: true,
+      },
+    };
   }
   const owner = await ownerOf(context, input.organizationId);
   // An unverified owner's first mailbox proof would purge their membership, leaving a provider nobody can delete.
@@ -320,27 +456,12 @@ export async function registerSsoProvider(context: AuthContext, api: unknown, in
     await asUser(owner, () =>
       endpoints.registerSSOProvider({
         headers: new Headers(),
-        body: {
-          providerId,
-          issuer: input.issuer,
-          domain: input.domain,
-          organizationId: input.organizationId,
-          oidcConfig: {
-            clientId: input.clientId,
-            clientSecret: input.clientSecret,
-            authorizationEndpoint: input.authorizationEndpoint,
-            tokenEndpoint: input.tokenEndpoint,
-            jwksEndpoint: input.jwksEndpoint,
-            tokenEndpointAuthentication: 'client_secret_basic',
-            scopes: ['openid', 'email'],
-            pkce: true,
-            skipDiscovery: true,
-          },
-        },
+        body: { providerId, domain: input.domain, organizationId: input.organizationId, ...protocolConfig },
       })
     );
     audit(providerId);
-    return { providerId, organizationId: input.organizationId, domain: input.domain, issuer: input.issuer, redirectUri: ssoRedirectUri(context, providerId) };
+    const saml = 'samlConfig' in protocolConfig ? protocolConfig.samlConfig : null;
+    return summary(context, { providerId, organizationId: input.organizationId, domain: input.domain, issuer: protocolConfig.issuer, samlConfig: saml });
   });
 }
 
@@ -360,16 +481,16 @@ export async function deleteSsoProvider(context: AuthContext, api: unknown, prov
 
 /** Every provider, oldest first, or one organization's. */
 export async function listSsoProviders(context: AuthContext, organizationId?: string): Promise<SsoProviderSummary[]> {
-  const rows = await context.adapter.findMany<{ providerId: string; organizationId: string; domain: string; issuer: string }>({
+  const rows = await context.adapter.findMany<{ providerId: string; organizationId: string; domain: string; issuer: string; samlConfig: string | null }>({
     model: 'ssoProvider',
     where: organizationId ? [{ field: 'organizationId', value: organizationId }] : [],
     sortBy: { field: 'providerId', direction: 'asc' },
   });
-  return rows.map(({ providerId, organizationId: org, domain, issuer }) => ({ providerId, organizationId: org, domain, issuer, redirectUri: ssoRedirectUri(context, providerId) }));
+  return rows.map((row) => summary(context, { ...row, samlConfig: row.samlConfig ? JSON.parse(row.samlConfig) : null }));
 }
 
 /**
- * The operator's pre-provisioned binding (CLI `sso bind`): the subject `sub` at this provider signs in as an existing
+ * The operator's pre-provisioned binding (CLI `sso bind`): the subject `sub` (SAML: the NameID) at this provider signs in as an existing
  * user. The user's email must be verified (an unverified account may be someone else's pre-registration).
  */
 export async function bindSsoIdentity(context: AuthContext, providerId: string, subject: string, userId: string, audit: () => void): Promise<void> {
