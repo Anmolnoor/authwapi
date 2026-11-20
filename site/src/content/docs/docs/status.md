@@ -50,8 +50,8 @@ from a version tag, and [UPGRADING.md](https://github.com/Anmolnoor/authwapi/blo
 upgrade notes. No release tag (`vX.Y.Z`) has been pushed yet, so there is no published image: build it from source
 as the quick start shows.
 
-Still open from M1's exit checklist: a click-through of every hosted page and email link in a browser, and a real
-email sent through Resend.
+Two live checks from M1's exit checklist are still open: a click-through of every hosted page and email link in a
+browser, and a real email sent through Resend.
 
 ## The earlier version
 
