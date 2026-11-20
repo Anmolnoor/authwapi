@@ -1,0 +1,128 @@
+// Operator CLI. Registers OAuth clients (dynamic registration is off), on the same data folder as the server:
+//   node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
+//   node src/cli.ts clients list
+// In the container: docker exec authwapi node src/cli.ts ...
+// The client secret is printed once, to stdout, and stored only as a hash. It never goes to the log.
+import type { oauthProvider } from '@better-auth/oauth-provider';
+import { betterAuth, type InferAPI } from 'better-auth';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { parseArgs } from 'node:util';
+import { authOptions } from './auth.ts';
+import { loadConfig } from './config.ts';
+import { dataPaths, loadOrCreateSecret, prepareDataDir } from './data.ts';
+import { openDb } from './db.ts';
+import { createLogger } from './log.ts';
+import { MIGRATIONS_DIR } from './migrate.ts';
+
+const USAGE = `Usage:
+  node src/cli.ts clients create --name <name> --redirect-uri <uri> [--redirect-uri <uri> ...] [--resource <uri> ...]
+  node src/cli.ts clients list
+
+--resource names an API the app may request access tokens for (RFC 8707). Tokens requested with
+resource=<uri> are JWTs with aud=<uri>. A resource that doesn't exist yet is created.`;
+
+class UsageError extends Error {}
+
+/** authOptions() is typed as plain BetterAuthOptions, so auth.api doesn't list the oauth-provider endpoints. */
+type OAuthAdminApi = InferAPI<ReturnType<typeof oauthProvider>['endpoints']>;
+
+async function main(argv: string[]): Promise<void> {
+  const [group, command, ...rest] = argv;
+  if (group !== 'clients' || (command !== 'create' && command !== 'list')) throw new UsageError('unknown command');
+  const { values } = parseArgs({
+    args: rest,
+    options: {
+      name: { type: 'string' },
+      'redirect-uri': { type: 'string', multiple: true },
+      resource: { type: 'string', multiple: true },
+    },
+    strict: true,
+  });
+  if (command === 'list' && Object.keys(values).length > 0) throw new UsageError('clients list takes no options');
+  if (command === 'create') {
+    if (!values.name?.trim()) throw new UsageError('--name is required');
+    if (!values['redirect-uri']?.length) throw new UsageError('at least one --redirect-uri is required');
+  }
+
+  process.umask(0o077);
+  const config = loadConfig(process.env);
+  const db0 = dataPaths(path.resolve(config.dataDir)).db;
+  if (!existsSync(db0)) throw new Error(`No database at ${db0}. Start the server once on this data folder (DATA_DIR), then run this again.`);
+  // `docker exec` runs as root; become the data folder's owner so nothing in it ends up owned by root.
+  if (process.getuid?.() === 0) {
+    const owner = statSync(db0);
+    if (owner.uid === 0) throw new Error(`${db0} is owned by root; the server never runs as root. Fix the data folder's owner first.`);
+    process.setgid!(owner.gid);
+    process.setuid!(owner.uid);
+  }
+  const paths = prepareDataDir(config.dataDir);
+  const db = openDb(paths.db);
+  try {
+    const applied = new Set(db.prepare('SELECT name FROM _authwapi_migrations').pluck().all() as string[]);
+    const pending = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && !applied.has(f));
+    if (pending.length > 0) {
+      throw new Error(`This database hasn't had ${pending.join(', ')} applied. Start the server (it applies migrations), then run this again.`);
+    }
+
+    if (command === 'list') {
+      const rows = db
+        .prepare('SELECT clientId, name, redirectUris, createdAt FROM oauthClient ORDER BY createdAt')
+        .all() as { clientId: string; name: string | null; redirectUris: string; createdAt: string }[];
+      const links = db.prepare('SELECT resourceId FROM oauthClientResource WHERE clientId = ? ORDER BY resourceId').pluck();
+      if (rows.length === 0) console.log('No clients. Create one with: node src/cli.ts clients create --name <name> --redirect-uri <uri>');
+      for (const r of rows) {
+        console.log(`${r.clientId}  ${r.name ?? ''}`);
+        console.log(`  redirect URIs: ${(JSON.parse(r.redirectUris) as string[]).join(' ')}`);
+        const resources = links.all(r.clientId) as string[];
+        if (resources.length > 0) console.log(`  resources: ${resources.join(' ')}`);
+        console.log(`  created: ${new Date(r.createdAt).toISOString()}`);
+      }
+      return;
+    }
+
+    const log = createLogger(paths.logs);
+    const sendMail = async () => {
+      throw new Error('The CLI does not send email');
+    };
+    const auth = betterAuth(authOptions({ config, db, secret: loadOrCreateSecret(paths.secret), sendMail, log }));
+    const api = auth.api as unknown as OAuthAdminApi;
+    const headers = new Headers(); // Better Auth's admin endpoints require a headers object
+    const resources = [...new Set(values.resource ?? [])];
+    const known = new Set((await api.adminListOAuthResources({ headers })).map((r) => r.identifier));
+    for (const identifier of resources.filter((r) => !known.has(r))) {
+      await api.adminCreateOAuthResource({ headers, body: { identifier, name: identifier } });
+      log('info', 'oauth resource created', { identifier });
+    }
+    const client = await api.adminCreateOAuthClient({
+      headers,
+      body: {
+        client_name: values.name!.trim(),
+        redirect_uris: values['redirect-uri']!,
+        token_endpoint_auth_method: 'client_secret_basic',
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        ...(resources.length > 0 ? { resources } : {}),
+      },
+    });
+    if (!client.client_secret) throw new Error('Better Auth created the client without a secret; this is a bug, please report it.');
+    log('info', 'oauth client created', { clientId: client.client_id, name: client.client_name, redirectUris: client.redirect_uris, resources });
+    console.log(`Created client "${client.client_name}". The secret is shown only this once; store it now.`);
+    console.log(`client_id:     ${client.client_id}`);
+    console.log(`client_secret: ${client.client_secret}`);
+    if (resources.length > 0) console.log(`resources:     ${resources.join(' ')}`);
+  } finally {
+    db.close();
+  }
+}
+
+try {
+  await main(process.argv.slice(2));
+} catch (err) {
+  const usage = err instanceof UsageError || (err as { code?: string }).code?.startsWith('ERR_PARSE_ARGS');
+  // Better Auth's errors carry the reason in body.error_description (e.g. an invalid redirect URI).
+  const body = (err as { body?: { error_description?: string; message?: string } }).body;
+  const reason = body?.error_description ?? body?.message ?? (err instanceof Error ? err.message : String(err));
+  process.stderr.write(`authwapi: ${reason}\n${usage ? `\n${USAGE}\n` : ''}`);
+  process.exit(usage ? 2 : 1);
+}
