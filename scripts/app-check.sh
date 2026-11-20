@@ -192,4 +192,4 @@ check_pass 'sign-out ended the browser session; both access tokens introspected 
 STEP='check the refresh token from the flow without offline_access'
 # OIDC: no refresh token without offline_access.
 jq -e '.refresh_token == null' "$T/state/other.json" >/dev/null
-check_pass 'the flow without offline_access received no refresh token
+check_pass 'the flow without offline_access received no refresh token'
