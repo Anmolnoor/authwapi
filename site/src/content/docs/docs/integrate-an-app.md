@@ -41,7 +41,8 @@ resources:     http://localhost:5000/api
   app only needs to know who signed in.
 - The secret is printed once and stored hashed. `docker exec -u 1000 authwapi node src/cli.ts clients list` shows
   the clients, never secrets.
-- `-u 1000` runs the CLI as the user the server runs as. If you set `PUID` and `PGID`, use `-u <PUID>:<PGID>`.
+- `-u 1000` runs the CLI as the user the server runs as. If you set `PUID` or `PGID`, use `-u <PUID>:<PGID>`, with
+  `1000` for the one you didn't set.
 
 ## 2. Send the user to sign in
 
@@ -146,8 +147,8 @@ A browser session cookie is not an access token: your API should accept only bea
 ## 6. Refresh
 
 With `offline_access`, trade the refresh token for new tokens. Each refresh token works once; use the new one it
-returns. Using an old one again also revokes the refresh tokens issued from it (JWT access tokens stay valid until
-they expire), so never refresh twice at once with the same token.
+returns. Using an old one again revokes every refresh token the user has for your app, and their opaque access
+tokens (JWT access tokens stay valid until they expire), so never refresh twice at once with the same token.
 
 ```bash
 curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth2/token \

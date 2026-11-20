@@ -147,7 +147,7 @@ const AUTHWAPI_PATHS = {
       description: 'Signs in and sets the session cookie. Limited to 5 a minute per IP.',
       parameters: tokenParam,
       responses: {
-        303: { description: 'Signed in: redirects to the callbackURL. A bad, used or expired link: redirects to `/?error=INVALID_TOKEN` (or the errorCallbackURL) and sets no cookie.' },
+        303: { description: 'Signed in: redirects to the callbackURL. A bad, used or expired link: redirects to the errorCallbackURL (else the callbackURL, else `/`) with `?error=INVALID_TOKEN` and sets no cookie.' },
         400: htmlPage('Too many tries, or another error'),
       },
     },

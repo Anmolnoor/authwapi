@@ -4131,7 +4131,7 @@
         ],
         "responses": {
           "303": {
-            "description": "Signed in: redirects to the callbackURL. A bad, used or expired link: redirects to `/?error=INVALID_TOKEN` (or the errorCallbackURL) and sets no cookie."
+            "description": "Signed in: redirects to the callbackURL. A bad, used or expired link: redirects to the errorCallbackURL (else the callbackURL, else `/`) with `?error=INVALID_TOKEN` and sets no cookie."
           },
           "400": {
             "description": "Too many tries, or another error",

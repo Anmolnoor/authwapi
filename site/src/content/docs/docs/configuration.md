@@ -60,8 +60,8 @@ whether or not the account exists. A failed send is written to `logs/app.jsonl`.
   broken links.
 - **Origin.** A request that sends an `Origin` header must send `BASE_URL`'s origin (or an `ALLOWED_HOSTS` name
   with the same scheme). Anything else gets `403 {"error":"untrusted_origin","origin":"…"}`.
-- **Origin with a session cookie.** A `POST` to an `/api/auth` route that carries the session cookie must send
-  that `Origin`; without it,
+- **Origin with a session cookie.** A `POST` to a Better Auth route under `/api/auth` (not the email-link
+  pages) that carries the session cookie must send that `Origin`; without it,
   Better Auth answers `403 {"code":"MISSING_OR_NULL_ORIGIN"}` and does nothing. Browsers send it on their own;
   from curl or a script, add `-H 'origin: http://localhost:4000'`. Requests without a cookie (sign-up, sign-in,
   OAuth token calls) don't need one.
