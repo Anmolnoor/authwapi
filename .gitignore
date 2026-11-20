@@ -46,5 +46,5 @@ rejections.log
 .data/
 # data folder from the README quick start (holds the instance secret)
 /authwapi-data/
-# MCP client folder from the admin MCP runbook (holds an agent key)
+# guard: the admin MCP runbook makes its client folder (it holds an agent key) outside the checkout; this catches one made inside by mistake
 /authwapi-agent/

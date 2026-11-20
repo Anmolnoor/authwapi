@@ -126,8 +126,9 @@ and needs Node 22 or later. If your shell didn't keep the variables, set `BASE_U
    is the only place the key ever appears, so send it straight to a private file and read the key from there.
    `set -C` refuses to overwrite an existing `agent-key.json`, so a rerun can't destroy the only copy, and `KEY`
    is set only if the mint worked. If `set -C` refuses because `agent-key.json` already exists, keep that file: it
-   may hold the only copy of your write key. If the mint itself fails, the new file holds the error: read it, remove
-   that file only, and try again.
+   may hold the only copy of your write key. If the mint itself fails, the new file holds the error, or is empty with
+   the error on stderr: remove that file only and try again; if the bootstrap key is spent or expired, reissue it
+   first (below).
    ```bash
    export BASE_URL
    (umask 077; set -C; KEY="$BOOT" node admin.mjs mint_agent_key '{"scope":"write"}' > agent-key.json) \
