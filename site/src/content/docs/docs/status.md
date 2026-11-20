@@ -35,11 +35,9 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - One data folder: SQLite, migrations with a backup before each upgrade, JSON logs with no tokens or links
 - `export` / `import` of the data folder, safe while the server runs (SQLite's online backup API)
 - Docker image running as a non-root user; checked on rootful Docker, rootless podman and SELinux
-
-## Still to build in M1
-
-- **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over
-  MCP. Host run passed; container run pending.
+- The no-human agent test: a fresh agent, given only the docs, ran the container and administered it over MCP,
+  from the host and from another container
+  ([runs](https://github.com/Anmolnoor/authwapi/tree/main/.solofounder/agent-tests))
 
 ## After M1
 

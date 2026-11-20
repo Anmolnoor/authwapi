@@ -7,7 +7,7 @@ Works today: hosted sign-in and sign-up pages, email + password with verificatio
 sign-in, TOTP two-factor authentication with backup codes, passkeys, password reset, sessions, organizations with
 invitations and roles, admin ban and impersonation, apps signing users in through AuthWAPI (OAuth 2.1 / OpenID
 Connect), the admin MCP server for AI agents, the data folder with export/import, migrations and Docker.
-**No-human agent test:** host run passed; container run pending. Don't put real users on it yet.
+**No-human agent test:** host run passed; container run passed (see [`.solofounder/agent-tests/2026-11-20-container.md`](.solofounder/agent-tests/2026-11-20-container.md)). Don't put real users on it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -332,15 +332,19 @@ An agent administers AuthWAPI over MCP at `BASE_URL/mcp` (Streamable HTTP, proto
 clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth token or session is accepted here.
 
 1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
-   24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
-   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`. The file ends with a newline: `$(…)`
-   drops it, but trim it if you read the file in code.
+   24 hours, only with the `mint_agent_key` tool, and only once. Copy it into a private file without printing
+   it (the [runbook](site/src/content/docs/docs/for-ai-agents.md#admin-mcp) does this). The file ends with a
+   newline: trim it when you read it.
 2. **Mint a write key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (the
    bootstrap key mints only write keys). The result `{"keyId", "scope", "key"}` is the only place the key ever
    appears: store it now. The bootstrap key is now spent: its file stays, but the key in it no longer works.
    Mint `read` keys with the write key.
-3. **Reconnect with the agent key** and administer. For example, in Claude Code:
-   `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $KEY"`.
+3. **Reconnect with the agent key** and administer. For example, in Claude Code, from the folder holding
+   `agent-key.json`:
+   `claude mcp add --transport http authwapi http://localhost:4000/mcp --header "Authorization: Bearer $(node -p 'require("./agent-key.json").key')"`.
+   This one command does put the key on `claude`'s command line and in Claude Code's config, unlike the
+   `admin.mjs` runbooks; run it on a machine only you use. From an agent in another container, use `http://authwapi:4000/mcp`
+   ([Agent in another container](site/src/content/docs/docs/for-ai-agents.md#agent-in-another-container)).
 
 | Tool | Scope | What |
 | --- | --- | --- |
