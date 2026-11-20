@@ -142,7 +142,7 @@ async function totpStep(ctx: HookContext, encryptedSecret: string, code: unknown
 
 /** The user's TOTP row, if any. */
 const totpRow = (ctx: HookContext, userId: string) =>
-  ctx.context.adapter.findOne<{ secret: string; verified?: boolean | null; lockedUntil?: Date | string | null }>({
+  ctx.context.adapter.findOne<{ secret: string }>({
     model: 'twoFactor',
     where: [{ field: 'userId', value: userId }],
   });
@@ -232,10 +232,11 @@ function mfaGlue(): BetterAuthPlugin {
           // conditional UPDATE, and a code whose step isn't newer than the last one claimed is refused, so a replay
           // never reaches Better Auth (no session, no reset of its failure count; a sign-in keeps its challenge). The
           // code is checked against each user Better Auth may verify: the signed-in session's, and the sign-in
-          // challenge's (it falls back to that if the session is gone by then). For a challenge, only while Better
-          // Auth would check the code at all (not locked, attempts left, TOTP confirmed), so a refusal there never
-          // says whether a guess was right. The search is two steps wider than Better Auth's window and takes the
-          // newest match: its check comes a moment later, maybe in the next step, and the clock can step back.
+          // challenge's (it falls back to that if the session is gone by then), unless that challenge is past use for
+          // good (expired, or out of attempts). Nothing that can still change before Better Auth looks (a lock that
+          // ends, an attempts row it is re-writing) skips the claim; a code claimed and then refused is used up. The
+          // search is two steps wider than Better Auth's window and takes the newest match: its check comes a moment
+          // later, maybe in the next step, and the clock can step back.
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
             const users: string[] = [];
@@ -244,12 +245,10 @@ function mfaGlue(): BetterAuthPlugin {
             const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
             const challenged = cookie ? await ctx.context.internalAdapter.findVerificationValue(cookie) : null;
             const attempts = cookie ? await ctx.context.internalAdapter.findVerificationValue(`2fa-attempts-${cookie}`) : null;
-            const live = challenged && new Date(challenged.expiresAt) > new Date() && attempts && Number(attempts.value) < 5;
+            const live = challenged && new Date(challenged.expiresAt) > new Date() && !(attempts && Number(attempts.value) >= 5);
             for (const userId of new Set([...users, ...(live ? [challenged.value] : [])])) {
               const row = await totpRow(ctx, userId);
               if (!row) continue;
-              const viaChallenge = userId !== s?.userId;
-              if (viaChallenge && (row.verified === false || (row.lockedUntil && new Date(row.lockedUntil) > new Date()))) continue;
               const step = await totpStep(ctx, row.secret, ctx.body?.code, -2, 2);
               if (step === null) continue;
               const claimed = await ctx.context.adapter.updateMany({

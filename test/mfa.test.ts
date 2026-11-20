@@ -158,15 +158,17 @@ test('a sign-in refused for a used code keeps its challenge: the next code finis
   assert.equal(await currentUser(s, jar), 'ada@example.com');
 });
 
-test("a locked account refuses even a right code at sign-in, and doesn't use it up", async () => {
+test("a used code is refused even while the challenge's attempts row is being rewritten by another request", async () => {
   s = await startTestServer();
-  const { userId, secret } = await twoFactorUser();
-  const lastStep = () => one('SELECT lastUsedStep FROM twoFactor WHERE userId = ?', userId);
-  const before = lastStep();
+  const { code } = await twoFactorUser();
   const jar = await challenged();
-  exec(`UPDATE twoFactor SET lockedUntil = '${new Date(Date.now() + 600_000).toISOString()}' WHERE userId = '${userId}'`);
-  assert.notEqual((await verifyTotp(jar, totp(secret))).status, 200);
-  assert.equal(lastStep(), before, 'a code was used up while the account was locked');
+  // What a concurrent wrong code leaves for a moment: Better Auth consumes the attempts row, then writes it back.
+  // (Identifiers are stored hashed; a fresh challenge's attempts row is the one whose value is '0'.)
+  assert.equal(one(`SELECT count(*) FROM verification WHERE value = '0'`), 1);
+  exec(`DELETE FROM verification WHERE value = '0'`);
+  const r = await verifyTotp(jar, code);
+  assert.equal(r.status, 401);
+  assert.equal(r.json().code, 'TOTP_CODE_ALREADY_USED');
 });
 
 test('two requests confirming a new 2FA secret with the same code: one succeeds', async () => {
