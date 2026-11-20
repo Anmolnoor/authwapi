@@ -185,8 +185,7 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   trusted devices: `trustDevice` is refused.
 - **A TOTP code works once**, for sign-in, turning 2FA on and the recent-code checks alike: a code that was already
   accepted, or one from an earlier 30-second step than the last code accepted, gets
-  `401 TOTP_CODE_ALREADY_USED`. Wait for the next code. A right code is used up even when its request then fails for
-  another reason.
+  `401 TOTP_CODE_ALREADY_USED`. Wait for the next code. A code is used up only when it's accepted.
 - **Passkeys** are bound to `BASE_URL` (RP ID = its hostname, origin = its origin) and need user verification
   (fingerprint, face or PIN), checked on the server. A passkey sign-in counts as both factors. Use `localhost`, not
   `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.
