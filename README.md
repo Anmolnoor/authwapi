@@ -184,9 +184,8 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   cookie; finish with `POST /api/auth/two-factor/verify-totp` or `/verify-backup-code` and `{"code"}`. There are no
   trusted devices: `trustDevice` is refused.
 - **A TOTP code works once.** After a code is accepted (the one that turns 2FA on included), that code, or one from an
-  earlier 30-second step, gets `401 TOTP_CODE_ALREADY_USED`. At sign-in that ends the attempt: sign in again and enter
-  the next code (the hosted 2FA page goes back to sign-in, keeping the app's request). A code that's refused for
-  another reason isn't used up.
+  earlier 30-second step, gets `401 TOTP_CODE_ALREADY_USED`; enter the next code (a sign-in keeps its challenge, so the
+  same form works). A code refused because the account is locked or the sign-in is out of attempts isn't used up.
 - **Passkeys** are bound to `BASE_URL` (RP ID = its hostname, origin = its origin) and need user verification
   (fingerprint, face or PIN), checked on the server. A passkey sign-in counts as both factors. Use `localhost`, not
   `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.

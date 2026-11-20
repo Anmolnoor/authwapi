@@ -126,21 +126,26 @@ async function challenge(ctx: HookContext, token: string, userId: string) {
 
 /**
  * The check Better Auth's verify-totp makes (twoFactor/totp: the stored secret, decrypted, 6 digits, 30 s, one step
- * either side; `from`/`to` widen it), returning the 30-second step the code matches, or null.
+ * either side; `from`/`to` widen it), returning the 30-second step the code matches, newest first, or null.
  */
-async function totpStep(ctx: HookContext, userId: string, code: unknown, from = -1, to = 1): Promise<number | null> {
+async function totpStep(ctx: HookContext, encryptedSecret: string, code: unknown, from = -1, to = 1): Promise<number | null> {
   if (typeof code !== 'string' || !/^[0-9]{6}$/.test(code)) return null;
-  const row = await ctx.context.adapter.findOne<{ secret: string }>({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] });
-  if (!row) return null;
-  const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: row.secret });
+  const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: encryptedSecret });
   const secret = raw.startsWith('base32:') ? base32.decode(raw.slice(7).toUpperCase()) : raw;
   const otp = createOTP(secret, { digits: 6, period: 30 });
   const now = Math.floor(Date.now() / 30_000);
-  for (let step = now + from; step <= now + to; step++) {
+  for (let step = now + to; step >= now + from; step--) {
     if (timingSafeEqual(Buffer.from(code), Buffer.from(await otp.hotp(step)))) return step;
   }
   return null;
 }
+
+/** The user's TOTP row, if any. */
+const totpRow = (ctx: HookContext, userId: string) =>
+  ctx.context.adapter.findOne<{ secret: string; verified?: boolean | null; lockedUntil?: Date | string | null }>({
+    model: 'twoFactor',
+    where: [{ field: 'userId', value: userId }],
+  });
 
 /**
  * What turning 2FA on removes: every session of the user except `keepToken` (the one that turned it on), every OAuth
@@ -163,8 +168,6 @@ function mfaGlue(): BetterAuthPlugin {
   /** Session id → wrong codes entered while signed in, in a row. */
   const failures = new Map<string, number>();
   const arrived = (ctx: HookContext) => (ctx.request ? arrivedWith.get(ctx.request) : undefined);
-  /** A sign-in challenge's user and account-wide failure count before verify-totp (Better Auth resets it on success). */
-  const failuresBefore = new WeakMap<Request, { userId: string; failedVerificationCount: number }>();
   /** When each passkey registration request started (its passkey may sign someone in before it is checked). */
   const registrationStarted = new WeakMap<Request, number>();
   const isFresh = (sessionId: string) => (freshUntil.get(sessionId) ?? 0) > Date.now();
@@ -172,27 +175,6 @@ function mfaGlue(): BetterAuthPlugin {
     const now = Date.now();
     for (const [id, until] of freshUntil) if (until <= now) freshUntil.delete(id);
     freshUntil.set(sessionId, now + FRESH_CHECK_MS);
-  };
-  /**
-   * RFC 6238 §5.2: a TOTP code works once. Its step is claimed only after Better Auth accepted it (so its lockout and
-   * attempt limits come first), for the user it verified, in one conditional UPDATE: of two requests racing with one
-   * code, one claims it. The search is a step wider each way, as Better Auth checked a moment ago, maybe in another
-   * step (the clock can also step back). False: the code's step isn't newer than the last one claimed (a replay, or
-   * the race's loser).
-   */
-  const claimTotp = async (ctx: HookContext, userId: string): Promise<boolean> => {
-    const step = await totpStep(ctx, userId, ctx.body?.code, -2, 2);
-    if (step === null) return false;
-    const claimed = await ctx.context.adapter.updateMany({
-      model: 'twoFactor',
-      where: [
-        { field: 'userId', value: userId },
-        { field: 'lastUsedStep', operator: 'lt', value: step, connector: 'OR' },
-        { field: 'lastUsedStep', value: null, connector: 'OR' },
-      ],
-      update: { lastUsedStep: step },
-    });
-    return claimed > 0;
   };
 
   return {
@@ -246,17 +228,46 @@ function mfaGlue(): BetterAuthPlugin {
           }),
         },
         {
-          // The failure count a refused replay must put back (the after-hook below): read before Better Auth resets it.
-          matcher: (ctx) => ctx.path === '/two-factor/verify-totp' && ctx.request !== undefined,
+          // RFC 6238 §5.2: a TOTP code works once. Before Better Auth checks it, a right code claims its step in one
+          // conditional UPDATE, and a code whose step isn't newer than the last one claimed is refused, so a replay
+          // never reaches Better Auth (no session, no reset of its failure count; a sign-in keeps its challenge). The
+          // code is checked against each user Better Auth may verify: the signed-in session's, and the sign-in
+          // challenge's (it falls back to that if the session is gone by then). For a challenge, only while Better
+          // Auth would check the code at all (not locked, attempts left, TOTP confirmed), so a refusal there never
+          // says whether a guess was right. The search is two steps wider than Better Auth's window and takes the
+          // newest match: its check comes a moment later, maybe in the next step, and the clock can step back.
+          matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
+            const users: string[] = [];
+            const s = arrived(ctx);
+            if (s) users.push(s.userId);
             const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
             const challenged = cookie ? await ctx.context.internalAdapter.findVerificationValue(cookie) : null;
-            if (!challenged) return;
-            const row = await ctx.context.adapter.findOne<{ failedVerificationCount?: number | null }>({
-              model: 'twoFactor',
-              where: [{ field: 'userId', value: challenged.value }],
-            });
-            if (row) failuresBefore.set(ctx.request!, { userId: challenged.value, failedVerificationCount: row.failedVerificationCount ?? 0 });
+            const attempts = cookie ? await ctx.context.internalAdapter.findVerificationValue(`2fa-attempts-${cookie}`) : null;
+            const live = challenged && new Date(challenged.expiresAt) > new Date() && attempts && Number(attempts.value) < 5;
+            for (const userId of new Set([...users, ...(live ? [challenged.value] : [])])) {
+              const row = await totpRow(ctx, userId);
+              if (!row) continue;
+              const viaChallenge = userId !== s?.userId;
+              if (viaChallenge && (row.verified === false || (row.lockedUntil && new Date(row.lockedUntil) > new Date()))) continue;
+              const step = await totpStep(ctx, row.secret, ctx.body?.code, -2, 2);
+              if (step === null) continue;
+              const claimed = await ctx.context.adapter.updateMany({
+                model: 'twoFactor',
+                where: [
+                  { field: 'userId', value: userId },
+                  { field: 'lastUsedStep', operator: 'lt', value: step, connector: 'OR' },
+                  { field: 'lastUsedStep', value: null, connector: 'OR' },
+                ],
+                update: { lastUsedStep: step },
+              });
+              if (!claimed) {
+                throw new APIError('UNAUTHORIZED', {
+                  code: 'TOTP_CODE_ALREADY_USED',
+                  message: 'That code was already used. Wait for the next one in your authenticator app.',
+                });
+              }
+            }
           }),
         },
         {
@@ -265,7 +276,9 @@ function mfaGlue(): BetterAuthPlugin {
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
             const s = arrived(ctx);
-            if (!s || s.twoFactorEnabled || (await totpStep(ctx, s.userId, ctx.body?.code)) === null) return;
+            if (!s || s.twoFactorEnabled) return;
+            const row = await totpRow(ctx, s.userId);
+            if (!row || (await totpStep(ctx, row.secret, ctx.body?.code)) === null) return;
             await sweep(ctx, s.userId, s.token);
           }),
         },
@@ -279,43 +292,6 @@ function mfaGlue(): BetterAuthPlugin {
             const s = arrived(ctx);
             const returned = ctx.context.returned;
             if (!isAPIError(returned)) {
-              // A used code: undo what Better Auth just did and refuse. A new session it made (a sign-in, or turning
-              // 2FA on) is deleted, so the person signs in again with the next code; turning 2FA on sweeps as below,
-              // as 2FA may now be on. A sign-in's failure count, which Better Auth reset, is put back, but only while
-              // it still reads as that reset (0, not locked): never lowering a count or ending a lock written since.
-              const userId = (returned as { user?: { id?: string } } | undefined)?.user?.id ?? ctx.context.newSession?.user.id;
-              if (ctx.path === '/two-factor/verify-totp' && userId && !(await claimTotp(ctx, userId))) {
-                const made = ctx.context.newSession?.session.token;
-                const signedOut = made !== undefined && made !== s?.token;
-                if (signedOut) {
-                  await ctx.context.internalAdapter.deleteSession(made);
-                  ctx.context.setNewSession(null);
-                  dropSessionCookies(ctx);
-                  deleteSessionCookie(ctx, true);
-                }
-                if (s && !s.twoFactorEnabled && userId === s.userId) {
-                  await sweep(ctx, userId, undefined);
-                } else {
-                  const before = ctx.request ? failuresBefore.get(ctx.request) : undefined;
-                  if (before?.userId === userId && before.failedVerificationCount > 0) {
-                    await ctx.context.adapter.updateMany({
-                      model: 'twoFactor',
-                      where: [
-                        { field: 'userId', value: userId },
-                        { field: 'failedVerificationCount', value: 0 },
-                        { field: 'lockedUntil', value: null },
-                      ],
-                      update: { failedVerificationCount: before.failedVerificationCount },
-                    });
-                  }
-                }
-                throw new APIError('UNAUTHORIZED', {
-                  code: 'TOTP_CODE_ALREADY_USED',
-                  message: signedOut
-                    ? 'That code was already used. Sign in again and enter the next code from your authenticator app.'
-                    : 'That code was already used. Wait for the next one in your authenticator app.',
-                });
-              }
               const sessionId = ctx.context.newSession?.session.id ?? s?.sessionId;
               if (sessionId) markFresh(sessionId);
               if (!s) return;
