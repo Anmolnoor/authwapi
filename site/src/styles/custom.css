@@ -1,0 +1,11 @@
+/* Brand accent: the hosted pages' blue (#1f4fd1). */
+:root {
+  --sl-color-accent-low: #0d1f52;
+  --sl-color-accent: #3d6cf0;
+  --sl-color-accent-high: #c7d5fc;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #dbe4fd;
+  --sl-color-accent: #1f4fd1;
+  --sl-color-accent-high: #0d1f52;
+}
