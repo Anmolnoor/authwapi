@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -257,6 +257,30 @@ test('userinfo accepts a bearer access token and refuses a browser session cooki
   assert.equal(info.sub, user.userId);
   assert.equal(info.email, user.email);
   assert.equal(info.email_verified, true);
+});
+
+test('the admin MCP accepts no OAuth token or session token, even one minted for /mcp as its audience', async () => {
+  const MCP = `${s.base}/mcp`;
+  const client = await createClient('--resource', MCP);
+  const user = await signedInUser();
+  const opaque = await codeForTokens(client, user.cookie);
+  const jwt = await codeForTokens(client, user.cookie, { resource: MCP });
+  assert.ok([decodeJwt(jwt.access_token).aud].flat().includes(MCP));
+  const sessionToken = decodeURIComponent(/session_token=([^;]+)/.exec(user.cookie)![1]).split('.')[0];
+  for (const bearer of [opaque.access_token, opaque.refresh_token!, opaque.id_token!, jwt.access_token, sessionToken]) {
+    const res = await fetch(MCP, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert.equal(res.status, 401);
+  }
+  const withCookie = await fetch(MCP, { method: 'POST', headers: { cookie: user.cookie, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(withCookie.status, 401);
+  // The refusals are logged, but never the token presented.
+  const logs = readdirSync(s.paths.logs).map((f) => readFileSync(path.join(s.paths.logs, f), 'utf8')).join('\n');
+  assert.match(logs, /admin MCP refused a key/);
+  for (const t of [opaque.access_token, opaque.refresh_token!, jwt.access_token, sessionToken]) assert.ok(!logs.includes(t), 'a token reached the log');
 });
 
 test('sign-out ends the session and revokes every token the user holds: JWT and opaque access, refresh, offline_access', async () => {
