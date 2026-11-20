@@ -145,3 +145,20 @@ test('hosted pages load the passkey script from our own origin only (CSP)', asyn
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type') ?? '', /javascript/);
 });
+
+test('a passkey registration in flight while 2FA is turned on is undone', async () => {
+  s = await startTestServer();
+  const jar = await signedIn();
+  await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const options = await send(s, jar, 'GET', '/api/auth/passkey/generate-register-options');
+  assert.equal(options.status, 200); // 2FA still off: no fresh check needed
+  // 2FA gets turned on (elsewhere) while the registration is being stored.
+  const d = new Database(s.paths.db);
+  d.exec('CREATE TRIGGER enable_now AFTER INSERT ON passkey BEGIN UPDATE user SET twoFactorEnabled = 1 WHERE id = new.userId; END');
+  d.close();
+  const r = await send(s, jar, 'POST', '/api/auth/passkey/verify-registration', { json: { response: softAuthenticator(s.base).register(options.json()) } });
+  assert.equal(r.status, 403, r.body);
+  const d2 = new Database(s.paths.db);
+  assert.equal(d2.prepare('SELECT count(*) FROM passkey').pluck().get(), 0);
+  d2.close();
+});

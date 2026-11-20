@@ -474,3 +474,115 @@ test('a rate-limited session lookup does not break the hosted pages', async () =
     assert.ok(r.status < 500, `${page}: ${r.status}`);
   }
 });
+
+const tokenOf = (jar: Jar) => decodeURIComponent(jar.get('session_token')!).split('.')[0];
+const one = (sql: string, ...args: unknown[]) => {
+  const d = db(s);
+  const v = d.prepare(sql).pluck().get(...args);
+  d.close();
+  return v;
+};
+const exec = (sql: string) => {
+  const d = db(s);
+  d.exec(sql);
+  d.close();
+};
+
+test('turning 2FA on sweeps again after it commits: when the pre-check saw no match but Better Auth accepted the code', async () => {
+  s = await startTestServer();
+  const userId = await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  assert.equal((await addPasskey(s, jar, softAuthenticator(s.base))).status, 200);
+  const other = new Jar();
+  await passwordSignIn(s, other, 'ada@example.com');
+  const enable = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(enable.json().totpURI).searchParams.get('secret')!;
+  // Someone else's encrypted secret: the pre-check (a before-hook) decrypts it fine and finds no match. Better Auth's
+  // own session lookup then renews the aged session, and that UPDATE puts the real secret back before it checks.
+  await verifiedUser(s, 'bob@example.com');
+  const bob = new Jar();
+  await passwordSignIn(s, bob, 'bob@example.com');
+  await send(s, bob, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  ageSession(jar, 'expiresAt', inDays(5));
+  exec(`CREATE TABLE stash AS SELECT secret FROM twoFactor WHERE userId = '${userId}';
+    UPDATE twoFactor SET secret = (SELECT secret FROM twoFactor WHERE userId != '${userId}') WHERE userId = '${userId}';
+    CREATE TRIGGER put_back AFTER UPDATE ON session BEGIN
+      UPDATE twoFactor SET secret = (SELECT secret FROM stash) WHERE userId = '${userId}'; END;`);
+
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } });
+  assert.equal(r.status, 200, r.body);
+  assert.equal(one('SELECT twoFactorEnabled FROM user WHERE id = ?', userId), 1);
+  assert.equal(await currentUser(s, other), null, 'another session survived turning 2FA on');
+  assert.equal(one('SELECT count(*) FROM passkey WHERE userId = ?', userId), 0, 'a passkey survived turning 2FA on');
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('turning 2FA on sweeps again after it commits: a session created between the pre-check sweep and the switch is gone', async () => {
+  s = await startTestServer();
+  const userId = await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const other = new Jar();
+  await passwordSignIn(s, other, 'ada@example.com');
+  const enable = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(enable.json().totpURI).searchParams.get('secret')!;
+  // When the pre-check sweep deletes the other session, a sign-in lands (a session row appears) before Better Auth
+  // turns 2FA on.
+  const now = new Date().toISOString();
+  exec(`CREATE TRIGGER sneak AFTER DELETE ON session WHEN old.token = '${tokenOf(other)}' BEGIN
+    INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId) VALUES ('sneak', '${inDays(5)}', 'sneaked-token', '${now}', '${now}', '${userId}'); END;`);
+
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  assert.equal(one("SELECT count(*) FROM session WHERE token = 'sneaked-token'"), 0, 'a session from the gap survived');
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('a 2FA user whose session is revoked (another tab) while signing in with a magic link is still challenged', async () => {
+  s = await startTestServer();
+  const { jar } = await twoFactorUser();
+  await send(s, new Jar(), 'POST', '/api/auth/sign-in/magic-link', { json: { email: 'ada@example.com', callbackURL: '/' } });
+  const link = linkIn((await s.mail('ada@example.com', 'Your sign-in link')).text);
+  const arriving = tokenOf(jar);
+  exec(`CREATE TRIGGER other_tab AFTER INSERT ON session WHEN new.token != '${arriving}' BEGIN
+    DELETE FROM session WHERE token = '${arriving}'; END;`);
+  const r = await send(s, jar, 'POST', link.pathname + link.search, { form: {} });
+  assert.equal(r.location, '/two-factor');
+  assert.equal(liveSessionCookie(r.setCookies), undefined);
+});
+
+test('only wrong codes count toward ending a signed-in session, not other refusals', async () => {
+  s = await startTestServer();
+  const { jar } = await staleTwoFactorSession();
+  // Setup used one verify-totp; this stays under the per-path limit (3 per 10 s).
+  for (const path of ['verify-backup-code', 'verify-totp', 'verify-backup-code', 'verify-totp', 'verify-backup-code']) {
+    assert.equal((await send(s, jar, 'POST', `/api/auth/two-factor/${path}`, { json: {} })).status, 400, path); // no code
+  }
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test('a 2FA-sensitive endpoint without any session is refused by the fresh-check too', async () => {
+  s = await startTestServer();
+  const r = await send(s, new Jar(), 'POST', '/api/auth/two-factor/get-totp-uri', { json: {} });
+  assert.equal(r.status, 403);
+  assert.equal(r.json().code, 'TWO_FACTOR_CHECK_REQUIRED');
+});
+
+test('OAuth: opening a used magic link offers a new one for the same app request', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'bob@example.com');
+  const client = await createClient(s);
+  const { url } = authorizeUrl(s, client);
+  const jar = new Jar();
+  const query = new URL((await send(s, jar, 'GET', url, { navigate: true })).location!, s.base).search.slice(1);
+  await send(s, jar, 'POST', '/sign-in', { form: { method: 'magic-link', email: 'bob@example.com', oauth_query: query } });
+  const link = linkIn((await s.mail('bob@example.com', 'Your sign-in link')).text);
+  await send(s, new Jar(), 'POST', link.pathname + link.search, { form: {} }); // used
+  const page = await send(s, new Jar(), 'GET', link.pathname + link.search);
+  assert.equal(page.status, 400);
+  assert.ok(page.body.includes(`href="/sign-in?${query.replaceAll('&', '&amp;')}"`), 'the retry link lost the app request');
+  // A changed request is not carried.
+  const tampered = new URL(link);
+  tampered.searchParams.set('callbackURL', `/oauth/resume?${query.replace('state=app-state', 'state=other')}`);
+  assert.match((await send(s, new Jar(), 'GET', tampered.pathname + tampered.search)).body, /href="\/sign-in"/);
+});

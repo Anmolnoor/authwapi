@@ -476,11 +476,15 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── Magic link: GET asks, POST signs in (Risk 7; also stops mail scanners from using up the link) ──
-  app.get('/api/auth/magic-link/verify', (c) => {
+  app.get('/api/auth/magic-link/verify', async (c) => {
     const token = c.req.query('token') ?? '';
     const row = pendingMagicLink.get(magicLinkIdentifier(token)) as { email: string; expiresAt: string } | undefined;
     if (row === undefined || new Date(row.expiresAt).getTime() <= Date.now()) {
-      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<p><a href="/sign-in">Get a new link</a></p>`, 400);
+      // A link asked for during an app's sign-in carries its signed request in callbackURL: keep it for the retry.
+      const back = new URL(c.req.query('callbackURL') ?? '/', config.baseUrl);
+      const query = back.pathname === OAUTH_RESUME_PAGE ? back.search.slice(1) : '';
+      const retry = query && (await verifyOAuthQueryParams(query, secret)) ? `/sign-in?${query}` : '/sign-in';
+      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<p><a href="${retry}">Get a new link</a></p>`, 400);
     }
     return render(
       c,
