@@ -96,7 +96,7 @@ const navigate = (params: Record<string, string>, cookie: string) =>
   browserGet(`${s.base}/api/auth/oauth2/authorize?${new URLSearchParams(params)}`, cookie);
 
 /** Authorize → consent page → accept. Returns the code from the redirect to the app. */
-async function authorize(client: { id: string }, cookie: string, opts: { scope?: string; resource?: string } = {}) {
+async function authorize(client: { id: string }, cookie: string, opts: { scope?: string; resource?: string; claims?: object } = {}) {
   const { verifier, challenge } = pkce();
   const state = randomBytes(8).toString('hex');
   const params: Record<string, string> = {
@@ -110,6 +110,7 @@ async function authorize(client: { id: string }, cookie: string, opts: { scope?:
     prompt: 'consent',
   };
   if (opts.resource) params.resource = opts.resource;
+  if (opts.claims) params.claims = JSON.stringify(opts.claims);
   const res = await navigate(params, cookie);
   assert.equal(res.status, 302, res.body);
   const consent = new URL(res.location!, s.base);
@@ -136,7 +137,7 @@ const token = (client: { id: string; secret: string }, body: Record<string, stri
 
 type Tokens = { access_token: string; id_token?: string; refresh_token?: string; expires_in: number; scope: string };
 
-async function codeForTokens(client: { id: string; secret: string }, cookie: string, opts: { scope?: string; resource?: string } = {}) {
+async function codeForTokens(client: { id: string; secret: string }, cookie: string, opts: { scope?: string; resource?: string; claims?: object } = {}) {
   const { code, verifier } = await authorize(client, cookie, opts);
   const body: Record<string, string> = { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, code_verifier: verifier };
   if (opts.resource) body.resource = opts.resource;
@@ -458,6 +459,140 @@ test('a claims request for email needs the email scope', async () => {
   const narrowed = await postJson('/api/auth/oauth2/consent', { accept: true, scope: 'openid', oauth_query: consent.search.slice(1) }, user.cookie);
   assert.equal(narrowed.status, 400, await narrowed.clone().text());
   assert.equal(((await narrowed.json()) as { error: string }).error, 'invalid_request');
+});
+
+/** Requests a password reset email and returns the token from its link. */
+async function resetTokenFor(email: string) {
+  assert.equal((await postJson('/api/auth/request-password-reset', { email, redirectTo: '/' })).status, 200);
+  const link = /(https?:\/\/\S+)/.exec((await s.mail(email, 'Reset your password')).text)![1];
+  return new URL(link).pathname.split('/').pop()!;
+}
+
+const signInStatus = async (email: string, password: string) => (await postJson('/api/auth/sign-in/email', { email, password })).status;
+
+test('a password reset with an empty token in the body and the real one in the query revokes tokens', async () => {
+  // Better Auth takes `body.token || query.token`, so an empty body token falls through to the query.
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  const resetToken = await resetTokenFor(user.email);
+  const res = await postJson(`/api/auth/reset-password?token=${resetToken}`, { token: '', newPassword: 'a new password' });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await introspect(client, tokens.access_token)).active, false);
+  assert.equal((await refresh(client, tokens.refresh_token!)).status, 400);
+});
+
+test('if revoking fails, a password reset fails before the password changes (token in the query, empty in the body)', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  await codeForTokens(client, user.cookie);
+  const resetToken = await resetTokenFor(user.email);
+  const db = new Database(s.paths.db);
+  // Only revocation fails: deleting the sessions also updates these rows (sessionId is set to null).
+  db.exec("CREATE TRIGGER fail_revoke BEFORE UPDATE OF revoked ON oauthRefreshToken BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
+  try {
+    const res = await postJson(`/api/auth/reset-password?token=${resetToken}`, { token: '', newPassword: 'a new password' });
+    assert.ok(res.status >= 500, `${res.status} ${await res.text()}`);
+  } finally {
+    db.exec('DROP TRIGGER fail_revoke');
+    db.close();
+  }
+  assert.equal(await signInStatus(user.email, 'correct horse'), 200, 'the password changed although the tokens were not revoked');
+});
+
+test('a refresh token minted while a password reset is running (after the first revocation) is revoked once it is saved', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const bob = await signedInUser('bob@example.com');
+  const early = await codeForTokens(client, user.cookie);
+  const late = await codeForTokens(client, user.cookie);
+  // Simulate `late` being minted after the reset's first revocation: park its row under another user, and move it
+  // back to this user the moment the first revocation records itself (tokensRevokedAt).
+  const db = new Database(s.paths.db);
+  const lateId = db.prepare('SELECT id FROM oauthRefreshToken WHERE userId = ? ORDER BY rowid DESC LIMIT 1').pluck().get(user.userId) as string;
+  db.prepare('UPDATE oauthRefreshToken SET userId = ? WHERE id = ?').run(bob.userId, lateId);
+  db.exec(`CREATE TRIGGER mint_during_reset AFTER UPDATE OF tokensRevokedAt ON "user" WHEN NEW.id = '${user.userId}'
+           BEGIN UPDATE oauthRefreshToken SET userId = NEW.id WHERE id = '${lateId}'; END`);
+  try {
+    await otherSignOuts['password reset'](user);
+  } finally {
+    db.exec('DROP TRIGGER mint_during_reset');
+    db.close();
+  }
+  // `late` first: presenting a revoked refresh token (early) makes Better Auth delete the user's whole token family.
+  const res = await refresh(client, late.refresh_token!);
+  assert.equal(res.status, 400, `the token minted during the reset still works: ${await res.text()}`);
+  assert.equal((await refresh(client, early.refresh_token!)).status, 400);
+});
+
+test('userinfo refuses a revoked JWT however the token is sent: POST body, extra whitespace, no scheme', async () => {
+  const client = await createClient('--resource', API);
+  const user = await signedInUser();
+  const first = await codeForTokens(client, user.cookie, { resource: API });
+  await expireAndClearSessions(user); // a refresh now mints a JWT with no sid, which only our revocation check cuts off
+  const res = await token(client, { grant_type: 'refresh_token', refresh_token: first.refresh_token!, resource: API });
+  assert.equal(res.status, 200, await res.clone().text());
+  const jwt = ((await res.json()) as Tokens).access_token;
+  const userinfo = {
+    'POST body': () =>
+      fetch(`${s.base}/api/auth/oauth2/userinfo`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ access_token: jwt }),
+      }),
+    'two spaces': () => fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: `Bearer  ${jwt}` } }),
+    'no scheme': () => fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: jwt } }),
+  };
+  for (const [how, send] of Object.entries(userinfo)) {
+    const ok = await send();
+    assert.equal(ok.status, 200, `${how}, before sign-out: ${await ok.text()}`);
+  }
+  const again = await postJson('/api/auth/sign-in/email', { email: user.email, password: 'correct horse' });
+  assert.equal((await postJson('/api/auth/sign-out', {}, cookieOf(again))).status, 200);
+  for (const [how, send] of Object.entries(userinfo)) {
+    const info = await send();
+    assert.equal(info.status, 401, `${how}: ${info.status} ${await info.text()}`);
+  }
+});
+
+test('a padded grant_type does not skip the resource check at the token endpoint', async () => {
+  // Better Auth trims grant_type before dispatching it.
+  const client = await createClient('--resource', API);
+  const user = await signedInUser();
+  for (const grantType of [' refresh_token', 'refresh_token\t', '\nrefresh_token']) {
+    const tokens = await codeForTokens(client, user.cookie);
+    const res = await token(client, { grant_type: grantType, refresh_token: tokens.refresh_token!, resource: API });
+    assert.equal(res.status, 400, `${JSON.stringify(grantType)}: ${await res.clone().text()}`);
+    assert.equal(((await res.json()) as { error: string }).error, 'invalid_target');
+  }
+  const { code, verifier } = await authorize(client, user.cookie);
+  const exchange = await token(client, { grant_type: ' authorization_code', code, redirect_uri: REDIRECT, code_verifier: verifier, resource: API });
+  assert.equal(exchange.status, 400, await exchange.clone().text());
+  assert.equal(((await exchange.json()) as { error: string }).error, 'invalid_target');
+});
+
+test('a refresh that drops the email scope drops email from userinfo and the ID token, even if claims asked for it', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const first = await codeForTokens(client, user.cookie, { claims: { userinfo: { email: null, email_verified: null } } });
+  const userinfo = async (t: string) => {
+    const res = await fetch(`${s.base}/api/auth/oauth2/userinfo`, { headers: { authorization: `Bearer ${t}` } });
+    assert.equal(res.status, 200, await res.clone().text());
+    return (await res.json()) as Record<string, unknown>;
+  };
+  assert.equal((await userinfo(first.access_token)).email, user.email);
+
+  const res = await token(client, { grant_type: 'refresh_token', refresh_token: first.refresh_token!, scope: 'openid offline_access' });
+  assert.equal(res.status, 200, await res.clone().text());
+  const narrowed = (await res.json()) as Tokens;
+  assert.equal(narrowed.scope, 'openid offline_access');
+  const info = await userinfo(narrowed.access_token);
+  assert.equal(info.sub, user.userId);
+  assert.equal(info.email, undefined, JSON.stringify(info));
+  assert.equal(info.email_verified, undefined, JSON.stringify(info));
+  const id = decodeJwt(narrowed.id_token!);
+  assert.equal(id.email, undefined);
+  assert.equal(id.email_verified, undefined);
 });
 
 test('RP-initiated logout with a real id_token_hint ends the session and revokes refresh tokens', async () => {
