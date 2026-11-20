@@ -1,8 +1,9 @@
 node_modules
-dist
 .git
-.vscode
 .env
+.env.*
+.solofounder
+test
+scripts
+*.md
 .DS_Store
-.Dockerfile
-.dockerignore
