@@ -1,4 +1,3 @@
-import dotenv from 'dotenv';
 import express, { Express } from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -18,9 +17,6 @@ import { globalErrorHandler } from './controllers';
 import route from './routes/router';
 
 import { auth, User } from './routes';
-
-//  ---   env   ---
-dotenv.config({ path: './.env' });
 
 const app: Express = express();
 

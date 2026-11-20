@@ -22,6 +22,19 @@ declare module 'express-serve-static-core' {
     imageName: string;
   }
 }
+// The reset token is appended to EMAIL_URL, so it must be a clean http(s) base ending in "/".
+const isResetBaseUrl = (value: string | undefined): value is string => {
+  if (value === undefined || !URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.href === value && // already canonical: nothing the parser would encode or rewrite
+    ['http:', 'https:'].includes(url.protocol) &&
+    url.search === '' &&
+    url.hash === '' &&
+    value.endsWith('/')
+  );
+};
+
 const loginFailed = (res: Response) => {
   return ResponseGenerator(res, 401, {
     msg: 'Login Failed',
@@ -59,7 +72,7 @@ const register = CatchAsync(
 
     // extra fetures that we wanna add to the user
     // create the token and send to the user
-    createTokenwithCookie(user.id, res);
+    createTokenwithCookie(user.id, user.tokenVersion, res);
     ResponseGenerator(res, 201, { user });
   }
 );
@@ -68,7 +81,10 @@ const login = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // get the user details from the req
     const { username, password } = req.body;
-    //TODO: validate and parse the details from the user data
+    // Only strings reach the query: an object like {"$regex": ...} would be a NoSQL operator.
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return loginFailed(res);
+    }
 
     // find the user based on the email or the username
     const user = await User.findOne({
@@ -83,7 +99,7 @@ const login = CatchAsync(
       );
       if (isAuthorized) {
         // create the token and send to the user
-        createTokenwithCookie(user._id, res);
+        createTokenwithCookie(user._id, user.tokenVersion, res);
         return ResponseGenerator(res, 201, user);
       }
     }
@@ -112,7 +128,7 @@ const updatePassword = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
+        createTokenwithCookie(id, user.tokenVersion, res);
         ResponseGenerator(res, 201, {});
         return;
       }
@@ -126,9 +142,20 @@ const updatePassword = CatchAsync(
 const forgotPassword = CatchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // get the user details
+    // Check config before touching the DB, so a bad EMAIL_URL can't burn an earlier reset link.
+    // The link comes only from config: req.protocol trusts X-Forwarded-Proto, which a client can forge.
+    const emailUrl = process.env.EMAIL_URL;
+    if (!isResetBaseUrl(emailUrl)) {
+      throw new Error(
+        'EMAIL_URL must be a full http(s) URL ending in "/" with no query or fragment, e.g. https://example.com/api/v1/auth/reset-password/'
+      );
+    }
     const { email } = req.body;
-    // parse the user data and through a error if not required data
-    // TODO: validate the email that came from the user
+    // Only strings reach the query: an object like {"$regex": ...} would be a NoSQL operator.
+    if (typeof email !== 'string') {
+      next(new Err('Please provide an email address.', 400));
+      return;
+    }
 
     // get the user details from the db
     const user = await User.findOne({ email });
@@ -151,8 +178,7 @@ const forgotPassword = CatchAsync(
       }
     );
     // send the email to the user mail
-    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-    const resetUrl = `${req.protocol}://${process.env.EMAIL_URL}${resetToken}`;
+    const resetUrl = `${emailUrl}${resetToken}`;
     const msg = `Forgot your password? Submit a PATCH request with your new password and password confirm to :\n${resetUrl}\nIf you didn't forgot your password, please ignore this email`;
     const subject = 'Your password reset token (valid for 10 minutes)';
 
@@ -209,7 +235,7 @@ const resetPassword = CatchAsync(
         await user.save();
         // log the user in and send the jwt token to the user
         // create the token and send to the user
-        createTokenwithCookie(user.id, res);
+        createTokenwithCookie(user.id, user.tokenVersion, res);
         ResponseGenerator(res, 201, { user });
         return;
       }
@@ -238,7 +264,7 @@ const currentPasswordChange = CatchAsync(
         await user?.save();
         // get the user log in again by sending the jwt token again
         // create the token and send to the user
-        createTokenwithCookie(id, res);
+        createTokenwithCookie(id, user.tokenVersion, res);
         ResponseGenerator(res, 201, {});
         return;
       }
@@ -281,14 +307,8 @@ const protect = CatchAsync(
       next(new Err('The user belonging to the token does not exist ', 401));
       return;
     }
-    // if user changed the the password after the jwt was issued
-    const isPasswordUpdated: boolean =
-      await User.schema.methods.changedPasswordAfter(
-        Jwt.iat,
-        user.passwordChangedAT
-      );
-
-    if (isPasswordUpdated) {
+    // A password change or reset bumps tokenVersion, so every older token stops matching.
+    if (Jwt.v !== user.tokenVersion) {
       next(new Err('User changed the password. please login again', 401));
       return;
     }

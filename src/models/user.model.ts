@@ -63,6 +63,10 @@ const userSchema = new Schema<IUser>(
     passwordChangedAt: {
       type: Date,
     },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -72,21 +76,24 @@ const userSchema = new Schema<IUser>(
     resetTokenTimer: { type: Date },
   },
   {
+    // Two concurrent password saves would both write tokenVersion+1 and leave a token alive;
+    // with this, the second save fails with a VersionError instead.
+    optimisticConcurrency: true,
+    // Secrets never leave the server: every res.json(user) goes through this.
+    toJSON: {
+      transform(_doc, ret: Record<string, unknown>) {
+        delete ret.password;
+        delete ret.passwordConfirm;
+        delete ret.resetToken;
+        delete ret.resetTokenTimer;
+        delete ret.tokenVersion;
+        return ret;
+      },
+    },
     // methods
     methods: {
       async correctPassword(candidatePassword: string, userPassword: string) {
         return await passwordValidator(candidatePassword, userPassword);
-      },
-      changedPasswordAfter(JWTTime: number, passwordChangedAt: Date) {
-        const passwordChangedTimestamp = passwordChangedAt?.getTime() ?? null;
-
-        if (passwordChangedTimestamp !== null) {
-          const timeStampInSeconds = Math.floor(
-            passwordChangedTimestamp / 1000
-          );
-          return JWTTime < timeStampInSeconds;
-        }
-        return false;
       },
       /**
        * Generates a random password reset token, stores the encrypted version,
@@ -134,6 +141,7 @@ userSchema.pre('save', function (next) {
   if (!this.isModified('password') || this.isNew) return next();
 
   this.passwordChangedAt = new Date(Date.now() - 1000);
+  this.tokenVersion += 1; // revokes every token issued before this change
   next();
 });
 

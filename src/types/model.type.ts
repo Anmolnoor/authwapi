@@ -17,6 +17,7 @@ export interface IUser {
   createdAt: Date;
   updatedAt: Date;
   passwordChangedAt: Date;
+  tokenVersion: number;
   isActive: boolean;
   resetToken: string;
   resetTokenTimer: Date;

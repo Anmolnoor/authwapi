@@ -47,9 +47,10 @@ product: signup, login, session issuance, password rotation, forgotten-password
 recovery, and avatar storage.
 
 It ships as a single Express application. Sessions are stateless — the server
-signs a JWT and hands it back both as an `httpOnly` cookie and as a bearer
-token, so the same backend serves browser clients and native/mobile clients
-without a second code path. User records live in MongoDB via Mongoose, password
+signs a JWT, sets it as an `httpOnly` cookie, and also accepts it back as an
+`Authorization: Bearer` header, so native/mobile clients can read the token
+from `Set-Cookie` and send it as a header. The token is not in the response
+body. User records live in MongoDB via Mongoose, password
 hashes are produced by bcrypt inside a schema pre-save hook (so a password can
 never be written in plaintext by accident), and uploaded images are compressed
 with Sharp before being streamed to an S3 bucket.
@@ -239,7 +240,7 @@ EMAIL_HOST=smtp.mailtrap.io
 EMAIL_PORT=2525
 EMAIL_USERNAME=your-smtp-username
 EMAIL_PASSWORD=your-smtp-password
-EMAIL_URL=localhost:8000/api/v1/auth/reset-password/
+EMAIL_URL=http://localhost:8000/api/v1/auth/reset-password/
 
 # ---- AWS S3 (used by the image-upload flow) ----
 AWS_REGION=ap-south-1
@@ -253,11 +254,11 @@ AWS_SECRET_ACCESS_KEY=your-secret-access-key
 > 1. `JWT_SECRET` is **required** — `src/utils/jwt.ts` throws
 >    `JWT_SECRET environment variable is required` at import time if it is
 >    unset, so the process will not boot without it.
-> 2. `EMAIL_URL` is **host + path without a scheme and with a trailing slash**.
->    The reset link is built as
->    `` `${req.protocol}://${process.env.EMAIL_URL}${resetToken}` ``, so
->    `localhost:8000/api/v1/auth/reset-password/` produces
->    `http://localhost:8000/api/v1/auth/reset-password/<token>`.
+> 2. `EMAIL_URL` is a **full URL with scheme and trailing slash**. The reset
+>    link is `` `${EMAIL_URL}${resetToken}` ``. It is never built from the
+>    request, because `X-Forwarded-Proto` can be forged. Forgot-password
+>    fails with a 500, before touching the database, unless `EMAIL_URL`
+>    starts with `http://` or `https://` and ends with `/`.
 
 See the full [Environment Variables Reference](#environment-variables-reference)
 below for defaults and fallback behaviour.
@@ -306,7 +307,14 @@ instead of stack traces.
 ```bash
 npx tsc --noEmit   # type-check without emitting
 yarn lint          # eslint . --ext .ts
-yarn test          # jest
+yarn test          # jest; needs TEST_DATABASE_URL (see below)
+```
+
+The tests run against a real, throwaway MongoDB and fail loudly without one:
+
+```bash
+docker run -d --rm --name authwapi-test-mongo -p 27099:27017 mongo:7
+TEST_DATABASE_URL=mongodb://127.0.0.1:27099 yarn test
 ```
 
 ### Smoke test
@@ -577,7 +585,7 @@ Returns the authenticated user with sensitive fields projected out.
 ### `POST /api/v1/user/update-password` 🔒
 
 Verifies the current password, writes the new one, and re-issues a JWT (the old
-one is invalidated by the `passwordChangedAt` check — see
+one is invalidated by the `tokenVersion` check — see
 [Authentication Flow](#authentication-flow)).
 
 **Request**
@@ -687,10 +695,12 @@ It runs four checks, in order:
 3. **Confirm the user still exists.** A token for a deleted account →
    `401 "The user belonging to the token does not exist"`.
 4. **Confirm the password hasn't changed since the token was issued.**
-   `changedPasswordAfter(iat, passwordChangedAt)` compares the JWT's issued-at
-   claim against the user's `passwordChangedAt` timestamp. If the password is
-   newer → `401 "User changed the password. please login again"`. This is what
-   makes a password change retroactively kill every outstanding token.
+   Every JWT carries a `v` claim equal to the user's `tokenVersion` when it was
+   issued. Each password change or reset bumps `tokenVersion` in the pre-save
+   hook, so a mismatch → `401 "User changed the password. please login again"`.
+   This kills every outstanding token at once, even one issued milliseconds
+   before the change. Tokens issued before this check existed carry no `v` and
+   are rejected, so everyone signs in once after upgrading.
 
 On success it attaches `req.user` (the full document) and `req.id` (the
 `ObjectId`) and calls `next()`.
@@ -701,7 +711,7 @@ Client ──▶ Bearer header or jwt cookie
              ├─ missing? ───────────────────────▶ 401
              ├─ invalid / expired signature? ───▶ 401
              ├─ user deleted? ──────────────────▶ 401
-             ├─ password changed after iat? ────▶ 401
+             ├─ token v ≠ user.tokenVersion? ──▶ 401
              │
              └─ ✅ req.user / req.id set ───────▶ handler
 ```
@@ -735,7 +745,7 @@ that can be replayed if it leaks.
    - `resetToken` — 32 random bytes as hex (64 chars), sent to the user.
    - `encryptedResetToken` — `sha256(resetToken)`, stored in the DB.
 3. Persist `resetToken: <hash>` and `resetTokenTimer: now + 10 minutes`.
-4. Build the link: `` `${req.protocol}://${EMAIL_URL}${resetToken}` `` and send
+4. Build the link: `` `${EMAIL_URL}${resetToken}` `` and send
    it via Nodemailer with the subject *"Your password reset token (valid for 10
    minutes)"*.
 5. If the send throws, the stored token is overwritten with a random 64-byte
@@ -849,7 +859,7 @@ for batch operations — neither is wired to a route yet.
 | **Confirmation check** | Same pre-save hook compares `password` vs `passwordConfirm` | Mismatches are rejected before hashing |
 | **Reset tokens hashed at rest** | `crypto.randomBytes(32)` → SHA-256 | A DB dump exposes no usable reset link |
 | **Reset token expiry** | 10 minutes, single-use, burned after consumption | Narrow replay window |
-| **Token invalidation** | `changedPasswordAfter()` compares JWT `iat` to `passwordChangedAt` | Changing a password logs out every existing session |
+| **Token invalidation** | JWT `v` claim must equal `user.tokenVersion`, which every password write bumps | Changing a password logs out every existing session |
 | **`httpOnly` cookies** | `jwt.ts` cookie options | JavaScript — and therefore XSS payloads — can't exfiltrate the token |
 | **`sameSite=strict`** | `jwt.ts` cookie options | CSRF protection for cookie-authenticated requests |
 | **`secure` in production** | `NODE_ENV === 'production'` | Cookie is never sent over plaintext HTTP |
@@ -914,7 +924,7 @@ Every variable read anywhere in the codebase:
 | `EMAIL_PORT` | 📧 | — | `src/utils/email.ts` | SMTP port (coerced with `Number()`) |
 | `EMAIL_USERNAME` | 📧 | — | `src/utils/email.ts` | SMTP username |
 | `EMAIL_PASSWORD` | 📧 | — | `src/utils/email.ts` | SMTP password / app password |
-| `EMAIL_URL` | 📧 | — | `src/controllers/auth.controller.ts` | Host **+ path, no scheme, trailing slash** — e.g. `localhost:8000/api/v1/auth/reset-password/` |
+| `EMAIL_URL` | 📧 | — | `src/controllers/auth.controller.ts` | Full URL **with scheme and trailing slash** — e.g. `http://localhost:8000/api/v1/auth/reset-password/` |
 | `AWS_REGION` | 🖼️ | — | `src/utils/s3services.ts` | S3 bucket region |
 | `AWS_BUCKET_NAME` | 🖼️ | — | `src/utils/s3services.ts` | Target bucket. Objects land under `uploads/` |
 | `AWS_ACCESS_KEY_ID` | 🖼️ | `''` | `src/utils/s3services.ts` | IAM access key ID |
@@ -944,10 +954,10 @@ Documented honestly so you know what you're adopting:
   `register`, but there is no matching field in `userSchema`, so it is silently
   dropped.
 - **`getUserDetails` projection is stale.** It excludes `passwordResetToken` /
-  `passwordResetExpires` / `active`, but the schema's actual fields are named
-  `resetToken`, `resetTokenTimer` and `isActive` — so the hashed reset token is
-  returned to the authenticated owner. Harmless-ish (it's hashed, and only the
-  owner sees it), but worth correcting.
+  `passwordResetExpires` / `active`, which don't exist (the fields are
+  `resetToken`, `resetTokenTimer` and `isActive`). The schema's `toJSON`
+  transform strips the secret fields from every response anyway, so nothing
+  leaks; the `.select()` list is just dead weight.
 - **`isActive` vs the query hook.** The `pre(/^find/)` hook filters on
   `active: { $ne: false }`, but the schema field is `isActive` — the soft-delete
   filter is effectively a no-op.
@@ -960,8 +970,8 @@ Documented honestly so you know what you're adopting:
   `user.controller.ts`. Not mounted on any route.
 - **`console.log` in the upload controller.** Should go through the Winston
   logger (ESLint's `no-console` rule already flags it).
-- **No test suite yet.** Jest and ts-jest are configured; there are no spec
-  files.
+- **Only regression tests so far.** `src/__tests__/` covers the five
+  security/boot bugs fixed in 2026-11; there is no broader suite.
 - **No CI/CD configuration** is committed — no `.github/workflows`, no
   `vercel.json`. The `app.set('trust proxy', 1)` line hints at a Vercel
   deployment history.
