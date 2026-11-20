@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { BetterAuthOptions } from 'better-auth';
 import { magicLink } from 'better-auth/plugins';
-import { oauthPlugins } from './oauth.ts';
+import { oauthPlugins, revokeTokensAfterPasswordReset } from './oauth.ts';
 import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import type { SendMail } from './mailer.ts';
@@ -101,6 +101,7 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
       enabled: true,
       requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
+      onPasswordReset: ({ user }) => revokeTokensAfterPasswordReset(deps, user.id), // lane A: see src/oauth.ts
       sendResetPassword: async ({ user, url }) =>
         deliver('password reset', {
           to: user.email,

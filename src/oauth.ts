@@ -5,8 +5,9 @@
 // - sign-out revokes the session and every refresh and opaque access token the user holds.
 import { randomUUID } from 'node:crypto';
 import { getOAuthProviderApi, oauthProvider } from '@better-auth/oauth-provider';
-import { getCurrentAdapter, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
+import { getCurrentAdapter, type AuthContext, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { parseAccessTokenAuthorization } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { Hono } from 'hono';
 import type { AuthDeps } from './auth.ts';
@@ -39,10 +40,10 @@ type ProviderOptions = Parameters<typeof oauthProvider>[0];
  * Revokes every refresh and opaque access token the user holds, for every client (offline_access ones included),
  * and records when, so introspection can report older JWT access tokens inactive too (see introspectionGuard).
  */
-async function revokeUserTokens(ctx: HookContext, userId: string): Promise<void> {
+async function revokeUserTokens(context: Pick<AuthContext, 'adapter'>, userId: string): Promise<void> {
   const now = new Date();
   // Inside a transaction (an end-session delete may run in one) queries outside it would wait forever.
-  const adapter = await getCurrentAdapter(ctx.context.adapter);
+  const adapter = await getCurrentAdapter(context.adapter);
   const where = [{ field: 'userId', value: userId }];
   await adapter.updateMany({ model: 'oauthRefreshToken', where, update: { revoked: now } });
   await adapter.updateMany({ model: 'oauthAccessToken', where, update: { revoked: now } });
@@ -61,7 +62,7 @@ const SIGN_OUT_PATHS = new Set(['/sign-out', '/revoke-session', '/revoke-session
 
 async function userEndingSessions(ctx: HookContext): Promise<string | undefined> {
   if (ctx.path === '/reset-password') {
-    const token = ctx.body?.token ?? ctx.query?.token;
+    const token = ctx.body?.token || ctx.query?.token; // Better Auth's precedence: an empty body token falls through
     if (typeof token !== 'string' || !token) return undefined; // Better Auth refuses it
     // The same lookup Better Auth makes; it hashes the identifier (verification.storeIdentifier: 'hashed').
     const verification = await ctx.context.internalAdapter.findVerificationValue(`reset-password:${token}`);
@@ -72,6 +73,20 @@ async function userEndingSessions(ctx: HookContext): Promise<string | undefined>
   const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret);
   if (!token) return undefined;
   return (await ctx.context.internalAdapter.findSession(token))?.session.userId;
+}
+
+/** Each auth instance's context, by the deps it was built from, for revokeTokensAfterPasswordReset. */
+const authContexts = new WeakMap<AuthDeps, AuthContext>();
+
+/**
+ * For emailAndPassword.onPasswordReset, which Better Auth calls once the new password is saved and the sessions are
+ * deleted. The reset's before-hook revoked the tokens already, but while the password was being hashed a session
+ * could still mint new ones (an authorization code exchanged in that window); revoking again here catches them.
+ */
+export async function revokeTokensAfterPasswordReset(deps: AuthDeps, userId: string): Promise<void> {
+  const context = authContexts.get(deps);
+  if (!context) throw new Error('revokeTokensAfterPasswordReset: no auth instance was built from these deps');
+  await revokeUserTokens(context, userId);
 }
 
 /**
@@ -92,12 +107,14 @@ async function rejectResourceNotGranted(ctx: HookContext, opts: ProviderOptions)
   const requested = [ctx.body?.resource].flat().filter(Boolean);
   if (requested.length === 0) return;
   const { hashToken } = getOAuthProviderApi(ctx, opts);
-  if (ctx.body.grant_type === 'authorization_code' && typeof ctx.body.code === 'string') {
+  // The hook sees the raw body; Better Auth's schema trims grant_type before dispatching on it.
+  const grantType = typeof ctx.body.grant_type === 'string' ? ctx.body.grant_type.trim() : undefined;
+  if (grantType === 'authorization_code' && typeof ctx.body.code === 'string') {
     const verification = await ctx.context.internalAdapter.findVerificationValue(await hashToken(ctx.body.code, 'authorization_code'));
     if (!verification) return; // unknown code: Better Auth refuses it
     const grant = JSON.parse(verification.value) as { resource?: unknown; query?: { resource?: unknown } };
     if ([grant.resource ?? grant.query?.resource].flat().filter(Boolean).length === 0) throw invalidTarget();
-  } else if (ctx.body.grant_type === 'refresh_token' && typeof ctx.body.refresh_token === 'string') {
+  } else if (grantType === 'refresh_token' && typeof ctx.body.refresh_token === 'string') {
     const stored = await ctx.context.adapter.findOne<{ resources?: string[] | null }>({
       model: 'oauthRefreshToken',
       where: [{ field: 'token', value: await hashToken(ctx.body.refresh_token, 'refresh_token') }],
@@ -136,31 +153,35 @@ function rejectClaimsOutsideScope(ctx: HookContext, claims: unknown, scope: stri
 /** Whether a token issued at `iat` (seconds) predates the user's last token revocation. */
 async function issuedBeforeRevocation(ctx: HookContext, userId: string, iat: number): Promise<boolean> {
   const user = await ctx.context.adapter.findOne<{ tokensRevokedAt?: Date | null }>({ model: 'user', where: [{ field: 'id', value: userId }] });
-  // ponytail: iat has 1s resolution, so a token minted within the same second after a revocation also reads
-  // revoked until the app refreshes; record a token id per revocation if that ever bites.
+  // Known limit, kept on purpose (the safe direction): iat has 1s resolution, so a token minted within the same
+  // second just after a revocation also reads revoked until the app refreshes it. ponytail: record a token id per
+  // revocation if that ever bites.
   return Boolean(user?.tokensRevokedAt && iat * 1000 < new Date(user.tokensRevokedAt).getTime());
 }
 
-function authwapiOAuthGlue(opts: ProviderOptions): BetterAuthPlugin {
+function authwapiOAuthGlue(opts: ProviderOptions, deps: AuthDeps): BetterAuthPlugin {
   return {
     id: 'authwapi-oauth',
     schema: {
       // When the user's tokens were last revoked: JWT access tokens issued before it introspect as inactive.
       user: { fields: { tokensRevokedAt: { type: 'date', required: false, input: false, returned: false } } },
     },
-    init: () => ({
-      options: {
-        databaseHooks: {
-          session: {
-            delete: {
-              before: async (session, ctx) => {
-                if (ctx?.path && END_SESSION_PATHS.has(ctx.path)) await revokeUserTokens(ctx, session.userId);
+    init: (context) => {
+      authContexts.set(deps, context);
+      return {
+        options: {
+          databaseHooks: {
+            session: {
+              delete: {
+                before: async (session, ctx) => {
+                  if (ctx?.path && END_SESSION_PATHS.has(ctx.path)) await revokeUserTokens(ctx.context, session.userId);
+                },
               },
             },
           },
         },
-      },
-    }),
+      };
+    },
     hooks: {
       before: [
         {
@@ -171,7 +192,7 @@ function authwapiOAuthGlue(opts: ProviderOptions): BetterAuthPlugin {
           matcher: (ctx) => ctx.path !== undefined && SIGN_OUT_PATHS.has(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const userId = await userEndingSessions(ctx);
-            if (userId) await revokeUserTokens(ctx, userId);
+            if (userId) await revokeUserTokens(ctx.context, userId);
           }),
         },
         {
@@ -208,17 +229,25 @@ function authwapiOAuthGlue(opts: ProviderOptions): BetterAuthPlugin {
           }),
         },
         {
-          // Userinfo, our own API, answers the same way. Better Auth has verified the token by now (it returned
-          // claims), so reading its iat without verifying again is safe.
+          // Userinfo, our own API, answers the same way, and releases only the claims the token's scopes cover:
+          // Better Auth also releases claims named in the original `claims` request, and a refresh carries those
+          // into tokens whose scopes no longer include them.
           matcher: (ctx) => ctx.path === '/oauth2/userinfo',
           handler: createAuthMiddleware(async (ctx) => {
-            const result = ctx.context.returned as { sub?: unknown } | undefined;
-            const jwt = ctx.headers?.get('authorization')?.split(' ')[1]?.split('.');
-            if (typeof result?.sub !== 'string' || jwt?.length !== 3) return; // an error, or an opaque token (revoked in the database)
-            const { iat } = JSON.parse(Buffer.from(jwt[1], 'base64url').toString()) as { iat?: unknown };
-            if (typeof iat === 'number' && (await issuedBeforeRevocation(ctx, result.sub, iat))) {
+            const result = ctx.context.returned as Record<string, unknown> | undefined;
+            if (typeof result?.sub !== 'string') return; // Better Auth refused the request
+            // The token Better Auth read (its getUserInfoAccessToken): the Authorization header with any scheme or
+            // none, else a POSTed access_token. Then its scopes and iat from Better Auth's own validator.
+            const sent = parseAccessTokenAuthorization(ctx.headers?.get('authorization'))?.token ?? (ctx.request?.method === 'POST' ? ctx.body?.access_token : undefined);
+            const validate = async (t: unknown) => (typeof t === 'string' ? getOAuthProviderApi(ctx, opts).validateAccessToken(t) : undefined);
+            const token = await validate(sent).catch(() => undefined);
+            // Fail closed: a token we can't read back as the same active token, or one issued before a revocation.
+            if (token?.active !== true || token.sub !== result.sub || typeof token.iat !== 'number' || (await issuedBeforeRevocation(ctx, result.sub, token.iat))) {
               throw new APIError('UNAUTHORIZED', { error: 'invalid_token', error_description: 'the access token was revoked' });
             }
+            const scopes = new Set(typeof token.scope === 'string' ? token.scope.split(' ') : []);
+            const outside = Object.keys(result).filter((n) => CLAIM_SCOPE[n] !== undefined && !scopes.has(CLAIM_SCOPE[n]));
+            if (outside.length > 0) return ctx.json(Object.fromEntries(Object.entries(result).filter(([n]) => !outside.includes(n))));
           }),
         },
       ],
@@ -237,7 +266,8 @@ function jwtForOAuth(issuer: string): BetterAuthPlugin {
 }
 
 /** Better Auth plugins for the OAuth/OIDC provider (oauthProvider + jwt). Added to authOptions().plugins. */
-export function oauthPlugins({ config }: AuthDeps): Plugin[] {
+export function oauthPlugins(deps: AuthDeps): Plugin[] {
+  const { config } = deps;
   const opts: ProviderOptions = {
     loginPage: '/sign-in',
     consentPage: '/consent',
@@ -254,7 +284,9 @@ export function oauthPlugins({ config }: AuthDeps): Plugin[] {
     // Apps on this machine run on http://localhost:<port>. Plain http stays refused for any other host.
     allowInsecureRedirectUri: isLoopback,
   };
-  return [jwtForOAuth(config.baseUrl.origin), oauthProvider(opts), authwapiOAuthGlue(opts)];
+  const provider = oauthProvider(opts);
+  // The glue calls Better Auth's helpers with the provider's resolved options (defaults filled in), as it does.
+  return [jwtForOAuth(config.baseUrl.origin), provider, authwapiOAuthGlue(provider.options, deps)];
 }
 
 /**
