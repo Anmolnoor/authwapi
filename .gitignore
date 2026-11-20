@@ -25,7 +25,8 @@ coverage
 .env.test.local                  # dotenv
 .env.production.local            # dotenv
 .env.*
-!.env.example                    # the committed template, no real values
+# the committed template, no real values (gitignore has no inline comments)
+!.env.example
 
 npm-debug.log*                   # npm
 yarn-debug.log*                  # yarn

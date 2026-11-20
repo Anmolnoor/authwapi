@@ -1,3 +1,5 @@
+// Must be the first import: modules below read process.env when they load.
+import 'dotenv/config';
 import app from './app';
 import Logger from './utils/logger';
 import mongoose from 'mongoose';

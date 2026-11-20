@@ -11,11 +11,13 @@ const options = {
 
 interface Payload {
   id: ID;
+  v: number; // user.tokenVersion at issue time; a password change bumps it
 }
 
-const createJWTToken = (id: ID): string => {
+const createJWTToken = (id: ID, v: number): string => {
   const payload: Payload = {
     id,
+    v,
   };
   const token = sign(payload, secret, options);
   return token;
@@ -33,8 +35,8 @@ const verifyJWTToken = (
   return { id, Jwt: decoded as JwtPayload };
 };
 const maxAge = 30 * 24 * 60 * 60 * 1000;
-const createTokenwithCookie = (id: ID, res: Response): void => {
-  const token = createJWTToken(id);
+const createTokenwithCookie = (id: ID, v: number, res: Response): void => {
+  const token = createJWTToken(id, v);
   const cookieOptions = {
     expires: new Date(Date.now() + maxAge),
     httpOnly: true,
