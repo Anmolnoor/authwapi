@@ -56,9 +56,9 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
 
 ## Stages
 
-### Stage 0: Close out the learning version (done; pending commit)
+### Stage 0: Close out the learning version (done)
 - Bugs 1–5 are fixed with 10 regression tests. Revocation uses a per-user `tokenVersion` with optimistic concurrency (round 1 found a 1-second window in the timestamp check; round 2 found a race between concurrent password saves). The compiled production build was smoke-tested live.
-- **Remaining:** commit and tag `v0.1-learning`.
+- Committed in PR #43 and tagged `v0.1-learning`.
 
 ### Stage 1: Thin release (M1)
 **Progress:** slice 1 built on branch `m1-foundation` (config, data folder, SQLite, migrations runner, Better Auth email + password with verification and reset, outbox/Resend, Host check, Docker entrypoint, 13 tests, container run and 10-cycle kill test). Slice 2 (magic links) built: 5-minute single-use links, stored hashed, existing accounts only (Better Auth would email any address; we skip unknown ones), callbackURL limited to BASE_URL. Review fixes (2 rounds): every email is sent after the response via `setImmediate`, including Better Auth's resend-verification route, which awaits its callback; refused callback values are blanked in the log and other URLs cut to their origin; the outbox uses non-blocking file calls; logging never throws; (same answer and timing for known and unknown accounts; failures logged), links go to the stored address, one link per address per minute, Better Auth's warnings/errors go to app.jsonl. Slice 3 built by three parallel lanes (Opus 5.5; lane C on Fedora): OAuth 2.1/OIDC provider with a client CLI (issuer = BASE_URL, PKCE required, 15-min access tokens, sign-out/end-session/reset revoke every refresh token); hosted pages with the Risk 8 fix enforced at the verification link (password required, GET verifies nothing) and a magic-link confirm step (GET consumes nothing); `scripts/container-check.sh` passing on Fedora (rootful docker, rootless podman + keep-id + :Z, refusals, 50/50 kill cycles). 71 tests. Follow-ups: magic link isn't offered during an OAuth sign-in (the emailed link would have to carry the OAuth request); `/change-password` with `revokeOtherSessions` doesn't revoke OAuth refresh tokens. Next slices: admin MCP → export/import → agent test.
@@ -80,22 +80,22 @@ Apps sign users in through AuthWAPI as an OAuth 2.1 / OIDC provider (authorizati
   - Dockerfile on `node:26-slim`, running as a non-root user that owns `/data`
 - `AGENTS.md`, `/llms.txt`, and a quick start that documents the Resend test-domain limit.
 
-**Completion checklist**
-- [ ] **No-human agent test.** A fresh agent session given only the README runs the container and connects to `/mcp` with the bootstrap key. It mints a scoped key, creates a user, and reads the audit entry. The run is recorded. It is done twice: once from the host, and once from an agent inside a container (Docker Desktop: `host.docker.internal`; Linux: shared network `authwapi-net`, per D7).
-- [ ] **Real app integration.** A sample app on a *different hostname* (not just another localhost port, since cookies are shared across localhost ports) signs a user in through the OAuth provider. A validly signed access token for the wrong audience is rejected, and so is a browser session cookie presented to the API. After sign-out, introspection reports the token inactive, and refresh tokens no longer work, including `offline_access` ones.
-- [ ] **Data.** After a restart, users and sessions are kept. Export → import into a fresh folder on a different host path restores everything, including the secret. Starting from a folder that doesn't exist yet, non-root writes work on rootful Linux Docker, rootless podman (with the D13 command) and macOS Docker Desktop, and the host user can read the outbox.
-- [ ] **Durability.** 50 kill-during-write cycles on a bind mount, each followed by `PRAGMA integrity_check` = ok.
-- [ ] **Upgrades.** Upgrading from the previous image keeps all data. A failed migration restores the pre-migration backup and the container refuses to start with a clear message.
-- [ ] **Security.**
+**Completion checklist** (status 2026-11-20: 8 of 10 met; the evidence follows each item)
+- [x] **No-human agent test.** A fresh agent session given only the README runs the container and connects to `/mcp` with the bootstrap key. It mints a scoped key, creates a user, and reads the audit entry. The run is recorded. It is done twice: once from the host, and once from an agent inside a container (Docker Desktop: `host.docker.internal`; Linux: shared network `authwapi-net`, per D7). *Met:* host run (macOS, Docker Desktop) and container run (Fedora, podman), both recorded in `.solofounder/agent-tests/`.
+- [x] **Real app integration.** A sample app on a *different hostname* (not just another localhost port, since cookies are shared across localhost ports) signs a user in through the OAuth provider. A validly signed access token for the wrong audience is rejected, and so is a browser session cookie presented to the API. After sign-out, introspection reports the token inactive, and refresh tokens no longer work, including `offline_access` ones. *Met:* `scripts/app-check.sh` (sample app on `app.localhost`, AuthWAPI on `authwapi.localhost`), run in CI's container job.
+- [x] **Data.** After a restart, users and sessions are kept. Export → import into a fresh folder on a different host path restores everything, including the secret. Starting from a folder that doesn't exist yet, non-root writes work on rootful Linux Docker, rootless podman (with the D13 command) and macOS Docker Desktop, and the host user can read the outbox. *Met:* restart in `scripts/upgrade-check.sh`; export → import at another path in `test/export-import.test.ts`, and by hand on Docker Desktop and Fedora (PR #48); non-root writes and a readable outbox in `scripts/container-check.sh` checks 1 and 2 (rootful Docker, rootless podman) and the Docker Desktop host agent run.
+- [x] **Durability.** 50 kill-during-write cycles on a bind mount, each followed by `PRAGMA integrity_check` = ok. *Met:* `scripts/container-check.sh` check 5, run in CI.
+- [x] **Upgrades.** Upgrading from the previous image keeps all data. A failed migration restores the pre-migration backup and the container refuses to start with a clear message. *Met:* `scripts/upgrade-check.sh`, run in CI. A failed upgrade rolls back in one transaction, so the database is unchanged; the refusal names the backup taken before it.
+- [x] **Security.** *Met:* `test/admin-mcp.test.ts`, one test per item below.
   - The bootstrap key works once, then fails, and fails after expiry.
   - A revoked agent key fails.
   - A `read` key can't call `create_user`.
   - A wrong Host or Origin is rejected.
   - No token, link or key appears in `logs/` or in MCP output, except the one-time result of `mint_agent_key` (a test greps for them).
-- [ ] **Config.** A non-loopback `BASE_URL` without Resend config fails at boot with a clear message. With `RESEND_API_KEY` set on localhost, a real email reaches the account's own address.
-- [ ] **Risk 8 closed:** the `todo` test "someone who signed up with your email loses access once you verify it" passes. Nothing is tagged or merged to `main` before this.
-- [ ] Browser QA clicks through every hosted page and email link.
-- [ ] Council review passes.
+- [ ] **Config.** A non-loopback `BASE_URL` without Resend config fails at boot with a clear message. With `RESEND_API_KEY` set on localhost, a real email reaches the account's own address. *Half met:* the boot refusal is tested in `test/config.test.ts`; no real email has been sent through Resend yet.
+- [x] **Risk 8 closed:** the `todo` test "someone who signed up with your email loses access once you verify it" passes. Nothing is tagged or merged to `main` before this. *Met:* `test/flow.test.ts` runs it as a normal test (no longer `todo`) and it passes.
+- [ ] Browser QA clicks through every hosted page and email link. *Not done:* `test/pages.test.ts` covers the pages over HTTP, but no click-through in a browser is recorded.
+- [x] Council review passes. *Met:* the M1 lane PRs (#48, #49, #50 and #52) each passed sol-loop and a council round.
 
 ### Gate G1: Demand check (right after M1)
 - Publish the M1 image. Ask outside developers to put their agent through the no-human test and sign in to their own app. Post where agent builders are.

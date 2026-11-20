@@ -1,10 +1,10 @@
 ---
 title: Status and roadmap
-description: What AuthWAPI does today (M1, M2 sign-in methods, M3 organizations and M4a OIDC SSO), what is still being built, and where the earlier version went.
+description: What AuthWAPI does today (M1 through M6, from sign-in methods to OIDC and SAML SSO and OAuth for MCP servers), what is left before the first release, and where the earlier version went.
 ---
 
-AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted auth server built on
-[Better Auth](https://better-auth.com), [Hono](https://hono.dev) and SQLite. **Don't put real users on it yet.**
+AuthWAPI is early. It is a rewrite as a self-hosted auth server built on [Better Auth](https://better-auth.com),
+[Hono](https://hono.dev) and SQLite, and no release has been published yet. **Don't put real users on it yet.**
 
 ## Works today
 
@@ -21,6 +21,8 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - Admin ban (ends sessions and revokes OAuth tokens) and short, audited impersonation
 - OIDC SSO per organization: providers registered over MCP or the CLI, identities bound to (provider, subject),
   never joined by email
+- SAML SSO per organization, under the same rules: signed assertions only (RSA-SHA256 or stronger), started from
+  AuthWAPI (identity-provider-initiated sign-in is refused)
 - Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys,
   organization pick, invitations. Every
   sign-in method works during an app's sign-in
@@ -39,10 +41,17 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
   from the host and from another container
   ([runs](https://github.com/Anmolnoor/authwapi/tree/main/.solofounder/agent-tests))
 
-## After M1
+## Milestones
 
-M2 (Google and GitHub sign-in, TOTP and passkeys), M3 (organizations and admin), M4a (OIDC SSO) and M4b (SAML SSO)
-are built. Next: a multi-arch image on GHCR.
+M1 (the core server, admin MCP and export/import), M2 (Google and GitHub sign-in, TOTP and passkeys), M3
+(organizations and admin), M4a (OIDC SSO), M4b (SAML SSO), M5 (OAuth for your own MCP servers) and M6 (CI on Linux
+and macOS, and a release workflow) are built. The release workflow builds a multi-arch (amd64/arm64) image for GHCR
+from a version tag, and [UPGRADING.md](https://github.com/Anmolnoor/authwapi/blob/main/UPGRADING.md) holds the
+upgrade notes. No tag has been pushed yet, so there is no published image: build it from source as the quick start
+shows.
+
+Still open from M1's exit checklist: a click-through of every hosted page and email link in a browser, and a real
+email sent through Resend.
 
 ## The earlier version
 
