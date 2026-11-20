@@ -181,6 +181,15 @@ function correct(path: string, method: string, op: any): void {
       if (p.name === 'redirect_uri') p.required = true;
     }
   }
+  if (path === '/reset-password/{token}') {
+    // Better Auth documents a JSON answer; the route redirects (an invalid token goes to callbackURL?error=INVALID_TOKEN).
+    op.responses = {
+      302: {
+        description: 'Redirects to the callbackURL with `?token=<token>`, or with `?error=INVALID_TOKEN` if the token is invalid or expired',
+        headers: { Location: { schema: { type: 'string' } } },
+      },
+    };
+  }
   if (path === '/oauth2/userinfo') {
     // OpenAPI ignores a header parameter named Authorization: the bearer token is a security scheme.
     op.parameters = op.parameters.filter((p: { name: string }) => p.name !== 'Authorization');
