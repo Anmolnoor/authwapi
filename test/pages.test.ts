@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
+import path from 'node:path';
 import { afterEach, test } from 'node:test';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
+import { SignJWT } from 'jose';
+import { markEmailVerified } from '../src/pages.ts';
 import { linkIn, startTestServer, type TestServer } from './helpers.ts';
 
 let s: TestServer;
@@ -150,11 +154,126 @@ test('Risk 8: a broken or forged verification token verifies nothing', async () 
   forged.searchParams.set('token', `${h}.${p}.${Buffer.from('not the signature').toString('base64url')}`);
   const res = await submit(forged, { password: 'correct horse' });
   assert.equal(res.status, 400);
-  assert.match(await res.text(), /Invalid token/);
+  assert.match(await res.text(), /This verification link is broken/);
   const garbage = new URL(link);
   garbage.searchParams.set('token', 'garbage');
   assert.equal((await submit(garbage, { password: 'correct horse' })).status, 400);
   assert.ok(!verified(email));
+});
+
+test('Risk 8: forged tokens for a real user lock nothing; the genuine link still works', async () => {
+  await up();
+  const email = 'target@example.com';
+  const link = await signUp(email, 'target password');
+  // The real header and payload (the user id is all an attacker needs to know), a made-up signature.
+  const [h, p] = link.searchParams.get('token')!.split('.');
+  const forged = new URL(link);
+  forged.searchParams.set('token', `${h}.${p}.${Buffer.from('x'.repeat(32)).toString('base64url')}`);
+  for (let i = 0; i < 6; i++) assert.equal((await submit(forged, { password: `guess ${i}` })).status, 400, `forged #${i}`);
+  const ok = await submit(link, { password: 'target password' });
+  assert.equal(ok.status, 200, 'forged tokens locked the owner out');
+  assert.ok(verified(email));
+});
+
+test('Risk 8: a signed token verifies only the user and address it was issued for', async () => {
+  await up();
+  const [a, b] = ['a@example.com', 'b@example.com'];
+  await signUp(a, 'password a');
+  await signUp(b, 'password b');
+  const d = new Database(s.paths.db);
+  const idOf = (email: string) => d.prepare('SELECT id FROM user WHERE email = ?').pluck().get(email) as string;
+  const key = new TextEncoder().encode(readFileSync(s.paths.secret, 'utf8').trim());
+  const now = Math.floor(Date.now() / 1000);
+  const sign = (payload: Record<string, string>, exp = now + 3600) =>
+    new SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now - 60).setExpirationTime(exp).sign(key);
+  const linkWith = (token: string) => `/api/auth/verify-email?token=${token}`;
+  const refused: [string, Record<string, string>, number?][] = [
+    ["a's id with b's address", { email: b, userId: idOf(a) }],
+    ['an email-change token', { email: a, userId: idOf(a), updateTo: 'evil@example.com' }],
+    ['no user id', { email: a }],
+    ['a user that does not exist', { email: a, userId: 'nobody' }],
+    ['expired', { email: a, userId: idOf(a) }, now - 1],
+  ];
+  for (const [what, payload, exp] of refused) {
+    const res = await submit(linkWith(await sign(payload, exp)), { password: 'password a' });
+    assert.equal(res.status, 400, what);
+    assert.match(await res.text(), exp ? /has expired/ : /This verification link is broken/, what);
+  }
+  assert.ok(!verified(a) && !verified(b));
+  // The same signing, for the right user and address, works: the refusals above are about the payload.
+  assert.equal((await submit(linkWith(await sign({ email: a, userId: idOf(a) })), { password: 'password a' })).status, 200);
+  assert.ok(verified(a) && !verified(b));
+  d.close();
+});
+
+test('Risk 8: verification is bound to the password hash that was checked; a reset in between wins', async () => {
+  await up();
+  const email = 'race@example.com';
+  await signUp(email, 'old password');
+  const d = new Database(s.paths.db);
+  const row = () =>
+    d.prepare(`SELECT u.id AS id, a.password AS hash FROM user u JOIN account a ON a.userId = u.id WHERE u.email = ?`).get(email) as {
+      id: string;
+      hash: string;
+    };
+  const { id, hash: oldHash } = row();
+  // The token holder's old password has just been checked; the owner resets before the update runs.
+  assert.equal((await submit('/forgot-password', { email })).status, 200);
+  const toPage = await get(linkIn((await s.mail(email, 'Reset your password')).text));
+  const token = new URL(toPage.headers.get('location')!).searchParams.get('token')!;
+  assert.equal((await submit('/reset-password', { token, password: 'new password' })).status, 200);
+  const newHash = row().hash;
+  assert.notEqual(newHash, oldHash);
+  const markVerified = markEmailVerified(d);
+  assert.equal(markVerified(id, email, oldHash), false, 'verified with a replaced password');
+  assert.equal(markVerified(id, 'other@example.com', newHash), false, 'verified a different address');
+  assert.ok(!verified(email));
+  assert.equal(markVerified(id, email, newHash), true);
+  assert.ok(verified(email));
+  d.close();
+});
+
+test('Risk 8: a stored password in another format fails closed, readably, and is logged', async () => {
+  await up();
+  const email = 'oddhash@example.com';
+  const link = await signUp(email);
+  const d = new Database(s.paths.db);
+  d.prepare(`UPDATE account SET password = ? WHERE providerId = 'credential'`).run('$2b$10$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP');
+  d.close();
+  const res = await submit(link, { password: 'correct horse' });
+  assert.equal(res.status, 500);
+  assert.match(await res.text(), /We couldn&#39;t check your password/);
+  assert.ok(!verified(email));
+  const log = readFileSync(path.join(s.paths.logs, 'app.jsonl'), 'utf8');
+  assert.match(log, /"msg":"verify-email: could not check the password".*"error":"the stored password isn't in the expected format"/);
+  assert.ok(!log.includes('correct horse') && !log.includes('$2b$'), 'the log has the password or its hash');
+});
+
+test('every page forbids framing and caching; API routes are left alone', async () => {
+  await up();
+  const link = await signUp('frame@example.com');
+  const pages: [string, Promise<Response>][] = [
+    ...['/', '/sign-in', '/sign-up', '/forgot-password', '/reset-password?token=abc', '/signed-out', '/consent', link, '/api/auth/magic-link/verify?token=x'].map(
+      (u): [string, Promise<Response>] => [`GET ${u}`, get(u)]
+    ),
+    ['POST /sign-in', submit('/sign-in', { email: 'x@example.com', password: 'wrong wrong' })],
+    ['POST /sign-up', submit('/sign-up', { name: 'x', email: 'bad', password: 'x' })],
+    ['POST /forgot-password', submit('/forgot-password', { email: 'x@example.com' })],
+    ['POST /reset-password', submit('/reset-password', { token: 'x', password: 'long enough' })],
+    ['POST /sign-out', submit('/sign-out', {})],
+    ['POST /consent', submit('/consent', {})],
+    ['POST verify-email', submit(link, { password: 'wrong' })],
+    ['POST magic-link', submit('/api/auth/magic-link/verify?token=x', {})],
+  ];
+  for (const [what, pending] of pages) {
+    const res = await pending;
+    assert.equal(res.headers.get('content-security-policy'), "frame-ancestors 'none'", what);
+    assert.equal(res.headers.get('x-frame-options'), 'DENY', what);
+    assert.equal(res.headers.get('cache-control'), 'no-store', what);
+  }
+  for (const u of ['/api/auth/get-session', '/.well-known/openid-configuration']) {
+    assert.equal((await get(u)).headers.get('x-frame-options'), null, u);
+  }
 });
 
 test('sign-up page: happy path, and errors as readable text', async () => {
@@ -297,7 +416,7 @@ test('forms refuse a cross-site POST before anything happens', async () => {
 interface OAuthServer {
   base: string;
   /** Registers a client with `node src/cli.ts clients create`, as an operator would. */
-  createClient: (cookie: string) => Promise<string>;
+  createClient: (extraArgs?: string[]) => Promise<string>;
   db: Database.Database;
   stop: () => Promise<void>;
 }
@@ -306,10 +425,10 @@ async function startOAuthServer(): Promise<OAuthServer> {
   const db = new Database(t.paths.db);
   return {
     base: t.base,
-    createClient: async () => {
+    createClient: async (extraArgs = []) => {
       const { stdout } = await promisify(execFile)(
         process.execPath,
-        ['src/cli.ts', 'clients', 'create', '--name', 'Notes <App>', '--redirect-uri', 'http://127.0.0.1:9/callback'],
+        ['src/cli.ts', 'clients', 'create', '--name', 'Notes <App>', '--redirect-uri', 'http://127.0.0.1:9/callback', ...extraArgs],
         { env: { PATH: process.env.PATH, DATA_DIR: t.paths.root, BASE_URL: t.base } }
       );
       return /client_id:\s+(\S+)/.exec(stdout)![1];
@@ -322,6 +441,34 @@ async function startOAuthServer(): Promise<OAuthServer> {
   };
 }
 
+// A browser following the app's link. Better Auth answers fetch() with JSON (undici always sends
+// sec-fetch-mode: cors), so this uses node:http with the headers a navigation carries.
+const navigate = (url: URL, cookie = '') =>
+  new Promise<{ status: number; location: string }>((resolve, reject) => {
+    const headers = { 'sec-fetch-mode': 'navigate', accept: 'text/html', ...(cookie ? { cookie } : {}) };
+    request(url, { headers }, (res) => {
+      res.resume();
+      resolve({ status: res.statusCode!, location: res.headers.location ?? '' });
+    })
+      .on('error', reject)
+      .end();
+  });
+const authorizeUrl = (base: string, clientId: string, state: string, extra: Record<string, string> = {}) => {
+  const verifier = randomBytes(32).toString('base64url');
+  const u = new URL(`${base}/api/auth/oauth2/authorize`);
+  u.search = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: 'http://127.0.0.1:9/callback',
+    scope: 'openid email offline_access',
+    state,
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+    code_challenge_method: 'S256',
+    ...extra,
+  }).toString();
+  return u;
+};
+
 test('OAuth: the sign-in page continues the authorization; consent Allow returns a code, Deny an error', async () => {
   const o = await startOAuthServer();
   s = { stop: o.stop } as TestServer; // afterEach stops it
@@ -333,39 +480,9 @@ test('OAuth: the sign-in page continues the authorization; consent Allow returns
   });
   assert.equal(signUpRes.status, 200);
   o.db.prepare('UPDATE user SET emailVerified = 1 WHERE email = ?').run(email);
-  const apiSignIn = await fetch(`${o.base}/api/auth/sign-in/email`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', origin: o.base },
-    body: JSON.stringify({ email, password: 'correct horse' }),
-  });
-  const clientId = await o.createClient(cookieOf(apiSignIn));
+  const clientId = await o.createClient();
+  const authorize = (state: string) => authorizeUrl(o.base, clientId, state);
 
-  // A browser following the app's link. Better Auth answers fetch() with JSON (undici always sends
-  // sec-fetch-mode: cors), so this uses node:http with the headers a navigation carries.
-  const navigate = (url: URL, cookie = '') =>
-    new Promise<{ status: number; location: string }>((resolve, reject) => {
-      const headers = { 'sec-fetch-mode': 'navigate', accept: 'text/html', ...(cookie ? { cookie } : {}) };
-      request(url, { headers }, (res) => {
-        res.resume();
-        resolve({ status: res.statusCode!, location: res.headers.location ?? '' });
-      })
-        .on('error', reject)
-        .end();
-    });
-  const authorize = (state: string) => {
-    const verifier = randomBytes(32).toString('base64url');
-    const u = new URL(`${o.base}/api/auth/oauth2/authorize`);
-    u.search = new URLSearchParams({
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: 'http://127.0.0.1:9/callback',
-      scope: 'openid email offline_access',
-      state,
-      code_challenge: createHash('sha256').update(verifier).digest('base64url'),
-      code_challenge_method: 'S256',
-    }).toString();
-    return u;
-  };
   const form = (url: string, fields: Record<string, string>, cookie = '') =>
     fetch(new URL(url, o.base), {
       method: 'POST',
@@ -421,4 +538,35 @@ test('OAuth: the sign-in page continues the authorization; consent Allow returns
   const tampered = await form('/sign-in', { email, password: 'correct horse', oauth_query: oauthQuery.replace('s1', 'sX') });
   assert.equal(tampered.status, 400);
   assert.match(await tampered.text(), /<p role="alert">This sign-in request expired or was changed/);
+});
+
+test('OAuth consent names the APIs the app asks for, escaped', async () => {
+  const o = await startOAuthServer();
+  s = { stop: o.stop } as TestServer; // afterEach stops it
+  const email = 'api@example.com';
+  const json = (p: string, body: object) =>
+    fetch(`${o.base}/api/auth${p}`, { method: 'POST', headers: { 'content-type': 'application/json', origin: o.base }, body: JSON.stringify(body) });
+  assert.equal((await json('/sign-up/email', { email, password: 'correct horse', name: 'A' })).status, 200);
+  o.db.prepare('UPDATE user SET emailVerified = 1 WHERE email = ?').run(email);
+  const cookie = cookieOf(await json('/sign-in/email', { email, password: 'correct horse' }));
+  const api = 'https://api.example.test/v1';
+  const clientId = await o.createClient(['--resource', api]);
+
+  const toConsent = await navigate(authorizeUrl(o.base, clientId, 's', { resource: api }), cookie);
+  const consentUrl = new URL(toConsent.location, o.base);
+  assert.equal(consentUrl.pathname, '/consent');
+  const page = await (await fetch(consentUrl, { headers: { cookie } })).text();
+  assert.match(page, /<li>Access <strong>https:\/\/api\.example\.test\/v1<\/strong> on your behalf<\/li>/);
+
+  // Without a resource, no API line.
+  o.db.prepare('DELETE FROM oauthConsent').run();
+  const plain = new URL((await navigate(authorizeUrl(o.base, clientId, 's2'), cookie)).location, o.base);
+  assert.ok(!(await (await fetch(plain, { headers: { cookie } })).text()).includes('on your behalf'));
+
+  // The page shows what the query says (the provider checks the signature on Allow), so markup in it is escaped.
+  const evil = new URL(consentUrl);
+  evil.searchParams.append('resource', '<script>alert(1)</script>');
+  const evilPage = await (await fetch(evil, { headers: { cookie } })).text();
+  assert.ok(!evilPage.includes('<script>'), 'a resource was reflected unescaped');
+  assert.match(evilPage, /Access <strong>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/strong> on your behalf/);
 });
