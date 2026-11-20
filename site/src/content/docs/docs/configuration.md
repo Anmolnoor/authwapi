@@ -33,6 +33,8 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
+| `logs/audit.jsonl` | One line per admin MCP tool call (a write whose commit fails adds a second, `rolled_back` line) and per operator `bootstrap-key` reissue (`who: operator-cli`, `scope: operator`): `time`, `who` (the key id), `scope`, `tool`, `outcome`, plus `target` (the user or key it changed), `minted` (a new key's id) or `reason` (why it was refused or rolled back) when they apply. A request with an invalid key gets 401 and isn't written. Never contains a key or the arguments. |
+| `bootstrap-admin-key` | One-time key for the [admin MCP](/docs/for-ai-agents/#admin-mcp), written on first boot, mode 0600, ending with a newline. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
 | `outbox/` | Emails, when Resend isn't configured. 0600 files, deleted once they are 24 hours old (checked hourly). |
 
 **To move it:** stop the container, copy the folder, start a container on the new folder. Or, while the server
@@ -114,6 +116,10 @@ every 5 minutes. It answers an HTML page with status 429 and no `X-Retry-After`.
   reached from a container, so put both containers on one network
   (`docker network create authwapi-net`, then `--network authwapi-net` on both) and use `http://authwapi:4000`
   with `-e ALLOWED_HOSTS=authwapi`.
+- **Docker Desktop:** the host folder must be one Docker Desktop shares (Settings → Resources → File sharing).
+  Docker may refuse a path it doesn't share (`mounts denied`); in our test on macOS, a temp folder from
+  `mktemp -d` (`/var/folders/…`) instead silently became an empty folder inside Docker's VM, so nothing appeared
+  on the Mac. Use the real path, `/private/var/folders/…`: `cd "$(mktemp -d)" && pwd -P` prints it.
 - Docker and podman follow a symlink you pass as the host folder (`-v link:/data`); AuthWAPI can only refuse
   symlinks inside the folder it sees.
 
