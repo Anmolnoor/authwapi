@@ -755,6 +755,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const query = f('oauth_query');
     const path = f('method') === 'backup' ? '/two-factor/verify-backup-code' : '/two-factor/verify-totp';
     const r = await ba(c, 'POST', path, { code: f('code'), ...(query ? { oauth_query: query } : {}) });
+    // A used code ended this sign-in (src/signin.ts): start again from sign-in, keeping the app's request.
+    if ((r.data as { code?: string } | null)?.code === 'TOTP_CODE_ALREADY_USED') return signInPage(c, query, errorText(path, r), undefined, 400);
     if (r.status !== 200) return twoFactorPage(c, query, errorText(path, r), r.status === 429 ? 429 : 400);
     // With oauth_query the provider continues the app's request and answers with where to go next.
     const next = (r.data as { url?: string } | null)?.url;

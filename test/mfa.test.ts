@@ -146,16 +146,30 @@ test('a TOTP code works once: the same code cannot finish a second sign-in', asy
   assert.equal(await currentUser(s, b), null, 'a used code signed someone in again');
 });
 
-test('a sign-in refused for a used code keeps its challenge: the next code finishes it on the hosted form', async () => {
+test('the hosted 2FA page sends a used code back to sign-in; signing in again with the next code works', async () => {
   s = await startTestServer();
   const { secret, code } = await twoFactorUser();
   const jar = await challenged();
   const used = await send(s, jar, 'POST', '/two-factor', { form: { code } });
   assert.equal(used.status, 400);
-  assert.match(used.body, /already used/);
-  const next = await send(s, jar, 'POST', '/two-factor', { form: { code: totp(secret) } });
+  assert.match(used.body, /already used\. Sign in again/);
+  assert.match(used.body, /<form method="post" action="\/sign-in"/);
+  assert.equal(await currentUser(s, jar), null);
+  const again = await challenged();
+  const next = await send(s, again, 'POST', '/two-factor', { form: { code: totp(secret) } });
   assert.equal(next.status, 303, next.body);
-  assert.equal(await currentUser(s, jar), 'ada@example.com');
+  assert.equal(await currentUser(s, again), 'ada@example.com');
+});
+
+test('two requests confirming a new 2FA secret with the same code: one succeeds', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const code = totp(new URL(r.json().totpURI).searchParams.get('secret')!);
+  const statuses = (await Promise.all([verifyTotp(jar, code), verifyTotp(jar, code)])).map((x) => x.status);
+  assert.equal(statuses.filter((x) => x === 200).length, 1, String(statuses));
 });
 
 test("a refused used code doesn't erase the account's failed attempts", async () => {
