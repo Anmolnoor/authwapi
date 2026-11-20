@@ -1,6 +1,6 @@
 ---
 title: Status and roadmap
-description: What AuthWAPI M1 does today, what is still being built, and where the earlier version went.
+description: What AuthWAPI does today (M1 and M2 sign-in methods), what is still being built, and where the earlier version went.
 ---
 
 AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted auth server built on
@@ -11,7 +11,13 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 - Email and password sign-up with email verification (the link asks for the sign-up password)
 - Sign-in, sessions, sign-out, password reset
 - Magic links: one use, 5 minutes, existing accounts only, with a confirm step
-- Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent
+- Google and GitHub sign-in, each on when its client ID and secret are set; accounts join by email only when both the
+  provider and the existing account have verified it
+- TOTP two-factor authentication with backup codes, enforced on the server after every first step (password, magic
+  link, Google, GitHub); no trusted devices
+- Passkeys with user verification required; a passkey sign-in counts as both factors
+- Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys. Every
+  sign-in method works during an app's sign-in
 - OAuth 2.1 / OpenID Connect provider: authorization code + PKCE, ID tokens, JWT access tokens per API, JWKS,
   introspection, userinfo, refresh-token rotation, RP-initiated logout; sign-out revokes refresh tokens for every app
 - Operator CLI for OAuth clients
@@ -24,13 +30,13 @@ AuthWAPI is early. It is the first milestone (M1) of a rewrite as a self-hosted 
 
 ## Still to build in M1
 
-- **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over MCP
+- **The no-human agent test:** a fresh agent, given only the docs, runs the container and administers it over
+  MCP. Host run passed; container run pending.
 
 ## After M1
 
-What comes next depends on feedback from developers who try M1. Candidates: Google and GitHub sign-in, TOTP and
-passkeys; organizations and roles; SSO (OIDC, then SAML); OAuth for your own MCP servers; a multi-arch image on
-GHCR.
+M2 (Google and GitHub sign-in, TOTP and passkeys) is built. Next: organizations and roles; SSO (OIDC, then SAML);
+OAuth for your own MCP servers; a multi-arch image on GHCR.
 
 ## The earlier version
 

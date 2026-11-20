@@ -267,7 +267,7 @@ test('every page forbids framing and caching; API routes are left alone', async 
   ];
   for (const [what, pending] of pages) {
     const res = await pending;
-    assert.equal(res.headers.get('content-security-policy'), "frame-ancestors 'none'", what);
+    assert.equal(res.headers.get('content-security-policy'), "frame-ancestors 'none'; script-src 'self'; base-uri 'none'", what);
     assert.equal(res.headers.get('x-frame-options'), 'DENY', what);
     assert.equal(res.headers.get('cache-control'), 'no-store', what);
   }
@@ -499,7 +499,7 @@ test('OAuth: the sign-in page continues the authorization; consent Allow returns
   const loginPage = await (await fetch(loginUrl)).text();
   const oauthQuery = /name="oauth_query" value="([^"]*)"/.exec(loginPage)![1].replaceAll('&amp;', '&');
   assert.equal(oauthQuery, loginUrl.search.slice(1));
-  assert.ok(!loginPage.includes('Email me a link'), 'magic link offered during an OAuth request');
+  assert.ok(loginPage.includes('Email me a link'), 'no magic link during an OAuth request'); // M2; flow in test/mfa.test.ts
 
   // Signing in on that page continues the request: next stop is the consent page.
   const signIn = await form('/sign-in', { email, password: 'correct horse', oauth_query: oauthQuery });

@@ -2,10 +2,12 @@
 
 > WorkOS-style auth for localhost: one `docker run`, one data folder you can move anywhere, MCP built in.
 
-**Status: early (M1, slice 4 of the [plan](.solofounder/flow.md)).** Works today: hosted sign-in and sign-up
-pages, email + password with verification, magic links, password reset, sessions, apps signing users in through
+**Status: early (M1 slice 4 of the [plan](.solofounder/flow.md), plus M2 sign-in methods).** Works today: hosted
+sign-in and sign-up pages, email + password with verification, magic links, Google and GitHub sign-in, TOTP
+two-factor authentication with backup codes, passkeys, password reset, sessions, apps signing users in through
 AuthWAPI (OAuth 2.1 / OpenID Connect), the admin MCP server for AI agents, the data folder with export/import,
-migrations and Docker. **Not built yet:** the no-human agent test. Don't put real users on it yet.
+migrations and Docker. **No-human agent test:** host run passed; container run pending. Don't put real users on
+it yet.
 
 The earlier Express + MongoDB learning version is preserved at the `v0.1-learning` tag.
 
@@ -42,8 +44,8 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
-| `logs/audit.jsonl` | One line per admin MCP call: time, key id, its scope, tool, outcome. Never contains a key or arguments. |
-| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
+| `logs/audit.jsonl` | One line per admin MCP tool call (a write whose commit fails adds a second, `rolled_back` line) and per operator `bootstrap-key` reissue (`who: operator-cli`, `scope: operator`): `time`, `who` (the key id), `scope`, `tool`, `outcome`, plus `target` (the user or key it changed), `minted` (a new key's id) or `reason` (why it was refused or rolled back) when they apply. A request with an invalid key gets 401 and isn't written. Never contains a key or the arguments. |
+| `bootstrap-admin-key` | One-time key for the admin MCP, written on first boot, mode 0600, ending with a newline. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
 | `outbox/` | Emails, when Resend isn't configured (see below). 0600 files, deleted after 24 hours. |
 
 **To move it**, see [Moving the data folder](#moving-the-data-folder).
@@ -123,20 +125,70 @@ it and import again.
 | `BASE_URL` | `http://localhost:4000` | The address people and apps use. Links, cookies and the Host check all come from it. Origin only, no path. |
 | `ALLOWED_HOSTS` | — | Extra Host names to accept, comma-separated, e.g. `authwapi` or `host.docker.internal` for an agent in another container |
 | `RESEND_API_KEY`, `EMAIL_FROM` | — | Resend delivery (both needed) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | "Continue with Google" (both needed; see [Google and GitHub sign-in](#google-and-github-sign-in)) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | — | "Continue with GitHub" (both needed) |
 | `PUID`, `PGID` | `1000` | User the server runs as; the entrypoint gives `/data` to this user |
 | `PORT` | `4000` | Port inside the container |
 | `DATA_DIR` | `/data` | Data folder inside the container |
 
 ## Pages
 
-Server-rendered, no JavaScript: `/` · `/sign-in` (password or "email me a link") · `/sign-up` · `/forgot-password`
-· `/reset-password` · `/consent` (an app asking for access) · `/signed-out`.
+Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up, or "email me a link") · `/sign-up`
+· `/forgot-password` · `/reset-password` · `/consent` (an app asking for access) · `/signed-out` · `/two-factor` (the
+code after the first step) · `/two-factor/setup` (turn on TOTP) · `/passkeys` (add one). The only script is
+`/passkey.js` for the passkey buttons (WebAuthn needs one); the pages' CSP allows scripts from our own origin only.
+Every sign-in method also works during an app's sign-in: the request carries on to consent afterwards. That
+hand-off is a feature of the hosted pages: an app sends people to `/api/auth/oauth2/authorize` and lets them sign in
+there. Clients that call the sign-in API themselves (for example `POST /api/auth/sign-in/social`) aren't a supported
+way to complete an app's authorization request.
 
 - **Verifying an email asks for the password you chose at sign-up.** Opening the link only shows that form, so
   someone who signed up with *your* address can't get in when you click it: you won't know their password, and
   "Forgot password?" replaces it and ends every session.
 - **A magic link asks "Sign in as you@example.com?"** before it signs you in, so an email scanner that opens
   links can't use it up, and a link someone else sent you can't sign you in without you seeing whose it is.
+
+## Google and GitHub sign-in
+
+Each provider is on only when both its variables are set (half a pair stops the server). Register AuthWAPI with
+the provider using this redirect URI (your `BASE_URL`, then the path):
+
+- **Google** ([Google Cloud console](https://console.cloud.google.com/apis/credentials), OAuth client ID, type
+  "Web application"): `BASE_URL/api/auth/callback/google`, e.g. `http://localhost:4000/api/auth/callback/google`.
+- **GitHub** ([Developer settings → OAuth Apps](https://github.com/settings/developers)): authorization callback URL
+  `BASE_URL/api/auth/callback/github`. AuthWAPI asks for `user:email`.
+
+```bash
+docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" \
+  -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... ghcr.io/anmolnoor/authwapi
+```
+
+**Accounts are joined by email only when it's safe.** A Google or GitHub sign-in is accepted only if the provider
+says the email is verified. It joins an existing AuthWAPI account with the same email only if that account's email
+is verified too, whether it happens at sign-in or through `POST /api/auth/link-social` while signed in. If someone
+created an account with your address and never verified it, the sign-in is refused and the page points to
+"Email me a link": the link proves the address, removes the unproven password and every session, and then Google
+or GitHub works. Signing in by posting a provider ID token (`idToken` on `/sign-in/social` or `/link-social`) is
+turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
+
+## Two-factor authentication and passkeys
+
+- **TOTP with backup codes.** Turn it on at `/two-factor/setup` (or `POST /api/auth/two-factor/enable`, then
+  `POST /api/auth/two-factor/verify-totp` with a code). Once the code is checked, and before 2FA is switched on, it
+  signs out every other session, revokes the user's refresh tokens and removes their passkeys (a passkey counts as
+  both factors, so one added by someone else who knew the password must not survive). Add passkeys again afterwards.
+  Backup codes are shown once.
+- **Enforced on the server after every first step**: password, magic link, Google, GitHub. Until the second
+  factor, there's no session, no consent and no authorization code. The first step answers with
+  `{"twoFactorRedirect": true}` (API) or a redirect to `/two-factor` (browser), plus a short-lived `two_factor`
+  cookie; finish with `POST /api/auth/two-factor/verify-totp` or `/verify-backup-code` and `{"code"}`. There are no
+  trusted devices: `trustDevice` is refused.
+- **Passkeys** are bound to `BASE_URL` (RP ID = its hostname, origin = its origin) and need user verification
+  (fingerprint, face or PIN), checked on the server. A passkey sign-in counts as both factors. Use `localhost`, not
+  `127.0.0.1`, in `BASE_URL` if you want passkeys: browsers don't allow an IP address as the RP ID.
+- **Recent code needed.** On a 2FA account, adding a passkey, turning 2FA off, reading the TOTP secret or making
+  new backup codes needs a code entered in the last 5 minutes (`POST /api/auth/two-factor/verify-totp` while signed
+  in, or the code you signed in with). Five wrong codes in a row from a signed-in session end that session.
 
 ## Apps (OAuth 2.1 / OpenID Connect)
 
@@ -169,7 +221,8 @@ clients work too). Every request sends `Authorization: Bearer <key>`; no OAuth t
 
 1. **The bootstrap key.** On first boot AuthWAPI writes `bootstrap-admin-key` in the data folder. It works for
    24 hours, only with the `mint_agent_key` tool, and only once. Read it without printing it:
-   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`.
+   `BOOT=$(docker exec -u 1000 authwapi cat /data/bootstrap-admin-key)`. The file ends with a newline: `$(…)`
+   drops it, but trim it if you read the file in code.
 2. **Mint a write key.** Connect with the bootstrap key and call `mint_agent_key` with `{"scope": "write"}` (the
    bootstrap key mints only write keys). The result `{"keyId", "scope", "key"}` is the only place the key ever
    appears: store it now. The bootstrap key is now spent: its file stays, but the key in it no longer works.
@@ -204,7 +257,8 @@ rename failed), move that file to `bootstrap-admin-key`; the key in it already w
 
 Auth routes are [Better Auth](https://better-auth.com)'s, under `/api/auth`: `POST /sign-up/email`,
 `POST /sign-in/email`, `POST /sign-out`, `GET /get-session`, `POST /request-password-reset`,
-`POST /reset-password`, `POST /sign-in/magic-link`, and the OAuth endpoints under `/oauth2/`. The links in
+`POST /reset-password`, `POST /sign-in/magic-link`, `POST /sign-in/social`, `POST /link-social`, the 2FA endpoints
+under `/two-factor/`, the passkey endpoints under `/passkey/`, and the OAuth endpoints under `/oauth2/`. The links in
 emails (`/api/auth/verify-email`, `/api/auth/magic-link/verify`) are pages: GET shows a form, POST acts.
 Browser-style requests must send an `Origin` equal to `BASE_URL`.
 

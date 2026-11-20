@@ -258,6 +258,8 @@ Retrospective and cross-project learning (`solofounder:conversation-analysis`).
 
 9. **Known small windows in OAuth revocation** (council slice 3, accepted): a code exchange that passes the session check just before a password reset deletes sessions but writes its token after `onPasswordReset` (milliseconds); a JWT minted in the same second just after a revocation reads as revoked until refreshed (1-second `iat`); a valid `id_token_hint` whose session is already gone revokes nothing. If pairwise subject identifiers are ever enabled, the userinfo hook's `token.sub !== result.sub` check must change or every pairwise client gets 401.
 
+10. **Better Auth's own 2FA writes aren't atomic** (council M2 round 2, accepted upstream risk): turning 2FA on (set the flag, create a session, delete the old one, mark the secret verified) and similar rotations are separate writes in Better Auth 1.7.26, so a crash between them can leave a half-rotated session; AuthWAPI sweeps before and after enabling and changes nothing upstream.
+
 ## Evidence (fetched 2026-11-19)
 - Better Auth: better-auth.com/docs/adapters/sqlite, /docs/concepts/cli, /docs/integrations/{hono,express}, /docs/plugins/{magic-link,sso,sso/saml,organization,admin,api-key,mcp,oauth-provider,jwt,2fa,passkey,agent-auth}, /blog/1-7; npm `better-auth`@1.7.26, `auth`@1.7.26
 - Node 26 LTS and `node:sqlite` RC: github.com/nodejs/Release, nodejs.org/api/sqlite.html

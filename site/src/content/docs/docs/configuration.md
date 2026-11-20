@@ -13,6 +13,8 @@ says what to fix.
 | `BASE_URL` | `http://localhost:4000` | The address people and apps use. Links in emails, cookies, the OAuth issuer and the Host check all come from it. An origin only: no path, query or fragment. |
 | `ALLOWED_HOSTS` | none | Extra Host names to accept, comma-separated, such as `authwapi` or `host.docker.internal` for an agent in another container. A name without a port means the listening port. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | none | Send email through Resend. Both are needed. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | none | Turns on "Continue with Google". Both are needed. In Google Cloud, create a "Web application" OAuth client with the redirect URI `BASE_URL/api/auth/callback/google`. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | none | Turns on "Continue with GitHub". Both are needed. In GitHub's Developer settings, create an OAuth App with the callback URL `BASE_URL/api/auth/callback/github`. |
 | `PUID`, `PGID` | `1000` | The user the server runs as. The container's entrypoint gives `/data` to this user. |
 | `PORT` | `4000` | Port inside the container. |
 | `DATA_DIR` | `/data` | Data folder inside the container. |
@@ -31,6 +33,8 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
+| `logs/audit.jsonl` | One line per admin MCP tool call (a write whose commit fails adds a second, `rolled_back` line) and per operator `bootstrap-key` reissue (`who: operator-cli`, `scope: operator`): `time`, `who` (the key id), `scope`, `tool`, `outcome`, plus `target` (the user or key it changed), `minted` (a new key's id) or `reason` (why it was refused or rolled back) when they apply. A request with an invalid key gets 401 and isn't written. Never contains a key or the arguments. |
+| `bootstrap-admin-key` | One-time key for the [admin MCP](/docs/for-ai-agents/#admin-mcp), written on first boot, mode 0600, ending with a newline. Valid 24 hours. After the first mint the file stays, but its key no longer works. |
 | `outbox/` | Emails, when Resend isn't configured. 0600 files, deleted once they are 24 hours old (checked hourly). |
 
 **To move it:** stop the container, copy the folder, start a container on the new folder. Or, while the server
@@ -112,6 +116,10 @@ every 5 minutes. It answers an HTML page with status 429 and no `X-Retry-After`.
   reached from a container, so put both containers on one network
   (`docker network create authwapi-net`, then `--network authwapi-net` on both) and use `http://authwapi:4000`
   with `-e ALLOWED_HOSTS=authwapi`.
+- **Docker Desktop:** the host folder must be one Docker Desktop shares (Settings → Resources → File sharing).
+  Docker may refuse a path it doesn't share (`mounts denied`); in our test on macOS, a temp folder from
+  `mktemp -d` (`/var/folders/…`) instead silently became an empty folder inside Docker's VM, so nothing appeared
+  on the Mac. Use the real path, `/private/var/folders/…`: `cd "$(mktemp -d)" && pwd -P` prints it.
 - Docker and podman follow a symlink you pass as the host folder (`-v link:/data`); AuthWAPI can only refuse
   symlinks inside the folder it sees.
 
