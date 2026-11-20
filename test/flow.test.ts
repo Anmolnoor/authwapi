@@ -125,8 +125,36 @@ test('nothing in the data folder is readable by other users, and no link or toke
   }
 });
 
-test('someone who signed up with your email loses access once you verify it', { todo: 'slice 3: verification asks for the sign-up password on a hosted page (plan Risk 8)' }, async () => {
-  await post('/api/auth/sign-up/email', { email: 'victim@example.com', password: 'attacker pass', name: 'A' });
-  await fetch(linkIn((await s.mail('victim@example.com', 'Verify your email')).text), { redirect: 'manual' });
-  assert.equal((await post('/api/auth/sign-in/email', { email: 'victim@example.com', password: 'attacker pass' })).status, 401);
+test('someone who signed up with your email loses access once you verify it', async () => {
+  const email = 'victim@example.com';
+  const verifyWith = (link: URL, password: string) =>
+    fetch(link, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: s.base },
+      body: new URLSearchParams({ password }),
+    });
+  const { default: Database } = await import('better-sqlite3'); // read the flag directly: sign-in is rate limited
+  const verified = () => {
+    const d = new Database(s.paths.db);
+    const v = d.prepare('SELECT emailVerified FROM user WHERE email = ?').pluck().get(email);
+    d.close();
+    return v === 1;
+  };
+  await post('/api/auth/sign-up/email', { email, password: 'attacker pass', name: 'A' });
+  const link = linkIn((await s.mail(email, 'Verify your email')).text);
+  // The victim opens the link: that alone verifies nothing (the attacker's sign-in still gets "not verified").
+  await fetch(link, { redirect: 'manual' });
+  assert.equal(verified(), false, 'opening the link verified the email');
+  // The victim doesn't know the attacker's password, so verification refuses...
+  assert.equal((await verifyWith(link, 'my usual password')).status, 401);
+  assert.equal(verified(), false, 'a wrong password verified the email');
+  // ...and offers "forgot password": the reset replaces the attacker's password and ends every session.
+  assert.equal((await post('/api/auth/request-password-reset', { email, redirectTo: '/' })).status, 200);
+  const token = linkIn((await s.mail(email, 'Reset your password')).text).pathname.split('/').pop();
+  assert.equal((await post('/api/auth/reset-password', { token, newPassword: 'victim new pass' })).status, 200);
+  assert.equal((await verifyWith(link, 'victim new pass')).status, 200);
+  assert.equal(verified(), true);
+  assert.equal((await post('/api/auth/sign-in/email', { email, password: 'attacker pass' })).status, 401);
+  assert.equal((await post('/api/auth/sign-in/email', { email, password: 'victim new pass' })).status, 200);
 });
