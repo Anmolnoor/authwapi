@@ -46,7 +46,7 @@ curl http://localhost:4000/health        # {"status":"ok"}
     The SQLite database, the instance secret, logs and migrations all live in the folder you mount. To move it, stop the container and copy the folder.
   </Card>
   <Card title="Safe by default" icon="approve-check">
-    Listens on 127.0.0.1 only, refuses unknown Host and Origin headers, rate-limits every route, and keeps tokens and links out of its logs.
+    Every example publishes the port on 127.0.0.1 only. It refuses unknown Host and Origin headers, rate-limits sign-in and the API, and keeps tokens and links out of its logs.
   </Card>
   <Card title="Docs agents can use" icon="rocket">
     An [llms.txt](/llms.txt) entry point, the whole docs as [one text file](/llms-full.txt), and an [OpenAPI 3.1 file](/openapi.json) generated from the server's own config.

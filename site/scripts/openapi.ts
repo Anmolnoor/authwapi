@@ -100,24 +100,85 @@ const SUPPORTED: Record<string, { methods: string[]; security?: object[]; note?:
   '/jwks': { methods: ['get'], tag: 'OAuth 2.1 / OpenID Connect', note: 'Public keys for verifying ID tokens and JWT access tokens.' },
 };
 
-/** AuthWAPI routes outside Better Auth's handler. Paths are relative to the /api/auth server, hence the ../ form. */
+/** AuthWAPI's own pages that replace Better Auth routes (src/pages.ts). They answer HTML. */
 const json = (description: string, example: unknown) => ({ description, content: { 'application/json': { example } } });
-const page = (summary: string, get: string, post: string) => ({
-  get: { tags: ['Pages'], summary, description: get, parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'An HTML page', content: { 'text/html': {} } } } },
-  post: { tags: ['Pages'], summary, description: post, parameters: [{ name: 'token', in: 'query', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'An HTML page', content: { 'text/html': {} } }, 303: { description: 'Redirect after signing in' } } },
-});
+const htmlPage = (description: string) => ({ description, content: { 'text/html': {} } });
+const tokenParam = [{ name: 'token', in: 'query', required: true, schema: { type: 'string' } }];
 const AUTHWAPI_PATHS = {
-  '/verify-email': page(
-    'Verify an email address (the link in the verification email)',
-    'Shows a form that asks for the password chosen at sign-up. Verifies nothing.',
-    'Form field `password`. Marks the email verified only if the password matches the one the account was created with, so someone who signed up with your address cannot get in when you verify it.'
-  ),
-  '/magic-link/verify': page(
-    'Sign in with a magic link (the link in the email)',
-    'Shows "Sign in as you@example.com?" with a Continue button. Consumes nothing, so mail scanners cannot use the link up.',
-    'Signs in, sets the session cookie and redirects to the callbackURL.'
-  ),
+  '/verify-email': {
+    get: {
+      tags: ['Pages'],
+      summary: 'Verify an email address (the link in the verification email)',
+      description: 'Shows a form that asks for the password chosen at sign-up. Verifies nothing.',
+      parameters: tokenParam,
+      responses: { 200: htmlPage('The form') },
+    },
+    post: {
+      tags: ['Pages'],
+      summary: 'Verify an email address (the link in the verification email)',
+      description:
+        'Marks the email verified only if the password matches the one the account was created with, so someone who signed up with your address cannot get in when you verify it. Limited to 20 tries per IP and 5 per account every 5 minutes.',
+      parameters: tokenParam,
+      requestBody: {
+        required: true,
+        content: { 'application/x-www-form-urlencoded': { schema: { type: 'object', properties: { password: { type: 'string' } }, required: ['password'] } } },
+      },
+      responses: {
+        200: htmlPage('Verified'),
+        400: htmlPage('Missing password, or the link is broken or expired'),
+        401: htmlPage('Wrong password'),
+        409: htmlPage('The password changed while verifying, or the account has no password'),
+        429: htmlPage('Too many tries'),
+        500: htmlPage('The password could not be checked; nothing changed'),
+      },
+    },
+  },
+  '/magic-link/verify': {
+    get: {
+      tags: ['Pages'],
+      summary: 'Sign in with a magic link (the link in the email)',
+      description: 'Shows "Sign in as you@example.com?" with a Continue button. Consumes nothing, so mail scanners cannot use the link up.',
+      parameters: tokenParam,
+      responses: { 200: htmlPage('The confirm page'), 400: htmlPage('The link is invalid, used or expired') },
+    },
+    post: {
+      tags: ['Pages'],
+      summary: 'Sign in with a magic link (the link in the email)',
+      description: 'Signs in and sets the session cookie.',
+      parameters: tokenParam,
+      responses: { 303: { description: 'Signed in; redirects to the callbackURL' }, 400: htmlPage('The link is invalid, used or expired') },
+    },
+  },
 };
+
+/** OpenAPI 3.0's `nullable: true`, which Better Auth emits, written the 3.1 way: `type: [<type>, "null"]`. */
+function nullableTo31(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(nullableTo31);
+  if (node === null || typeof node !== 'object') return node;
+  const { nullable, ...rest } = node as Record<string, unknown>;
+  const out = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, nullableTo31(v)]));
+  if (nullable === true && typeof out.type === 'string') out.type = [out.type, 'null'];
+  return out;
+}
+
+/** Corrections to Better Auth's generated operations, for how AuthWAPI configures it. */
+function correct(path: string, method: string, op: any): void {
+  if (path === '/oauth2/authorize') {
+    // PKCE with S256 is required, and pushed authorization requests (request_uri) are off.
+    op.parameters = op.parameters.filter((p: { name: string }) => p.name !== 'request_uri');
+    for (const p of op.parameters) {
+      if (p.name === 'code_challenge') p.required = true;
+      if (p.name === 'code_challenge_method') Object.assign(p, { required: true, schema: { type: 'string', enum: ['S256'] } });
+      if (p.name === 'response_type') Object.assign(p, { required: true, schema: { type: 'string', enum: ['code'] } });
+      if (p.name === 'redirect_uri') p.required = true;
+    }
+  }
+  if (path === '/oauth2/userinfo') {
+    // OpenAPI ignores a header parameter named Authorization: the bearer token is a security scheme.
+    op.parameters = op.parameters.filter((p: { name: string }) => p.name !== 'Authorization');
+    op.security = [{ bearerAccessToken: [] }];
+  }
+}
 const SERVER_PATHS = {
   '/health': { get: { tags: ['Server'], summary: 'Health check', description: 'Answers on any Host header.', responses: { 200: json('Up', { status: 'ok' }) } } },
   '/.well-known/openid-configuration': {
@@ -151,7 +212,9 @@ async function generate(): Promise<string> {
         const json = op.requestBody?.content?.['application/json'];
         const requestBody =
           security === CLIENT && json ? { ...op.requestBody, content: { 'application/x-www-form-urlencoded': json, 'application/json': json } } : op.requestBody;
-        return [m, { ...op, ...(requestBody ? { requestBody } : {}), tags: [tag], description, security: security ?? [] }];
+        const result = { ...op, ...(requestBody ? { requestBody } : {}), tags: [tag], description, security: security ?? [] };
+        correct(path, m, result);
+        return [m, result];
       })
     );
   }
@@ -162,7 +225,7 @@ async function generate(): Promise<string> {
 
   // Keep the generated component schemas the kept operations point at (User, Session).
   const refs = [...JSON.stringify(paths).matchAll(/"#\/components\/schemas\/(\w+)"/g)].map((m) => m[1]);
-  const schemas = Object.fromEntries([...new Set(refs)].sort().map((n) => [n, generated.components.schemas[n]]));
+  const schemas = Object.fromEntries([...new Set(refs)].sort().map((n) => [n, nullableTo31(generated.components.schemas[n])]));
 
   const spec = {
     openapi: '3.1.1',
@@ -171,8 +234,8 @@ async function generate(): Promise<string> {
       version: '0.2.0',
       description:
         'Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. ' +
-        'Browser-style requests must send an Origin equal to BASE_URL (or an ALLOWED_HOSTS name), and every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). ' +
-        'Errors from core routes are `{ "code", "message" }`; OAuth endpoints answer `{ "error", "error_description" }`. All routes are rate-limited per client IP (429). ' +
+        'Every request must use a Host that is BASE_URL\'s host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL\'s origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). ' +
+        'Errors from core routes are `{ "code", "message" }`; OAuth endpoints answer `{ "error", "error_description" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`). ' +
         'Request and response schemas are generated from Better Auth.',
     },
     servers: [{ url: '{baseUrl}/api/auth', variables: { baseUrl: { default: 'http://localhost:4000', description: 'Your BASE_URL' } } }],
@@ -194,9 +257,10 @@ async function generate(): Promise<string> {
           description: 'Set by sign-in. Named `__Secure-better-auth.session_token` when BASE_URL is https.',
         },
         clientSecretBasic: { type: 'http', scheme: 'basic', description: 'OAuth client ID and secret from `node src/cli.ts clients create`.' },
+        bearerAccessToken: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'An OAuth access token from /oauth2/token.' },
       },
     },
-    paths,
+    paths: nullableTo31(paths),
   };
   return `${JSON.stringify(spec, null, 2)}\n`;
 }

@@ -5,7 +5,8 @@ description: Register a client, run the authorization code flow with PKCE, verif
 
 AuthWAPI is an OAuth 2.1 / OpenID Connect provider. Your app sends the user to AuthWAPI's hosted sign-in page and
 gets back an ID token (who the user is) and, if it asks, an access token for your API. Any standard OIDC client
-library works: point it at the discovery document and use the authorization code flow with PKCE.
+library works: point it at the discovery document and use the authorization code flow with PKCE. Your app is a
+confidential client: run the flow on your backend, and keep the client secret, `state` and PKCE verifier there.
 
 | | |
 | --- | --- |
@@ -14,16 +15,16 @@ library works: point it at the discovery document and use the authorization code
 | Keys (JWKS) | `BASE_URL/api/auth/jwks` (EdDSA) |
 | Flow | Authorization code, PKCE with `S256` required |
 | Scopes | `openid`, `email`, `offline_access` |
-| Client authentication | `client_secret_basic` (also `client_secret_post`) |
+| Client authentication | `client_secret_basic` (HTTP Basic) only. Discovery also lists other methods; clients made with the CLI can't use them. |
 
 ## 1. Register your app
 
 Clients are created on the server with the CLI; there is no registration over HTTP.
 
 ```bash
-docker exec authwapi node src/cli.ts clients create \
+docker exec -u 1000 authwapi node src/cli.ts clients create \
   --name "My app" \
-  --redirect-uri http://localhost:3000/callback \
+  --redirect-uri http://127.0.0.1:3000/callback \
   --resource http://localhost:5000/api
 ```
 
@@ -38,7 +39,9 @@ resources:     http://localhost:5000/api
   `127.0.0.1`, `[::1]`, `*.localhost`); anything else needs `https://`.
 - `--resource` (optional, repeatable) names an API your app may request access tokens for. Leave it out if your
   app only needs to know who signed in.
-- The secret is printed once and stored hashed. `node src/cli.ts clients list` shows the clients, never secrets.
+- The secret is printed once and stored hashed. `docker exec -u 1000 authwapi node src/cli.ts clients list` shows
+  the clients, never secrets.
+- `-u 1000` runs the CLI as the user the server runs as. If you set `PUID`, use that number instead.
 
 ## 2. Send the user to sign in
 
@@ -48,7 +51,7 @@ Create a PKCE verifier and challenge, then redirect the browser to the authoriza
 http://localhost:4000/api/auth/oauth2/authorize
   ?response_type=code
   &client_id=wuyyoKxNToKVnVCFaSDwUJhLsKxIDuIc
-  &redirect_uri=http://localhost:3000/callback
+  &redirect_uri=http://127.0.0.1:3000/callback
   &scope=openid email offline_access
   &state=<random>
   &code_challenge=<BASE64URL(SHA256(verifier))>
@@ -56,11 +59,12 @@ http://localhost:4000/api/auth/oauth2/authorize
   &resource=http://localhost:5000/api
 ```
 
-(URL-encode the values.) If the user isn't signed in, AuthWAPI shows its sign-in page. Then the consent page lists
-what your app asked for, in plain words, and the user picks **Allow** or **Deny**. AuthWAPI redirects back:
+(URL-encode the values.) If the user isn't signed in, AuthWAPI shows its sign-in page. The first time, the consent
+page lists what your app asked for, in plain words, and the user picks **Allow** or **Deny**. AuthWAPI redirects
+back:
 
 ```text
-http://localhost:3000/callback?code=8BF356YxVkm1oEn9ozUpBhugS0WjxCoZ&state=xyz&iss=http%3A%2F%2Flocalhost%3A4000
+http://127.0.0.1:3000/callback?code=8BF356YxVkm1oEn9ozUpBhugS0WjxCoZ&state=xyz&iss=http%3A%2F%2Flocalhost%3A4000
 ```
 
 Check that `state` is the one you sent and `iss` is your issuer.
@@ -74,7 +78,7 @@ Check that `state` is the one you sent and `iss` is your issuer.
 curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth2/token \
   -d grant_type=authorization_code \
   -d code=8BF356YxVkm1oEn9ozUpBhugS0WjxCoZ \
-  -d redirect_uri=http://localhost:3000/callback \
+  -d redirect_uri=http://127.0.0.1:3000/callback \
   -d code_verifier="$VERIFIER" \
   -d resource=http://localhost:5000/api
 ```
@@ -95,7 +99,8 @@ Send `resource` here only if it was on the authorization request; otherwise the 
 
 ## 4. Read the ID token
 
-The ID token tells your app who signed in. Verify it against the JWKS with `aud` = your client ID:
+The ID token tells your app who signed in. Let your OIDC library validate it: signature against the JWKS
+(EdDSA), `iss` = your issuer, `aud` = your client ID, `exp`, and `nonce` if you sent one. It looks like this:
 
 ```json
 {
@@ -116,7 +121,8 @@ Use `sub` as the user's ID. `email` and `email_verified` are present only when y
 ## 5. Verify access tokens in your API
 
 Access tokens requested with `resource` are JWTs (`typ: at+jwt`) whose `aud` includes that resource. They last 15
-minutes. Your API checks the signature, `iss` and `aud`. With [jose](https://github.com/panva/jose) in Node:
+minutes. Your API checks the signature, `typ`, `iss`, `aud` and `exp`. With [jose](https://github.com/panva/jose)
+in Node (it checks `exp` by default):
 
 ```js
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -128,6 +134,7 @@ export async function verifyAccessToken(token) {
   const { payload } = await jwtVerify(token, jwks, {
     issuer: AUTHWAPI,
     audience: 'http://localhost:5000/api',
+    typ: 'at+jwt',
   });
   return payload; // payload.sub is the user, payload.scope the granted scopes
 }
@@ -138,7 +145,8 @@ A browser session cookie is not an access token: your API should accept only bea
 ## 6. Refresh
 
 With `offline_access`, trade the refresh token for new tokens. Each refresh token works once; use the new one it
-returns.
+returns. Using an old one again also revokes the tokens issued from it, so never refresh twice at once with the
+same token.
 
 ```bash
 curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth2/token \
@@ -153,7 +161,7 @@ These revoke **every** refresh token the user has, for every app, `offline_acces
 
 - signing out (`POST /api/auth/sign-out`, or the hosted sign-out)
 - RP-initiated logout through `end_session_endpoint` (`/api/auth/oauth2/end-session`; `id_token_hint` works for
-  clients made with the CLI)
+  clients made with the CLI), when it ends a live session
 - revoking sessions (`/revoke-session`, `/revoke-sessions`, `/revoke-other-sessions`)
 - changing the password with `revokeOtherSessions: true`
 - resetting the password
@@ -165,8 +173,10 @@ revocation to take effect at once, ask the introspection endpoint instead of onl
 curl -u "$CLIENT_ID:$CLIENT_SECRET" -X POST http://localhost:4000/api/auth/oauth2/introspect -d token="$ACCESS_TOKEN"
 ```
 
-After sign-out this returns `{"active":false}`; so does userinfo
-(`GET /api/auth/oauth2/userinfo` with `Authorization: Bearer <token>` answers `401 invalid_token`).
+Accept the token only if the answer has `"active": true` and its `aud` includes your API. After sign-out it
+returns `{"active":false}`, and userinfo (`GET /api/auth/oauth2/userinfo` with `Authorization: Bearer <token>`)
+answers `401 invalid_token`. Introspection is limited to 100 requests a minute per IP, so cache answers briefly
+rather than asking on every request of a busy API.
 
 ## Other endpoints
 
@@ -174,11 +184,13 @@ All are in the discovery document and the [API reference](/api/):
 
 - `userinfo_endpoint`: `/api/auth/oauth2/userinfo`, returns `sub`, plus `email` and `email_verified` when the
   token has the `email` scope.
-- `revocation_endpoint`: `/api/auth/oauth2/revoke`, revokes one token.
+- `revocation_endpoint`: `/api/auth/oauth2/revoke`, revokes a refresh token or an opaque access token. A JWT
+  access token can't be revoked; it expires.
 - A `claims` request may name `email` or `email_verified` only together with the `email` scope.
 
 ## Things to know
 
-- Cookies are shared across ports on `localhost`, so an app on `localhost:3000` and AuthWAPI on `localhost:4000`
-  share a cookie jar. Test a real integration with the app on a different hostname.
+- Browsers share cookies across ports of one host, so an app on `localhost:3000` would receive AuthWAPI's cookies
+  from `localhost:4000`. That's why these examples put the app on `127.0.0.1`. Test a real integration with the app
+  on a different hostname.
 - Magic-link sign-in isn't offered during an OAuth sign-in yet; the user signs in with their password.

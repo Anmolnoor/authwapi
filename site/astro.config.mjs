@@ -4,12 +4,14 @@ import { defineConfig } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightOpenAPI, { openAPISidebarGroups } from 'starlight-openapi';
 
-// Absolute links (llms.txt, sitemap, canonical URLs) need the public address. On Vercel it is the project's
-// production domain; Vercel only exposes it when "Automatically expose System Environment Variables" is on.
-if (process.env.VERCEL && !process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-  throw new Error('VERCEL_PROJECT_PRODUCTION_URL is not set: turn on "Automatically expose System Environment Variables" in the Vercel project settings.');
+// Absolute links (llms.txt, sitemap, canonical URLs) need this deployment's public address: on Vercel, the
+// production domain for production builds and the deployment's own URL for previews. Vercel only exposes these when
+// "Automatically expose System Environment Variables" is on. Off Vercel (npm run dev/build) it is localhost.
+const host = process.env.VERCEL_ENV === 'production' ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
+if (process.env.VERCEL && !host) {
+  throw new Error('Vercel system environment variables are missing: turn on "Automatically expose System Environment Variables" in the project settings.');
 }
-const site = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:4321';
+const site = host ? `https://${host}` : 'http://localhost:4321';
 
 export default defineConfig({
   site,
@@ -31,21 +33,16 @@ export default defineConfig({
             '',
             '- Status: early (M1). The admin MCP server and export/import are not built yet. Do not put real users on it.',
             '- Start it (no published image yet): `git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi && docker build -t authwapi .` then `docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi`. Health: `GET http://localhost:4000/health` returns `{"status":"ok"}`.',
-            '- Every request needs a Host header equal to BASE_URL\'s host (default `localhost:4000`) or a name in ALLOWED_HOSTS, else 421 `unknown_host`. A request with an Origin header must send BASE_URL\'s origin, else 403 `untrusted_origin`.',
-            '- Without Resend configured, emails (verification, reset, magic links) are written as JSON files to `<data folder>/outbox/`. They contain credentials: never print or log their links.',
-            '- HTTP API: Better Auth routes under `BASE_URL/api/auth`. Machine-readable reference: the OpenAPI 3.1 file linked below.',
-            '- Apps sign users in with OAuth 2.1 authorization code + PKCE (S256). Clients are created only with `docker exec authwapi node src/cli.ts clients create ...`; dynamic client registration is off.',
+            '- Every request needs a Host header equal to BASE_URL\'s host (default `localhost:4000`) or a name in ALLOWED_HOSTS, else 421 `unknown_host`. An Origin header, if sent, must be BASE_URL\'s origin (or an ALLOWED_HOSTS name), else 403 `untrusted_origin`. A POST that carries the session cookie must send that Origin, else 403 `MISSING_OR_NULL_ORIGIN` and nothing happens.',
+            '- Without Resend configured, emails (verification, reset, magic links) are written as JSON files to `<data folder>/outbox/`. They contain credentials, as do session cookies, sign-in responses and the client secret the CLI prints: never print or log them.',
+            `- HTTP API: Better Auth routes under \`BASE_URL/api/auth\`. Machine-readable reference (OpenAPI 3.1): ${site}/openapi.json`,
+            `- Step-by-step runbook (start, sign up, verify from the outbox, sign in, create an OAuth client) with no human: ${site}/docs/for-ai-agents/`,
+            '- Apps sign users in with OAuth 2.1 authorization code + PKCE (S256). Clients are created only with `docker exec -u 1000 authwapi node src/cli.ts clients create ...`; dynamic client registration is off.',
           ].join('\n'),
           optionalLinks: [
-            { label: 'OpenAPI 3.1 reference', url: `${site}/openapi.json`, description: 'every supported HTTP route with request and response schemas' },
             { label: 'Source code', url: 'https://github.com/Anmolnoor/authwapi', description: 'README.md has the same facts as these docs' },
           ],
-          customSets: [
-            { label: 'Run it', paths: ['docs/quick-start', 'docs/configuration'], description: 'start the container, the data folder, email and every setting' },
-            { label: 'Integrate an app', paths: ['docs/integrate-an-app', 'docs/http-api'], description: 'OAuth 2.1 / OIDC sign-in for apps, tokens, revocation, and the session API' },
-          ],
           promote: ['index', 'docs/quick-start', 'docs/for-ai-agents', 'docs/integrate-an-app', 'docs/http-api'],
-          exclude: ['index'], // llms-small.txt only: the landing page repeats the quick start
         }),
       ],
       sidebar: [

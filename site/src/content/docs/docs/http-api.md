@@ -13,8 +13,10 @@ Every route with its request and response schema is in the [API reference](/api/
 ## Rules for every request
 
 - **Host** must be `BASE_URL`'s host or a name in `ALLOWED_HOSTS`, else `421 unknown_host`.
-- **Origin**, if sent, must be `BASE_URL`'s origin, else `403 untrusted_origin`. Browsers always send it on
-  `POST`; curl doesn't.
+- **Origin**, if sent, must be `BASE_URL`'s origin, else `403 untrusted_origin`.
+- **A `POST` with the session cookie must send `Origin`** (`-H 'origin: http://localhost:4000'` in curl), else
+  `403 MISSING_OR_NULL_ORIGIN` and nothing happens. Browsers send it on their own. Calls without a cookie don't
+  need it.
 - **Bodies** are JSON (`content-type: application/json`).
 - **Rate limits** apply per IP; see [Configuration](/docs/configuration/#rate-limits).
 - **Errors** from account routes look like `{"message":"Email not verified","code":"EMAIL_NOT_VERIFIED"}`.
@@ -41,7 +43,7 @@ curl -c jar -X POST http://localhost:4000/api/auth/sign-in/email \
   -H 'content-type: application/json' \
   -d '{"email":"ada@example.com","password":"correct-horse-battery"}'
 curl -b jar http://localhost:4000/api/auth/get-session
-curl -b jar -X POST http://localhost:4000/api/auth/sign-out    # {"success":true}
+curl -b jar -H 'origin: http://localhost:4000' -X POST http://localhost:4000/api/auth/sign-out   # {"success":true}
 ```
 
 ## Magic links

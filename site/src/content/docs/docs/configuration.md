@@ -31,7 +31,7 @@ Everything AuthWAPI keeps is in the folder you mount at `/data`:
 | `migrations/` | Copies of the migrations applied to this database |
 | `backups/` | A copy of the database and secret taken before each upgrade migration |
 | `logs/app.jsonl` | JSON-lines log. Never contains tokens or sign-in links. |
-| `outbox/` | Emails, when Resend isn't configured. 0600 files, deleted after 24 hours. |
+| `outbox/` | Emails, when Resend isn't configured. 0600 files, deleted once they are 24 hours old (checked hourly). |
 
 **To move it:** stop the container, copy the folder, start a container on the new folder. Never copy the database
 while the server runs.
@@ -59,19 +59,35 @@ whether or not the account exists. A failed send is written to `logs/app.jsonl`.
   This blocks DNS rebinding, and a port mapping that doesn't match `BASE_URL` fails loudly instead of producing
   broken links.
 - **Origin.** A request that sends an `Origin` header must send `BASE_URL`'s origin (or an `ALLOWED_HOSTS` name
-  with the same scheme). Anything else gets `403 {"error":"untrusted_origin","origin":"…"}`. Requests without an
-  `Origin` (curl, server-to-server calls) pass.
+  with the same scheme). Anything else gets `403 {"error":"untrusted_origin","origin":"…"}`.
+- **Origin with a session cookie.** A `POST` that carries the session cookie must send that `Origin`; without it,
+  Better Auth answers `403 {"code":"MISSING_OR_NULL_ORIGIN"}` and does nothing. Browsers send it on their own;
+  from curl or a script, add `-H 'origin: http://localhost:4000'`. Requests without a cookie (sign-up, sign-in,
+  OAuth token calls) don't need one.
+- **Network.** Inside the container the server listens on all interfaces. What keeps it on your machine is
+  publishing the port on `127.0.0.1` (`-p 127.0.0.1:4000:4000`), as every example here does. Plain `-p 4000:4000`
+  listens on every interface and, on Linux, bypasses ufw and firewalld.
 
 ## Rate limits
 
-Every route is rate-limited per client IP, taken from the TCP connection. `X-Forwarded-For` is ignored. Too many
-requests get `429` with an `X-Retry-After` header in seconds. Limits reset when the server restarts.
+Routes under `/api/auth`, and the hosted page forms that call them, are rate-limited per client IP, taken from the
+TCP connection. `X-Forwarded-For` is ignored. Too many requests get `429` with an `X-Retry-After` header in
+seconds. Limits reset when the server restarts. `/health` and pages you only open (GET) aren't limited.
 
-| Routes | Limit per IP |
+| Routes (under `/api/auth`) | Limit per IP |
 | --- | --- |
-| `/sign-in/*`, `/sign-up/*`, `/change-password` | 3 per 10 seconds |
+| `/sign-in/email`, `/sign-up/email`, `/change-password` | 3 per 10 seconds |
+| `/sign-in/magic-link`, `/magic-link/verify` | 5 per minute |
 | `/request-password-reset`, `/send-verification-email` | 3 per minute |
-| Everything else under `/api/auth` | 100 per 10 seconds |
+| `/oauth2/token` | 20 per minute |
+| `/oauth2/authorize` | 30 per minute |
+| `/oauth2/revoke` | 30 per minute |
+| `/oauth2/userinfo` | 60 per minute |
+| `/oauth2/introspect` | 100 per minute |
+| Everything else | 100 per 10 seconds |
+
+The email verification form (`POST /api/auth/verify-email`) has its own limits: 20 tries per IP and 5 per account
+every 5 minutes. It answers an HTML page with status 429.
 
 ## Running on other setups
 

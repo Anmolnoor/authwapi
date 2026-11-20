@@ -3,7 +3,7 @@
   "info": {
     "title": "AuthWAPI",
     "version": "0.2.0",
-    "description": "Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. Browser-style requests must send an Origin equal to BASE_URL (or an ALLOWED_HOSTS name), and every request must use a Host that is BASE_URL's host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). Errors from core routes are `{ \"code\", \"message\" }`; OAuth endpoints answer `{ \"error\", \"error_description\" }`. All routes are rate-limited per client IP (429). Request and response schemas are generated from Better Auth."
+    "description": "Self-hosted auth server (M1). Every path below is under BASE_URL/api/auth except the ones that declare their own server. Every request must use a Host that is BASE_URL's host or in ALLOWED_HOSTS (421 `unknown_host` otherwise). An Origin header, if sent, must be BASE_URL's origin or an ALLOWED_HOSTS name (403 `untrusted_origin` otherwise), and a POST that carries the session cookie must send it (403 `MISSING_OR_NULL_ORIGIN` otherwise). Errors from core routes are `{ \"code\", \"message\" }`; OAuth endpoints answer `{ \"error\", \"error_description\" }`. Routes under /api/auth are rate-limited per client IP (429 with `X-Retry-After`). Request and response schemas are generated from Better Auth."
   },
   "servers": [
     {
@@ -136,6 +136,12 @@
         "type": "http",
         "scheme": "basic",
         "description": "OAuth client ID and secret from `node src/cli.ts clients create`."
+      },
+      "bearerAccessToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "An OAuth access token from /oauth2/token."
       }
     }
   },
@@ -198,8 +204,10 @@
                   "type": "object",
                   "properties": {
                     "token": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "Authentication token for the session"
                     },
                     "user": {
@@ -219,9 +227,11 @@
                           "description": "The name of the user"
                         },
                         "image": {
-                          "type": "string",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "format": "uri",
-                          "nullable": true,
                           "description": "The profile image URL of the user"
                         },
                         "emailVerified": {
@@ -431,8 +441,10 @@
                       "description": "Session token"
                     },
                     "url": {
-                      "type": "string",
-                      "nullable": true
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "user": {
                       "type": "object",
@@ -568,10 +580,12 @@
                     "example": "user@example.com"
                   },
                   "callbackURL": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "description": "The URL to use for email verification callback",
-                    "example": "https://example.com/callback",
-                    "nullable": true
+                    "example": "https://example.com/callback"
                   }
                 },
                 "required": [
@@ -1052,8 +1066,10 @@
                   "type": "object",
                   "properties": {
                     "token": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "New session token if other sessions were revoked"
                     },
                     "user": {
@@ -1073,9 +1089,11 @@
                           "description": "The name of the user"
                         },
                         "image": {
-                          "type": "string",
+                          "type": [
+                            "string",
+                            "null"
+                          ],
                           "format": "uri",
-                          "nullable": true,
                           "description": "The profile image URL of the user"
                         },
                         "emailVerified": {
@@ -2259,9 +2277,12 @@
           {
             "name": "response_type",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "code"
+              ]
             },
             "description": "OAuth 2.1 response type (e.g., 'code')"
           },
@@ -2277,7 +2298,7 @@
           {
             "name": "redirect_uri",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string",
               "format": "uri"
@@ -2303,18 +2324,9 @@
             "description": "OAuth 2.1 state parameter"
           },
           {
-            "name": "request_uri",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Pushed Authorization Request URI referencing stored parameters"
-          },
-          {
             "name": "code_challenge",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             },
@@ -2323,9 +2335,12 @@
           {
             "name": "code_challenge_method",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "S256"
+              ]
             },
             "description": "PKCE code challenge method"
           },
@@ -3214,17 +3229,12 @@
           "OAuth 2.1 / OpenID Connect"
         ],
         "description": "Get OpenID Connect user information (UserInfo endpoint)\n\nSend the access token as `Authorization: Bearer <token>`. Returns `sub`, plus `email` and `email_verified` when the token has the `email` scope. Refuses tokens issued before a revocation.",
-        "security": [],
-        "parameters": [
+        "security": [
           {
-            "name": "Authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Bearer or DPoP access token"
-          },
+            "bearerAccessToken": []
+          }
+        ],
+        "parameters": [
           {
             "name": "DPoP",
             "in": "header",
@@ -3248,35 +3258,47 @@
                       "description": "Subject identifier (user ID)"
                     },
                     "email": {
-                      "type": "string",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "format": "email",
-                      "nullable": true,
                       "description": "User's email address, included if 'email' scope is granted"
                     },
                     "name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's full name, included if 'profile' scope is granted"
                     },
                     "picture": {
-                      "type": "string",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "format": "uri",
-                      "nullable": true,
                       "description": "User's profile picture URL, included if 'profile' scope is granted"
                     },
                     "given_name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's given name, included if 'profile' scope is granted"
                     },
                     "family_name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's family name, included if 'profile' scope is granted"
                     },
                     "email_verified": {
-                      "type": "boolean",
-                      "nullable": true,
+                      "type": [
+                        "boolean",
+                        "null"
+                      ],
                       "description": "Whether the email is verified, included if 'email' scope is granted"
                     }
                   },
@@ -3399,17 +3421,12 @@
           "OAuth 2.1 / OpenID Connect"
         ],
         "description": "Get OpenID Connect user information (UserInfo endpoint)\n\nSend the access token as `Authorization: Bearer <token>`. Returns `sub`, plus `email` and `email_verified` when the token has the `email` scope. Refuses tokens issued before a revocation.",
-        "security": [],
-        "parameters": [
+        "security": [
           {
-            "name": "Authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Bearer or DPoP access token"
-          },
+            "bearerAccessToken": []
+          }
+        ],
+        "parameters": [
           {
             "name": "DPoP",
             "in": "header",
@@ -3448,35 +3465,47 @@
                       "description": "Subject identifier (user ID)"
                     },
                     "email": {
-                      "type": "string",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "format": "email",
-                      "nullable": true,
                       "description": "User's email address, included if 'email' scope is granted"
                     },
                     "name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's full name, included if 'profile' scope is granted"
                     },
                     "picture": {
-                      "type": "string",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "format": "uri",
-                      "nullable": true,
                       "description": "User's profile picture URL, included if 'profile' scope is granted"
                     },
                     "given_name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's given name, included if 'profile' scope is granted"
                     },
                     "family_name": {
-                      "type": "string",
-                      "nullable": true,
+                      "type": [
+                        "string",
+                        "null"
+                      ],
                       "description": "User's family name, included if 'profile' scope is granted"
                     },
                     "email_verified": {
-                      "type": "boolean",
-                      "nullable": true,
+                      "type": [
+                        "boolean",
+                        "null"
+                      ],
                       "description": "Whether the email is verified, included if 'email' scope is granted"
                     }
                   },
@@ -3794,37 +3823,49 @@
                             "description": "Algorithm intended for use with the key (e.g., 'EdDSA', 'RS256')"
                           },
                           "use": {
-                            "type": "string",
+                            "type": [
+                              "string",
+                              "null"
+                            ],
                             "description": "Intended use of the public key (e.g., 'sig' for signature)",
                             "enum": [
                               "sig"
-                            ],
-                            "nullable": true
+                            ]
                           },
                           "n": {
-                            "type": "string",
-                            "description": "Modulus for RSA keys (base64url-encoded)",
-                            "nullable": true
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Modulus for RSA keys (base64url-encoded)"
                           },
                           "e": {
-                            "type": "string",
-                            "description": "Exponent for RSA keys (base64url-encoded)",
-                            "nullable": true
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Exponent for RSA keys (base64url-encoded)"
                           },
                           "crv": {
-                            "type": "string",
-                            "description": "Curve name for elliptic curve keys (e.g., 'Ed25519', 'P-256')",
-                            "nullable": true
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Curve name for elliptic curve keys (e.g., 'Ed25519', 'P-256')"
                           },
                           "x": {
-                            "type": "string",
-                            "description": "X coordinate for elliptic curve keys (base64url-encoded)",
-                            "nullable": true
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "X coordinate for elliptic curve keys (base64url-encoded)"
                           },
                           "y": {
-                            "type": "string",
-                            "description": "Y coordinate for elliptic curve keys (base64url-encoded)",
-                            "nullable": true
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Y coordinate for elliptic curve keys (base64url-encoded)"
                           }
                         },
                         "required": [
@@ -3960,7 +4001,7 @@
         ],
         "responses": {
           "200": {
-            "description": "An HTML page",
+            "description": "The form",
             "content": {
               "text/html": {}
             }
@@ -3972,7 +4013,7 @@
           "Pages"
         ],
         "summary": "Verify an email address (the link in the verification email)",
-        "description": "Form field `password`. Marks the email verified only if the password matches the one the account was created with, so someone who signed up with your address cannot get in when you verify it.",
+        "description": "Marks the email verified only if the password matches the one the account was created with, so someone who signed up with your address cannot get in when you verify it. Limited to 20 tries per IP and 5 per account every 5 minutes.",
         "parameters": [
           {
             "name": "token",
@@ -3983,15 +4024,60 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "An HTML page",
+            "description": "Verified",
             "content": {
               "text/html": {}
             }
           },
-          "303": {
-            "description": "Redirect after signing in"
+          "400": {
+            "description": "Missing password, or the link is broken or expired",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "401": {
+            "description": "Wrong password",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "409": {
+            "description": "The password changed while verifying, or the account has no password",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "429": {
+            "description": "Too many tries",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "500": {
+            "description": "The password could not be checked; nothing changed",
+            "content": {
+              "text/html": {}
+            }
           }
         }
       }
@@ -4015,7 +4101,13 @@
         ],
         "responses": {
           "200": {
-            "description": "An HTML page",
+            "description": "The confirm page",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "400": {
+            "description": "The link is invalid, used or expired",
             "content": {
               "text/html": {}
             }
@@ -4027,7 +4119,7 @@
           "Pages"
         ],
         "summary": "Sign in with a magic link (the link in the email)",
-        "description": "Signs in, sets the session cookie and redirects to the callbackURL.",
+        "description": "Signs in and sets the session cookie.",
         "parameters": [
           {
             "name": "token",
@@ -4039,14 +4131,14 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "An HTML page",
+          "303": {
+            "description": "Signed in; redirects to the callbackURL"
+          },
+          "400": {
+            "description": "The link is invalid, used or expired",
             "content": {
               "text/html": {}
             }
-          },
-          "303": {
-            "description": "Redirect after signing in"
           }
         }
       }
