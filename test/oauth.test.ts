@@ -856,7 +856,7 @@ test('logout pages are AuthWAPI pages: confirm, signed out, error; cookies and s
   assert.match(done.body, /<title>Signed out · AuthWAPI<\/title>/);
   assert.match(done.body, /<style>/);
   assert.ok(done.setCookies.some((c) => c.includes('session_token=;') || /session_token=[^;]*;.*Max-Age=0/i.test(c)), 'the session cookie is not cleared');
-  assert.equal(await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } }).then((r) => r.json()), null);
+  assert.ok((await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } }).then((r) => r.json())) === null, 'the session survived');
 
   const unknown = await browserGet(`${s.base}/api/auth/oauth2/end-session?client_id=no-such-client`, '');
   assert.equal(unknown.status, 400);

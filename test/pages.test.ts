@@ -601,7 +601,7 @@ test('2FA setup shows a QR code of the exact otpauth link, on white, and the lin
   const uri = /<a href="(otpauth:\/\/[^"]+)">/.exec(page)![1].replaceAll('&amp;', '&');
   assert.equal(new URL(uri).protocol, 'otpauth:');
   const svg = /<svg [^>]*role="img"[^>]*aria-label="[^"]+"[^>]*>([\s\S]*?)<\/svg>/.exec(page)![1];
-  assert.match(svg, /<rect [^>]*fill="#fff"/);
+  assert.ok(/<rect [^>]*fill="#fff"/.test(svg), 'the QR code has no white background');
   assert.ok(/<path d="([^"]+)"/.exec(svg)![1] === toSvgPath(generate(uri)), 'the QR code is not of the otpauth link');
 });
 
