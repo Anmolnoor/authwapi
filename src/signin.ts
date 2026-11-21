@@ -233,8 +233,9 @@ function mfaGlue(): BetterAuthPlugin {
           // conditional UPDATE; a code with any matching step not newer than the last one claimed is refused, so a
           // replay never reaches Better Auth. Checked for each user Better Auth may verify (the session's, and the
           // challenge's it falls back to), skipping only a challenge past use for good (expired, out of attempts): a
-          // code claimed and then refused for anything else is used up. The search covers Better Auth's window at its
-          // own, later moment: a step further back (the clock can step back), and further ahead in a step's last second.
+          // code claimed and then refused for anything else is used up (so learning that a guess was right gains
+          // nothing). The search is a step wider each way than Better Auth's window, which it checks a moment later,
+          // maybe in the next step (or the previous one, if the clock steps back).
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
             const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
@@ -244,7 +245,7 @@ function mfaGlue(): BetterAuthPlugin {
             for (const userId of new Set([arrived(ctx)?.userId, live ? challenged.value : undefined].filter((u) => u !== undefined))) {
               const row = await totpRow(ctx, userId);
               if (!row) continue;
-              const steps = await totpSteps(ctx, row.secret, ctx.body?.code, -2, Date.now() % 30_000 >= 29_000 ? 2 : 1);
+              const steps = await totpSteps(ctx, row.secret, ctx.body?.code, -2, 2);
               if (steps.length === 0) continue;
               const claimed = await ctx.context.adapter.updateMany({
                 model: 'twoFactor',
