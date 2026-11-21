@@ -126,6 +126,152 @@ test('a backup code completes the challenge once', async () => {
   assert.notEqual(again.status, 200);
 });
 
+// RFC 6238 §5.2: a TOTP code is accepted once, and never a code from a step at or before the last one accepted.
+const challenged = async () => {
+  const jar = new Jar();
+  assert.equal((await passwordSignIn(s, jar, 'ada@example.com')).status, 200);
+  return jar;
+};
+const verifyTotp = (jar: Jar, code: string) => send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code } });
+
+test('a TOTP code works once: the same code cannot finish a second sign-in', async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const code = totp(secret);
+  const [a, b] = [await challenged(), await challenged()];
+  assert.equal((await verifyTotp(a, code)).status, 200);
+  const again = await verifyTotp(b, code);
+  assert.equal(again.status, 401);
+  assert.equal(again.json().code, 'TOTP_CODE_ALREADY_USED');
+  assert.equal(await currentUser(s, b), null, 'a used code signed someone in again');
+});
+
+test('a sign-in refused for a used code keeps its challenge: the next code finishes it on the hosted form', async () => {
+  s = await startTestServer();
+  const { secret, code } = await twoFactorUser();
+  const jar = await challenged();
+  const used = await send(s, jar, 'POST', '/two-factor', { form: { code } });
+  assert.equal(used.status, 400);
+  assert.match(used.body, /already used/);
+  const next = await send(s, jar, 'POST', '/two-factor', { form: { code: totp(secret) } });
+  assert.equal(next.status, 303, next.body);
+  assert.equal(await currentUser(s, jar), 'ada@example.com');
+});
+
+test("a used code is refused even while the challenge's attempts row is being rewritten by another request", async () => {
+  s = await startTestServer();
+  const { code } = await twoFactorUser();
+  const jar = await challenged();
+  // What a concurrent wrong code leaves for a moment: Better Auth consumes the attempts row, then writes it back.
+  // (Identifiers are stored hashed; a fresh challenge's attempts row is the one whose value is '0'.)
+  assert.equal(one(`SELECT count(*) FROM verification WHERE value = '0'`), 1);
+  exec(`DELETE FROM verification WHERE value = '0'`);
+  const r = await verifyTotp(jar, code);
+  assert.equal(r.status, 401);
+  assert.equal(r.json().code, 'TOTP_CODE_ALREADY_USED');
+});
+
+test("a claimed code touches only its own user's row", async () => {
+  s = await startTestServer();
+  const ada = await twoFactorUser('ada@example.com');
+  const bob = await twoFactorUser('bob@example.com');
+  const lastStep = (userId: string) => one('SELECT lastUsedStep FROM twoFactor WHERE userId = ?', userId);
+  const bobBefore = lastStep(bob.userId);
+  assert.equal((await verifyTotp(await challenged(), totp(ada.secret))).status, 200);
+  assert.ok((lastStep(ada.userId) as number) > (bobBefore as number), "ada's code was not claimed");
+  assert.equal(lastStep(bob.userId), bobBefore, "ada's code moved bob's step");
+});
+
+test('two requests confirming a new 2FA secret with the same code: one succeeds', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const code = totp(new URL(r.json().totpURI).searchParams.get('secret')!);
+  const answers = await Promise.all([verifyTotp(jar, code), verifyTotp(jar, code)]);
+  assert.equal(answers.filter((x) => x.status === 200).length, 1, answers.map((x) => x.status).join());
+  const winner = answers.find((x) => x.status === 200)!;
+  const cookie = liveSessionCookie(winner.setCookies);
+  assert.ok(cookie, 'the confirmation that won set no session cookie');
+  const winnerJar = new Jar();
+  winnerJar.add(winner.setCookies);
+  assert.equal(await currentUser(s, winnerJar), 'ada@example.com', "the winner's session was signed out");
+});
+
+test("a refused used code doesn't erase the account's failed attempts", async () => {
+  s = await startTestServer();
+  const { userId, secret } = await twoFactorUser();
+  const code = totp(secret);
+  assert.equal((await verifyTotp(await challenged(), code)).status, 200);
+  const b = await challenged();
+  // Wrong backup codes (the per-path rate limit allows 3 per 10 s); they count toward the same lockout.
+  for (let i = 0; i < 2; i++) assert.equal((await send(s, b, 'POST', '/api/auth/two-factor/verify-backup-code', { json: { code: '000000' } })).status, 401);
+  assert.equal(one('SELECT failedVerificationCount FROM twoFactor WHERE userId = ?', userId), 2);
+  assert.equal((await verifyTotp(b, code)).status, 401);
+  assert.equal(one('SELECT failedVerificationCount FROM twoFactor WHERE userId = ?', userId), 2);
+});
+
+test('two sign-ins racing with the same TOTP code: exactly one gets a session', async () => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const code = totp(secret);
+  const jars = [await challenged(), await challenged()];
+  const statuses = (await Promise.all(jars.map((j) => verifyTotp(j, code)))).map((r) => r.status).sort();
+  assert.deepEqual(statuses, [200, 401]);
+  const users = await Promise.all(jars.map((j) => currentUser(s, j)));
+  assert.equal(users.filter(Boolean).length, 1);
+});
+
+test('after a TOTP code is accepted, a code from an earlier step in the window is refused', async (t) => {
+  s = await startTestServer();
+  const { secret } = await twoFactorUser();
+  const step = Math.floor(Date.now() / 30_000);
+  const [newer, older] = [totp(secret, (step + 1) * 30_000), totp(secret, step * 30_000)];
+  if (newer === older) return t.skip('the two steps happen to share a code (1 in a million)');
+  assert.equal((await verifyTotp(await challenged(), newer)).status, 200);
+  const refused = await verifyTotp(await challenged(), older);
+  assert.equal(refused.status, 401);
+  assert.equal(refused.json().code, 'TOTP_CODE_ALREADY_USED');
+});
+
+test('a TOTP code that is not six ASCII digits is an ordinary wrong code, not a server error', async () => {
+  s = await startTestServer();
+  await twoFactorUser();
+  const r = await verifyTotp(await challenged(), '12345\u0661');
+  assert.equal(r.status, 401);
+  assert.equal(r.json().code, 'INVALID_CODE');
+});
+
+test("a challenge out of attempts refuses even a right code, and doesn't use it up", async () => {
+  s = await startTestServer();
+  const { userId, secret } = await twoFactorUser();
+  const lastStep = () => one('SELECT lastUsedStep FROM twoFactor WHERE userId = ?', userId);
+  const before = lastStep();
+  const spent = await challenged();
+  // Five wrong codes, alternating paths to stay under the per-path rate limit (3 per 10 s); both count.
+  for (const path of ['verify-backup-code', 'verify-totp', 'verify-backup-code', 'verify-totp', 'verify-backup-code']) {
+    assert.equal((await send(s, spent, 'POST', `/api/auth/two-factor/${path}`, { json: { code: '000000' } })).status, 401, path);
+  }
+  assert.notEqual((await verifyTotp(spent, totp(secret))).status, 200);
+  assert.equal(await currentUser(s, spent), null);
+  assert.equal(lastStep(), before, 'the refused right code was used up');
+});
+
+test('the code that turned 2FA on cannot be used again as a signed-in fresh check', async () => {
+  s = await startTestServer();
+  await verifiedUser(s, 'ada@example.com');
+  const jar = new Jar();
+  await passwordSignIn(s, jar, 'ada@example.com');
+  const r = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: { password: 'correct horse' } });
+  const secret = new URL(r.json().totpURI).searchParams.get('secret')!;
+  const code = totp(secret);
+  assert.equal((await verifyTotp(jar, code)).status, 200);
+  const again = await verifyTotp(jar, code);
+  assert.equal(again.status, 401);
+  assert.equal(again.json().code, 'TOTP_CODE_ALREADY_USED');
+});
+
 test('trusted devices are off: trustDevice is refused, and even a valid trust cookie does not skip the challenge', async () => {
   s = await startTestServer();
   const { userId, secret } = await twoFactorUser();
@@ -383,7 +529,8 @@ test('turning 2FA on revokes before it commits: a wrong code revokes nothing; a 
   const d2 = db(s);
   d2.exec('DROP TRIGGER fail_2fa');
   d2.close();
-  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } })).status, 200);
+  // The failed attempt used its code (claimed before Better Auth's check); the retry takes the next one.
+  assert.equal((await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret, Date.now() + 30_000) } })).status, 200);
   assert.equal(count('SELECT twoFactorEnabled FROM user WHERE id = ?'), 1);
   assert.equal(await currentUser(s, jar), 'ada@example.com');
 });

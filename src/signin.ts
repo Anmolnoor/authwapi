@@ -6,6 +6,7 @@
 import { passkey } from '@better-auth/passkey';
 import type { AuthContext, BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { timingSafeEqual } from 'node:crypto';
 import { base32 } from '@better-auth/utils/base32';
 import { createOTP } from '@better-auth/utils/otp';
 import { deleteSessionCookie } from 'better-auth/cookies';
@@ -125,16 +126,27 @@ async function challenge(ctx: HookContext, token: string, userId: string) {
 
 /**
  * The check Better Auth's verify-totp makes (twoFactor/totp: the stored secret, decrypted, 6 digits, 30 s, one step
- * either side), for a code that would turn 2FA on.
+ * either side; `from`/`to` widen it), returning every 30-second step the code matches, oldest first.
  */
-async function totpMatches(ctx: HookContext, userId: string, code: unknown): Promise<boolean> {
-  if (typeof code !== 'string') return false;
-  const row = await ctx.context.adapter.findOne<{ secret: string }>({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] });
-  if (!row) return false;
-  const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: row.secret });
+async function totpSteps(ctx: HookContext, encryptedSecret: string, code: unknown, from = -1, to = 1): Promise<number[]> {
+  if (typeof code !== 'string' || !/^[0-9]{6}$/.test(code)) return [];
+  const raw = await symmetricDecrypt({ key: ctx.context.secretConfig, data: encryptedSecret });
   const secret = raw.startsWith('base32:') ? base32.decode(raw.slice(7).toUpperCase()) : raw;
-  return createOTP(secret, { digits: 6, period: 30 }).verify(code);
+  const otp = createOTP(secret, { digits: 6, period: 30 });
+  const now = Math.floor(Date.now() / 30_000);
+  const steps: number[] = [];
+  for (let step = now + from; step <= now + to; step++) {
+    if (timingSafeEqual(Buffer.from(code), Buffer.from(await otp.hotp(step)))) steps.push(step);
+  }
+  return steps;
 }
+
+/** The user's TOTP row, if any. */
+const totpRow = (ctx: HookContext, userId: string) =>
+  ctx.context.adapter.findOne<{ secret: string }>({
+    model: 'twoFactor',
+    where: [{ field: 'userId', value: userId }],
+  });
 
 /**
  * What turning 2FA on removes: every session of the user except `keepToken` (the one that turned it on), every OAuth
@@ -168,6 +180,8 @@ function mfaGlue(): BetterAuthPlugin {
 
   return {
     id: 'authwapi-mfa',
+    // The last 30-second TOTP step accepted for the user (RFC 6238 §5.2 replay check, below).
+    schema: { twoFactor: { fields: { lastUsedStep: { type: 'number', required: false, input: false, returned: false } } } },
     hooks: {
       before: [
         {
@@ -215,12 +229,51 @@ function mfaGlue(): BetterAuthPlugin {
           }),
         },
         {
+          // RFC 6238 §5.2: a TOTP code works once. Before Better Auth checks it, a right code claims its step in one
+          // conditional UPDATE; a code with any matching step not newer than the last one claimed is refused, so a
+          // replay never reaches Better Auth. Checked for each user Better Auth may verify (the session's, and the
+          // challenge's it falls back to), skipping only a challenge past use for good (expired, out of attempts): a
+          // code claimed and then refused for anything else is used up (so learning that a guess was right gains
+          // nothing). The search is a step wider each way than Better Auth's window, which it checks a moment later,
+          // maybe in the next step (or the previous one, if the clock steps back).
+          matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
+          handler: createAuthMiddleware(async (ctx) => {
+            const cookie = await ctx.getSignedCookie(ctx.context.createAuthCookie('two_factor').name, ctx.context.secret);
+            const challenged = cookie ? await ctx.context.internalAdapter.findVerificationValue(cookie) : null;
+            const attempts = cookie ? await ctx.context.internalAdapter.findVerificationValue(`2fa-attempts-${cookie}`) : null;
+            const live = challenged && new Date(challenged.expiresAt) > new Date() && !(attempts && Number(attempts.value) >= 5);
+            for (const userId of new Set([arrived(ctx)?.userId, live ? challenged.value : undefined].filter((u) => u !== undefined))) {
+              const row = await totpRow(ctx, userId);
+              if (!row) continue;
+              const steps = await totpSteps(ctx, row.secret, ctx.body?.code, -2, 2);
+              if (steps.length === 0) continue;
+              const claimed = await ctx.context.adapter.updateMany({
+                model: 'twoFactor',
+                where: [
+                  { field: 'userId', value: userId },
+                  { field: 'lastUsedStep', operator: 'lt', value: steps[0], connector: 'OR' },
+                  { field: 'lastUsedStep', value: null, connector: 'OR' },
+                ],
+                update: { lastUsedStep: steps.at(-1) },
+              });
+              if (!claimed) {
+                throw new APIError('UNAUTHORIZED', {
+                  code: 'TOTP_CODE_ALREADY_USED',
+                  message: 'That code was already used. Wait for the next one in your authenticator app.',
+                });
+              }
+            }
+          }),
+        },
+        {
           // Turning 2FA on, first sweep: once the code is known to be right and BEFORE Better Auth commits the switch.
           // If the switch then fails, 2FA is simply still off and the user can retry. The after-hook sweeps again.
           matcher: (ctx) => ctx.path === '/two-factor/verify-totp',
           handler: createAuthMiddleware(async (ctx) => {
             const s = arrived(ctx);
-            if (!s || s.twoFactorEnabled || !(await totpMatches(ctx, s.userId, ctx.body?.code))) return;
+            if (!s || s.twoFactorEnabled) return;
+            const row = await totpRow(ctx, s.userId);
+            if (!row || (await totpSteps(ctx, row.secret, ctx.body?.code)).length === 0) return;
             await sweep(ctx, s.userId, s.token);
           }),
         },

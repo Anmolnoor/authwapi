@@ -123,15 +123,19 @@ export function totp(secret: string, at = Date.now()): string {
   return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
 
-/** Turns on TOTP for the signed-in user in `jar` (enable, then confirm a code). Returns the secret and backup codes. */
+/** Turns on TOTP for the signed-in user in `jar` (enable, then confirm a code). Returns the secret, backup codes and that code. */
 export async function enableTotp(s: TestServer, jar: Jar, password: string | undefined = 'correct horse') {
   const r = await send(s, jar, 'POST', '/api/auth/two-factor/enable', { json: password ? { password } : {} });
   assert.equal(r.status, 200, r.body);
   const { totpURI, backupCodes } = r.json() as { totpURI: string; backupCodes: string[] };
   const secret = new URL(totpURI).searchParams.get('secret')!;
-  const ok = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code: totp(secret) } });
+  // The previous step's code (still in the window), so the current step's code is free for the test's next check. Not
+  // in a step's last second, so it can't age out of the window on the way.
+  while (Date.now() % 30_000 > 29_000) await new Promise((r) => setTimeout(r, 100));
+  const code = totp(secret, Date.now() - 30_000);
+  const ok = await send(s, jar, 'POST', '/api/auth/two-factor/verify-totp', { json: { code } });
   assert.equal(ok.status, 200, ok.body);
-  return { secret, backupCodes };
+  return { secret, backupCodes, code };
 }
 
 // ── OAuth clients (the app side) ──
