@@ -135,9 +135,12 @@ it and import again.
 
 Server-rendered: `/` · `/sign-in` (password, passkey, Google/GitHub when set up, SSO, or "email me a link") · `/sign-up`
 · `/forgot-password` · `/reset-password` · `/consent` (an app asking for access) · `/signed-out` · `/two-factor` (the
-code after the first step) · `/two-factor/setup` (turn on TOTP) · `/passkeys` (add one). The only script is
+code after the first step) · `/two-factor/setup` (turn on TOTP: a QR code, the key, and backup codes) · `/passkeys`
+(add one) · `/error` (where Better Auth sends a browser for an error: the code in plain words, never text from the
+URL). The logout pages of `/api/auth/oauth2/end-session` are restyled to match. The only script is
 `/passkey.js` for the passkey buttons (WebAuthn needs one); the pages' CSP allows scripts from our own origin only.
-Every sign-in method also works during an app's sign-in: the request carries on to consent afterwards. That
+Every sign-in method also works during an app's sign-in, and `/sign-in` names the app: the request carries on to
+consent afterwards. That
 hand-off is a feature of the hosted pages: an app sends people to `/api/auth/oauth2/authorize` and lets them sign in
 there. Clients that call the sign-in API themselves (for example `POST /api/auth/sign-in/social`) aren't a supported
 way to complete an app's authorization request.
@@ -201,7 +204,7 @@ turned off: it answers `ID_TOKEN_NOT_SUPPORTED`.
   `/api/auth/organization/`). Only an agent creates one, with the `create_org` MCP tool (signed-in users can't over
   HTTP); it invites people with `invite_member`, and members manage invitations and members over the HTTP routes as
   their role allows. An invitation is emailed with a link to `/accept-invitation`, where the invitee accepts while
-  signed in with that address, verified.
+  signed in with that address, verified (signed out, the page links to sign-in and sign-up).
 - **The first admin** is made with the `set_role` MCP tool (write key). Admins use
   [Better Auth's admin routes](https://better-auth.com/docs/plugins/admin) under `/api/auth/admin/` with their
   session.

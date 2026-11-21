@@ -8,7 +8,9 @@ import { afterEach, test } from 'node:test';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { SignJWT } from 'jose';
-import { markEmailVerified } from '../src/pages.ts';
+import { generate } from 'lean-qr';
+import { toSvgPath } from 'lean-qr/extras/svg';
+import { markEmailVerified, restyleLogoutPage } from '../src/pages.ts';
 import { linkIn, startTestServer, type TestServer } from './helpers.ts';
 
 let s: TestServer;
@@ -253,7 +255,7 @@ test('every page forbids framing and caching; API routes are left alone', async 
   await up();
   const link = await signUp('frame@example.com');
   const pages: [string, Promise<Response>][] = [
-    ...['/', '/sign-in', '/sign-up', '/forgot-password', '/reset-password?token=abc', '/signed-out', '/consent', link, '/api/auth/magic-link/verify?token=x'].map(
+    ...['/', '/sign-in', '/sign-up', '/forgot-password', '/reset-password?token=abc', '/signed-out', '/consent', '/error?error=x', link, '/api/auth/magic-link/verify?token=x'].map(
       (u): [string, Promise<Response>] => [`GET ${u}`, get(u)]
     ),
     ['POST /sign-in', submit('/sign-in', { email: 'x@example.com', password: 'wrong wrong' })],
@@ -500,6 +502,14 @@ test('OAuth: the sign-in page continues the authorization; consent Allow returns
   const oauthQuery = /name="oauth_query" value="([^"]*)"/.exec(loginPage)![1].replaceAll('&amp;', '&');
   assert.equal(oauthQuery, loginUrl.search.slice(1));
   assert.ok(loginPage.includes('Email me a link'), 'no magic link during an OAuth request'); // M2; flow in test/mfa.test.ts
+  // Signed out, the page says which app the sign-in is for (QA finding 6), escaped; also when a wrong password re-renders it.
+  assert.match(loginPage, /Sign in to continue to <strong>Notes &lt;App&gt;<\/strong>/);
+  const wrong = await form('/sign-in', { email, password: 'wrong password', oauth_query: oauthQuery });
+  assert.equal(wrong.status, 400);
+  assert.match(await wrong.text(), /Sign in to continue to <strong>Notes &lt;App&gt;<\/strong>/);
+  // A changed request names no app.
+  const changed = await (await fetch(new URL(`/sign-in?${oauthQuery.replace('s1', 'sX')}`, o.base))).text();
+  assert.doesNotMatch(changed, /continue to/);
 
   // Signing in on that page continues the request: next stop is the consent page.
   const signIn = await form('/sign-in', { email, password: 'correct horse', oauth_query: oauthQuery });
@@ -569,4 +579,62 @@ test('OAuth consent names the APIs the app asks for, escaped', async () => {
   const evilPage = await (await fetch(evil, { headers: { cookie } })).text();
   assert.ok(!evilPage.includes('<script>'), 'a resource was reflected unescaped');
   assert.match(evilPage, /Access <strong>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/strong> on your behalf/);
+});
+
+test('dark mode colors links and the focus ring; long codes wrap (QA findings 2, 3)', async () => {
+  await up();
+  const page = await (await get('/sign-in')).text();
+  const dark = /@media \(prefers-color-scheme:dark\)\{([\s\S]*?)\}\s*<\/style>/.exec(page)![1];
+  assert.match(dark, /a\{color:#8ab4f8\}/);
+  assert.match(dark, /a:visited\{color:#c58af9\}/);
+  assert.match(dark, /:focus-visible\{outline-color:#8ab4f8\}/);
+  assert.match(page, /code\{overflow-wrap:anywhere\}/);
+});
+
+test('2FA setup shows a QR code of the exact otpauth link, on white, and the link itself (QA finding 4)', async () => {
+  await up();
+  const cookie = await signedIn('qr@example.com');
+  const res = await submit('/two-factor/setup', { password: 'correct horse' }, { cookie });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const page = await res.text();
+  const uri = /<a href="(otpauth:\/\/[^"]+)">/.exec(page)![1].replaceAll('&amp;', '&');
+  assert.equal(new URL(uri).protocol, 'otpauth:');
+  const svg = /<svg [^>]*role="img"[^>]*aria-label="[^"]+"[^>]*>([\s\S]*?)<\/svg>/.exec(page)![1];
+  assert.match(svg, /<rect [^>]*fill="#fff"/);
+  assert.equal(/<path d="([^"]+)"/.exec(svg)![1], toSvgPath(generate(uri)));
+});
+
+test('the error page: codes in plain words, never text from the URL (QA finding 7)', async () => {
+  await up();
+  const res = await get('/error?error=invalid_scope&error_description=Your+account+is+locked.+Call+555-0100');
+  assert.equal(res.status, 400);
+  const page = await res.text();
+  assert.match(page, /<title>Something went wrong · AuthWAPI<\/title>/);
+  assert.match(page, /invalid_scope/);
+  assert.doesNotMatch(page, /555-0100|locked/);
+  assert.doesNotMatch(page, /Ask AI|better-auth\.com/);
+  assert.match(await (await get("/error?error=email_doesn't_match")).text(), /email_doesn&#39;t_match/);
+  assert.doesNotMatch(await (await get('/error?error=%3Cb%3Ehi')).text(), /&lt;b&gt;hi|<b>hi/);
+  // Better Auth's own error route sends browsers here, in development and production alike.
+  const ba = await get('/api/auth/error?error=state_mismatch&error_description=x');
+  assert.equal(ba.status, 302);
+  const at = new URL(ba.headers.get('location')!, s.base);
+  assert.equal(`${at.origin}${at.pathname}`, `${s.base}/error`);
+  assert.equal(at.searchParams.get('error'), 'state_mismatch');
+});
+
+test('logout restyle: an unknown page shape is served unchanged and logged; a note is shown as text', async () => {
+  s = { stop: async () => {} } as TestServer; // no server: afterEach has nothing to stop
+  const logged: string[] = [];
+  const unknown = new Response('<html><body>A new upstream page</body></html>', { headers: { 'content-type': 'text/html', 'set-cookie': 'a=1' } });
+  const res = await restyleLogoutPage(unknown, (level, msg) => logged.push(`${level}: ${msg}`));
+  assert.equal(res, unknown);
+  assert.equal(await res.text(), '<html><body>A new upstream page</body></html>');
+  assert.deepEqual(logged, ['warn: logout page: Better Auth sent HTML of an unknown shape; served it unchanged']);
+  const withNote = await restyleLogoutPage(
+    new Response('<main><p data-oidc-logout-state="logged-out">Logged out. a &lt;b&gt; &amp; c</p></main>', { headers: { 'content-type': 'text/html; charset=utf-8' } }),
+    () => assert.fail('nothing to log')
+  );
+  assert.match(await withNote.text(), /You're signed out\.<\/p><p>a &lt;b&gt; &amp; c<\/p>/);
 });

@@ -175,7 +175,7 @@ function rejectClaimsOutsideScope(ctx: HookContext, claims: unknown, scope: stri
   const description = `claims ${missing.join(', ')} need the ${[...new Set(missing.map((n) => CLAIM_SCOPE[n]))].join(', ')} scope`;
   if (ctx.path === '/oauth2/authorize') {
     // The redirect URI isn't validated yet, so the error goes to AuthWAPI's own error page, like invalid_redirect.
-    throw ctx.redirect(`${ctx.context.baseURL}/error?${new URLSearchParams({ error: 'invalid_request', error_description: description })}`);
+    throw ctx.redirect(`${ctx.context.options.onAPIError!.errorURL!}?${new URLSearchParams({ error: 'invalid_request', error_description: description })}`);
   }
   throw new APIError('BAD_REQUEST', { error: 'invalid_request', error_description: description });
 }
@@ -405,6 +405,9 @@ export function oauthPlugins(deps: AuthDeps): Plugin[] {
   const opts: ProviderOptions = {
     loginPage: '/sign-in',
     consentPage: '/consent',
+    // The sign-in page names the app (POST /oauth2/public-client-prelogin): only for a validly signed request, and
+    // only what the consent page shows anyway.
+    allowPublicClientPrelogin: true,
     scopes: ['openid', 'email', 'offline_access', 'organization'], // claims: sub, email, email_verified; org_id, roles (M3)
     grantTypes: ['authorization_code', 'refresh_token'],
     accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECONDS,
