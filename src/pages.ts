@@ -334,16 +334,16 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return r.status === 200 ? (r.data as SessionData) : null;
   };
 
-  // Better Auth sends browsers here for errors (onAPIError.errorURL in src/auth.ts). The code is shown only if it looks
-  // like one, and error_description never: it is any text a link puts in the URL, shown on this origin.
+  // Better Auth sends browsers here for errors (onAPIError.errorURL in src/auth.ts). Only a code listed in ERROR_WORDS
+  // is shown, and error_description never: anything else is text a link put in the URL, shown on this origin.
   app.get('/error', (c) => {
-    const given = c.req.query('error') ?? '';
-    const code = /^[A-Za-z0-9_.'-]{1,64}$/.test(given) ? given : 'unknown';
+    const code = c.req.query('error') ?? '';
+    const known = Object.hasOwn(ERROR_WORDS, code);
     return render(
       c,
       'Something went wrong',
-      html`${alert(ERROR_WORDS[code] ?? "That didn't work. Go back to the app or page you came from and start again.")}
-        <p>Error code: <code>${code}</code></p>
+      html`${alert(known ? ERROR_WORDS[code] : "That didn't work. Go back to the app or page you came from and start again.")}
+        ${known ? html`<p>Error code: <code>${code}</code></p>` : ''}
         <p><a href="/">AuthWAPI home</a></p>`,
       400
     );
@@ -367,18 +367,20 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── Sign in (also the OAuth loginPage) ──
+  const clientName = db.prepare('SELECT name FROM oauthClient WHERE clientId = ? AND NOT coalesce(disabled, 0)').pluck();
   /**
-   * The app an OAuth request is for, named the way the consent page names it. The pre-login lookup checks the
-   * request's signature and that client_id is the signed one; if it fails, the page names no app.
+   * The app a validly signed OAuth request is for, named the way the consent page names it; otherwise undefined.
+   * Read here rather than through Better Auth's public-client-prelogin, which would hand any caller holding a
+   * signed request the client's contacts, URLs and logo too.
    */
-  const appFor = async (c: Context, query: string) => {
+  const appFor = async (query: string) => {
     const clientId = new URLSearchParams(query).get('client_id');
-    if (!query || !clientId) return undefined;
-    const r = await ba(c, 'POST', '/oauth2/public-client-prelogin', { client_id: clientId, oauth_query: query });
-    return r.status === 200 ? appLabel(clientId, (r.data as { client_name?: string }).client_name) : undefined;
+    if (!query || !clientId || !(await verifyOAuthQueryParams(query, secret))) return undefined;
+    const name = clientName.get(clientId) as string | null | undefined;
+    return name === undefined ? undefined : appLabel(clientId, name ?? undefined);
   };
   const signInPage = async (c: Context, query: string, error?: string, notice?: string, status: ContentfulStatusCode = 200) => {
-    const app = await appFor(c, query);
+    const app = await appFor(query);
     return render(
       c,
       'Sign in',
@@ -903,9 +905,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Two-factor authentication',
-      html`<p>Scan this with your authenticator app:</p>
-        ${qr}
-        <p>or enter this key:</p>
+      html`${qr ? html`<p>Scan this with your authenticator app:</p>${qr}<p>or enter this key:</p>` : html`<p>Add this account to your authenticator app with this key:</p>`}
         <p><code>${new URL(totpURI).searchParams.get('secret')}</code></p>
         <p>or, on this device, open <a href="${totpURI}">this link</a>: <code>${totpURI}</code></p>
         <p>Backup codes, each works once if you lose the app. Save them now: they won't be shown again.</p>

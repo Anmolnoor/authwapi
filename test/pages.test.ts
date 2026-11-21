@@ -602,7 +602,7 @@ test('2FA setup shows a QR code of the exact otpauth link, on white, and the lin
   assert.equal(new URL(uri).protocol, 'otpauth:');
   const svg = /<svg [^>]*role="img"[^>]*aria-label="[^"]+"[^>]*>([\s\S]*?)<\/svg>/.exec(page)![1];
   assert.match(svg, /<rect [^>]*fill="#fff"/);
-  assert.equal(/<path d="([^"]+)"/.exec(svg)![1], toSvgPath(generate(uri)));
+  assert.ok(/<path d="([^"]+)"/.exec(svg)![1] === toSvgPath(generate(uri)), 'the QR code is not of the otpauth link');
 });
 
 test('the error page: codes in plain words, never text from the URL (QA finding 7)', async () => {
@@ -614,8 +614,12 @@ test('the error page: codes in plain words, never text from the URL (QA finding 
   assert.match(page, /invalid_scope/);
   assert.doesNotMatch(page, /555-0100|locked/);
   assert.doesNotMatch(page, /Ask AI|better-auth\.com/);
-  assert.match(await (await get("/error?error=email_doesn't_match")).text(), /email_doesn&#39;t_match/);
-  assert.doesNotMatch(await (await get('/error?error=%3Cb%3Ehi')).text(), /&lt;b&gt;hi|<b>hi/);
+  // A code it doesn't list is not shown: it would be text from the URL. Nor is anything inherited from Object.
+  for (const code of ['call_555-0100', 'constructor', '%3Cb%3Ehi']) {
+    const other = await (await get(`/error?error=${code}`)).text();
+    assert.match(other, /That didn&#39;t work/, code);
+    assert.doesNotMatch(other, /Error code|555|function|&lt;b&gt;|<b>/, code);
+  }
   // Better Auth's own error route sends browsers here, in development and production alike.
   const ba = await get('/api/auth/error?error=state_mismatch&error_description=x');
   assert.equal(ba.status, 302);

@@ -405,9 +405,6 @@ export function oauthPlugins(deps: AuthDeps): Plugin[] {
   const opts: ProviderOptions = {
     loginPage: '/sign-in',
     consentPage: '/consent',
-    // The sign-in page names the app (POST /oauth2/public-client-prelogin): only for a validly signed request, and
-    // only what the consent page shows anyway.
-    allowPublicClientPrelogin: true,
     scopes: ['openid', 'email', 'offline_access', 'organization'], // claims: sub, email, email_verified; org_id, roles (M3)
     grantTypes: ['authorization_code', 'refresh_token'],
     accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECONDS,
