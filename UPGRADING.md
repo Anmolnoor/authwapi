@@ -69,8 +69,8 @@ if the provider says the email is verified and the AuthWAPI account's email is v
   revokes their refresh tokens and removes their passkeys. A TOTP code works once, counted from the first code accepted after the
   upgrade: reusing a code, or sending one from an earlier 30-second step than the last code accepted, is refused
   (the API answers `401 TOTP_CODE_ALREADY_USED`; the hosted form says the code was already used). That includes the
-  code that turned 2FA on. A sign-in keeps its challenge, so waiting for the next code and entering it on the same
-  form works.
+  code that turned 2FA on, and a right code refused for another reason (unless the sign-in is out of attempts or
+  expired). A sign-in keeps its challenge, so waiting for the next code and entering it on the same form works.
 - **Passkeys** need `BASE_URL` on a hostname: `http://localhost:4000` works, `http://127.0.0.1:4000` doesn't.
 - **Organizations** can't be created over HTTP; only the `create_org` MCP tool creates one. Apps can ask for the
   new `organization` scope.
