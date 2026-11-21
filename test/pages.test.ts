@@ -584,11 +584,14 @@ test('OAuth consent names the APIs the app asks for, escaped', async () => {
 test('dark mode colors links and the focus ring; long codes wrap (QA findings 2, 3)', async () => {
   await up();
   const page = await (await get('/sign-in')).text();
-  const dark = /@media \(prefers-color-scheme:dark\)\{([\s\S]*?)\}\s*<\/style>/.exec(page)![1];
-  assert.match(dark, /a\{color:#8ab4f8\}/);
-  assert.match(dark, /a:visited\{color:#c58af9\}/);
-  assert.match(dark, /:focus-visible\{outline-color:#8ab4f8\}/);
-  assert.match(page, /code\{overflow-wrap:anywhere\}/);
+  const dark = /@media \(prefers-color-scheme:dark\)\{:root\{([\s\S]*?)\}\}/.exec(page)![1];
+  assert.match(dark, /--link:#[0-9a-f]{3,6}/i);
+  assert.match(dark, /--visited:#[0-9a-f]{3,6}/i);
+  assert.match(dark, /--accent:#[0-9a-f]{3,6}/i);
+  assert.match(page, /a\{color:var\(--link\)/);
+  assert.match(page, /a:visited\{color:var\(--visited\)\}/);
+  assert.match(page, /:focus-visible\{outline:[^}]*var\(--accent\)/);
+  assert.match(page, /code\{[^}]*overflow-wrap:anywhere/);
 });
 
 test('2FA setup shows a QR code of the exact otpauth link, on white, and the link itself (QA finding 4)', async () => {

@@ -1,0 +1,117 @@
+---
+import config from 'virtual:starlight/user-config';
+
+import LanguageSelect from 'virtual:starlight/components/LanguageSelect';
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+
+const shouldRenderSearch =
+  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+
+const pathname = Astro.url.pathname;
+const navLinks = [
+  { label: 'Docs', href: '/docs/quick-start/', active: pathname.startsWith('/docs/') && !pathname.startsWith('/docs/for-ai-agents') && !pathname.startsWith('/docs/status') },
+  { label: 'For AI Agents', href: '/docs/for-ai-agents/', active: pathname.startsWith('/docs/for-ai-agents') },
+  { label: 'API Reference', href: '/api/', active: pathname.startsWith('/api/') },
+  { label: 'Status', href: '/docs/status/', active: pathname.startsWith('/docs/status') },
+];
+---
+
+<div class="header">
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+    <nav class="aw-top-nav" aria-label="Primary">
+      {navLinks.map((item) => (
+        <a href={item.href} class:list={['aw-top-link', { active: item.active }]}>
+          {item.label}
+        </a>
+      ))}
+    </nav>
+  </div>
+  <div class="sl-flex print:hidden search-slot">{shouldRenderSearch && <Search />}</div>
+  <div class="sl-hidden md:sl-flex print:hidden right-group">
+    <div class="sl-flex social-icons"><SocialIcons /></div>
+    <ThemeSelect />
+    <LanguageSelect />
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .header {
+      display: flex;
+      gap: var(--sl-nav-gap);
+      justify-content: space-between;
+      align-items: center;
+      height: 100%;
+    }
+
+    .title-wrapper {
+      align-items: center;
+      gap: 1.5rem;
+      overflow: clip;
+      padding: 0.25rem;
+      margin: -0.25rem;
+      min-width: 0;
+    }
+
+    .aw-top-nav {
+      display: none;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .aw-top-link {
+      font-size: 0.84rem;
+      font-weight: 500;
+      color: var(--aw-fg-muted);
+      text-decoration: none;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      white-space: nowrap;
+      transition: color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .aw-top-link:hover {
+      color: var(--aw-fg);
+      background: rgba(128, 128, 140, 0.08);
+    }
+
+    .aw-top-link.active {
+      color: var(--aw-fg);
+      background: var(--aw-accent-soft);
+    }
+
+    .search-slot {
+      justify-content: flex-end;
+    }
+
+    .right-group,
+    .social-icons {
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .social-icons::after {
+      content: '';
+      height: 1.25rem;
+      border-inline-end: 1px solid var(--aw-border);
+    }
+
+    @media (min-width: 68rem) {
+      .aw-top-nav {
+        display: inline-flex;
+      }
+    }
+
+    @media (min-width: 50rem) {
+      .header {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-content: center;
+      }
+    }
+  }
+</style>

@@ -19,6 +19,7 @@ import type { Config } from './config.ts';
 import type { Logger } from './log.ts';
 import { SELECT_ORG_PAGE, withConsentOrg } from './oauth.ts';
 import { ACCEPT_INVITATION_PAGE } from './orgs.ts';
+import { alert, icons, layout, type Html, type LayoutOptions } from './pages-ui.ts';
 import { OAUTH_RESUME_PAGE, TWO_FACTOR_PAGE } from './signin.ts';
 import { purgeUnproven } from './sso.ts';
 
@@ -30,40 +31,6 @@ export interface PageDeps {
   /** The instance secret Better Auth signs verification tokens with (HS256). */
   secret: string;
 }
-
-type Html = ReturnType<typeof html>;
-
-const layout = (title: string, body: Html, passkeyScript: boolean) => html`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} · AuthWAPI</title>
-<style>
-body{font:16px/1.5 system-ui,sans-serif;max-width:26rem;margin:3rem auto;padding:0 1rem;color:#1a1a1a;background:#fff}
-h1{font-size:1.5rem}label{display:block;margin-top:1rem;font-weight:600}
-input{display:block;width:100%;box-sizing:border-box;padding:.5rem;margin-top:.25rem;font:inherit;border:1px solid #767676;border-radius:4px}
-input[type=radio]{display:inline;width:auto;margin-right:.5rem}
-button{margin-top:1rem;padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;background:#1f4fd1;color:#fff;cursor:pointer}
-button.secondary{background:#e8e8e8;color:#1a1a1a}
-:focus-visible{outline:3px solid #1f4fd1;outline-offset:2px}
-[role=alert]{padding:.75rem;border-left:4px solid #b00020;background:#fdecee}
-.ok{padding:.75rem;border-left:4px solid #137333;background:#e6f4ea}
-hr{margin:2rem 0;border:0;border-top:1px solid #ddd}
-code{overflow-wrap:anywhere}.qr{display:block;width:100%;max-width:14rem;height:auto}
-@media (prefers-color-scheme:dark){body{background:#121212;color:#eee}input{background:#1e1e1e;color:#eee}
-button.secondary{background:#333;color:#eee}[role=alert]{background:#3a1d22}.ok{background:#1d3324}
-a{color:#8ab4f8}a:visited{color:#c58af9}:focus-visible{outline-color:#8ab4f8}}
-</style>
-${passkeyScript ? html`<script src="/passkey.js" defer></script>` : ''}
-</head>
-<body><main>
-<h1>${title}</h1>
-${body}
-</main></body>
-</html>`;
-
-const alert = (message: string | undefined) => (message ? html`<p role="alert">${message}</p>` : html``);
 
 /** Who an app is: an MCP client (its client_id is its metadata URL) by host, since its name is self-asserted. */
 const appLabel = (clientId: string, name: string | undefined) => {
@@ -116,15 +83,17 @@ export async function restyleLogoutPage(res: Response, log: Logger): Promise<Res
   if (action) {
     page = layout(
       'Sign out?',
-      html`<p>Do you want to sign out of AuthWAPI in this browser?</p>
-        <form method="post" action="${unescapeHtml(action)}"><button name="action" value="confirm">Sign out</button></form>`,
-      false
+      html`<form method="post" action="${unescapeHtml(action)}"><button name="action" value="confirm">Sign out</button></form>`,
+      false,
+      { icon: icons.shield, subtitle: 'Do you want to sign out of AuthWAPI in this browser?' }
     );
   } else if (loggedOut !== undefined) {
     const note = loggedOut.replace(/^Logged out\.\s*/, '');
-    page = layout('Signed out', html`<p class="ok" role="status">You're signed out.</p>${note ? html`<p>${note}</p>` : ''}`, false);
+    page = layout('Signed out', html`<p class="ok" role="status">You're signed out.</p>${note ? html`<p>${note}</p>` : ''}`, false, {
+      icon: icons.check,
+    });
   } else if (error !== undefined) {
-    page = layout("Couldn't sign out", alert(error), false);
+    page = layout("Couldn't sign out", alert(error), false, { icon: icons.shield });
   } else {
     log('warn', 'logout page: Better Auth sent HTML of an unknown shape; served it unchanged');
     return res;
@@ -135,11 +104,11 @@ export async function restyleLogoutPage(res: Response, log: Logger): Promise<Res
   headers.set('content-security-policy', LOGOUT_CSP);
   return new Response(String(await page), { status: res.status, headers });
 }
-
 /** The browser half of passkeys (WebAuthn needs page script): served from our origin, the only one CSP allows. */
 const PASSKEY_JS = readFileSync(new URL('./passkey-client.js', import.meta.url), 'utf8');
 
 const PROVIDER_NAMES: Record<string, string> = { google: 'Google', github: 'GitHub' };
+const PROVIDER_ICONS: Record<string, Html> = { google: icons.google, github: icons.github };
 
 /** Why a Google/GitHub sign-in came back with ?error=. */
 const socialError = (code: string) =>
@@ -303,8 +272,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return (name: string) => (typeof body[name] === 'string' ? (body[name] as string) : '');
   };
   /** `passkeyScript`: the page has passkey buttons, so it loads /passkey.js. */
-  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200, passkeyScript = false) =>
-    c.html(layout(title, body, passkeyScript), status);
+  const render = (c: Context, title: string, body: Html, status: ContentfulStatusCode = 200, passkeyScript = false, options?: LayoutOptions) =>
+    c.html(layout(title, body, passkeyScript, options), status);
   /**
    * The OAuth provider's signed query (the loginPage/consentPage is opened with it), or '' if there is none. A social
    * sign-in that failed comes back with ?error= added, which isn't part of the signed request.
@@ -343,9 +312,11 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       c,
       'Something went wrong',
       html`${alert(known ? ERROR_WORDS[code] : "That didn't work. Go back to the app or page you came from and start again.")}
-        ${known ? html`<p>Error code: <code>${code}</code></p>` : ''}
-        <p><a href="/">AuthWAPI home</a></p>`,
-      400
+        ${known ? html`<p class="aw-note">Error code: <code>${code}</code></p>` : ''}
+        <a class="aw-button secondary" href="/">AuthWAPI home</a>`,
+      400,
+      false,
+      { icon: icons.shield }
     );
   });
 
@@ -356,13 +327,25 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const error = c.req.query('error');
     return render(
       c,
-      'AuthWAPI',
+      email ? 'Your account' : 'Welcome',
       html`${alert(error && `That link didn't work (${error}). Ask for a new one from the sign-in page.`)}
         ${email
-          ? html`<p>Signed in as <strong>${email}</strong>.</p>
-              <p><a href="/two-factor/setup">Two-factor authentication</a> · <a href="/passkeys">Passkeys</a></p>
-              <form method="post" action="/sign-out"><button>Sign out</button></form>`
-          : html`<p><a href="/sign-in">Sign in</a> or <a href="/sign-up">create an account</a>.</p>`}`
+          ? html`<div class="aw-account">
+                <span class="aw-avatar" aria-hidden="true">${email.charAt(0).toUpperCase()}</span>
+                <p>Signed in as <strong>${email}</strong></p>
+              </div>
+              <nav class="aw-nav" aria-label="Account security">
+                <a href="/two-factor/setup">${icons.shield}<span>Two-factor authentication<small>Ask for a code from an app at each sign-in</small></span>${icons.chevron}</a>
+                <a href="/passkeys">${icons.passkey}<span>Passkeys<small>Sign in with this device's lock</small></span>${icons.chevron}</a>
+              </nav>
+              <form method="post" action="/sign-out"><button class="secondary">Sign out</button></form>`
+          : html`<div class="aw-stack">
+                <a class="aw-button" href="/sign-in">Sign in</a>
+                <a class="aw-button secondary" href="/sign-up">Create an account</a>
+              </div>`}`,
+      200,
+      false,
+      email ? undefined : { subtitle: 'Sign in to your account, or create one.' }
     );
   });
 
@@ -379,48 +362,67 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const name = clientName.get(clientId) as string | null | undefined;
     return name === undefined ? undefined : appLabel(clientId, name ?? undefined);
   };
-  const signInPage = async (c: Context, query: string, error?: string, notice?: string, status: ContentfulStatusCode = 200) => {
+  const signInPage = async (
+    c: Context,
+    query: string,
+    error?: string,
+    notice?: string,
+    status: ContentfulStatusCode = 200,
+    openDisclosure?: 'sso' | 'magic-link'
+  ) => {
     const app = await appFor(query);
     return render(
       c,
       'Sign in',
-      html`${app ? html`<p>Sign in to continue to ${app}.</p>` : ''}${alert(error)}${notice ? html`<p class="ok" role="status">${notice}</p>` : ''}
+      html`${app ? html`<p class="aw-note aw-app-banner">Sign in to continue to ${app}.</p>` : ''}${alert(error)}${notice ? html`<p class="ok" role="status">${notice}</p>` : ''}
         <form method="post" action="/sign-in">
           <input type="hidden" name="oauth_query" value="${query}">
           <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required>
-          <label for="password">Password</label>
+          <div class="aw-label-row"><label for="password">Password</label><a href="/forgot-password">Forgot password?</a></div>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
           <button>Sign in</button>
         </form>
-        <p><a href="/forgot-password">Forgot password?</a> · <a href="/sign-up">Create an account</a></p>
-        <hr>
-        <button type="button" class="secondary" data-passkey="sign-in" data-oauth-query="${query}" data-status="passkey-status">Sign in with a passkey</button>
-        <p id="passkey-status" role="status"></p>
-        ${Object.keys(config.social).map(
-          (provider) => html`<form method="post" action="/sign-in">
-            <input type="hidden" name="method" value="social">
-            <input type="hidden" name="provider" value="${provider}">
-            <input type="hidden" name="oauth_query" value="${query}">
-            <button class="secondary">Continue with ${PROVIDER_NAMES[provider]}</button>
-          </form>`
-        )}
-        <form method="post" action="/sign-in">
-          <input type="hidden" name="method" value="sso">
-          <input type="hidden" name="oauth_query" value="${query}">
-          <label for="sso-email">Or sign in with your organization (SSO)</label>
-          <input id="sso-email" name="email" type="email" autocomplete="email" required>
-          <button class="secondary">Sign in with SSO</button>
-        </form>
-        <hr>
-        <form method="post" action="/sign-in">
-          <input type="hidden" name="method" value="magic-link">
-          <input type="hidden" name="oauth_query" value="${query}">
-          <label for="ml-email">Or get a sign-in link by email</label>
-          <input id="ml-email" name="email" type="email" autocomplete="email" required>
-          <button class="secondary">Email me a link</button>
-        </form>`,
+        <div class="divider">or</div>
+        <div class="aw-stack">
+          <button type="button" class="secondary" data-passkey="sign-in" data-oauth-query="${query}" data-status="passkey-status">${icons.passkey}<span>Sign in with a passkey</span></button>
+          <p id="passkey-status" role="status"></p>
+          ${Object.keys(config.social).map(
+            (provider) => html`<form method="post" action="/sign-in">
+              <input type="hidden" name="method" value="social">
+              <input type="hidden" name="provider" value="${provider}">
+              <input type="hidden" name="oauth_query" value="${query}">
+              <button class="secondary">${PROVIDER_ICONS[provider]}<span>Continue with ${PROVIDER_NAMES[provider]}</span></button>
+            </form>`
+          )}
+        </div>
+        <details class="aw-disclosure"${openDisclosure === 'sso' ? html` open` : ''}>
+          <summary>${icons.building}<span>Sign in with SSO</span>${icons.chevron}</summary>
+          <div class="aw-disclosure-body">
+            <form method="post" action="/sign-in">
+              <input type="hidden" name="method" value="sso">
+              <input type="hidden" name="oauth_query" value="${query}">
+              <label for="sso-email">Your work email</label>
+              <input id="sso-email" name="email" type="email" autocomplete="email" required>
+              <button class="secondary">Sign in with SSO</button>
+            </form>
+          </div>
+        </details>
+        <details class="aw-disclosure"${openDisclosure === 'magic-link' ? html` open` : ''}>
+          <summary>${icons.mail}<span>Email me a sign-in link</span>${icons.chevron}</summary>
+          <div class="aw-disclosure-body">
+            <form method="post" action="/sign-in">
+              <input type="hidden" name="method" value="magic-link">
+              <input type="hidden" name="oauth_query" value="${query}">
+              <label for="ml-email">Email</label>
+              <input id="ml-email" name="email" type="email" autocomplete="email" required>
+              <button class="secondary">Email me a link</button>
+            </form>
+          </div>
+        </details>
+        <p class="aw-foot-link">New here? <a href="/sign-up">Create an account</a></p>`,
       status,
-      true
+      true,
+      { subtitle: 'Welcome back. Sign in to continue.' }
     );
   };
   app.get('/sign-in', (c) => {
@@ -438,8 +440,8 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         callbackURL: resumeUrl(query),
         ...(query ? { errorCallbackURL: `/sign-in?${query}` } : {}),
       });
-      if (r.status !== 200) return signInPage(c, query, errorText('/sign-in/magic-link', r), undefined, 400);
-      return signInPage(c, query, undefined, 'If that address has an account, a sign-in link is on its way. It works once, for 5 minutes.');
+      if (r.status !== 200) return signInPage(c, query, errorText('/sign-in/magic-link', r), undefined, 400, 'magic-link');
+      return signInPage(c, query, undefined, 'If that address has an account, a sign-in link is on its way. It works once, for 5 minutes.', 200, 'magic-link');
     }
     if (f('method') === 'social') {
       // With oauth_query the provider resumes the app's request right after the callback (or the 2FA page does).
@@ -461,7 +463,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         errorCallbackURL: query ? `/sign-in?${query}` : '/sign-in',
       });
       const url = (r.data as { url?: string } | null)?.url;
-      if (r.status !== 200 || !url) return signInPage(c, query, r.status === 404 ? 'No organization signs in with SSO at that address.' : errorText('/sign-in/sso', r), undefined, 400);
+      if (r.status !== 200 || !url) return signInPage(c, query, r.status === 404 ? 'No organization signs in with SSO at that address.' : errorText('/sign-in/sso', r), undefined, 400, 'sso');
       return c.redirect(url, 303);
     }
     const r = await ba(c, 'POST', '/sign-in/email', {
@@ -481,10 +483,21 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
 
   app.post('/sign-out', async (c) => {
     const r = await ba(c, 'POST', '/sign-out', {});
-    if (r.status !== 200) return render(c, 'Sign out', alert(errorText('/sign-out', r)), 400);
+    if (r.status !== 200) {
+      return render(c, 'Sign out', html`${alert(errorText('/sign-out', r))}<p class="aw-foot-link"><a href="/">Back to your account</a></p>`, 400);
+    }
     return c.redirect('/signed-out', 303);
   });
-  app.get('/signed-out', (c) => render(c, 'Signed out', html`<p>You're signed out.</p><p><a href="/sign-in">Sign in again</a></p>`));
+  app.get('/signed-out', (c) =>
+    render(
+      c,
+      'Signed out',
+      html`<a class="aw-button" href="/sign-in">Sign in again</a>`,
+      200,
+      false,
+      { icon: icons.check, subtitle: "You're signed out on this device." }
+    )
+  );
 
   // ── Sign up ──
   const signUpPage = (c: Context, error?: string, status: ContentfulStatusCode = 200) =>
@@ -495,12 +508,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         <form method="post" action="/sign-up">
           <label for="name">Name</label><input id="name" name="name" autocomplete="name" required>
           <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required>
-          <label for="password">Password (8 characters or more)</label>
+          <label for="password">Password <span class="aw-hint">(8 characters or more)</span></label>
           <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
           <button>Create account</button>
         </form>
-        <p><a href="/sign-in">I have an account</a></p>`,
-      status
+        <p class="aw-foot-link"><a href="/sign-in">I have an account</a></p>`,
+      status,
+      false,
+      { subtitle: "Sign up with your email. We'll send a link to verify it." }
     );
   app.get('/sign-up', (c) => signUpPage(c));
   app.post('/sign-up', async (c) => {
@@ -510,7 +525,11 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Check your email',
-      html`<p class="ok" role="status">We sent a verification link to the address you gave. Open it and enter the password you just chose.</p>`
+      html`<p class="ok" role="status">We sent a verification link to the address you gave. Open it and enter the password you just chose.</p>
+        <p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`,
+      200,
+      false,
+      { icon: icons.mail }
     );
   });
 
@@ -523,8 +542,11 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         <form method="post" action="/forgot-password">
           <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required>
           <button>Email me a reset link</button>
-        </form>`,
-      status
+        </form>
+        <p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`,
+      status,
+      false,
+      { icon: icons.mail, subtitle: "Enter your email and we'll send you a password reset link." }
     );
   app.get('/forgot-password', (c) => forgotPage(c));
   app.post('/forgot-password', async (c) => {
@@ -534,7 +556,15 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       redirectTo: `${config.baseUrl.origin}/reset-password`,
     });
     if (r.status !== 200) return forgotPage(c, errorText('/request-password-reset', r), 400);
-    return render(c, 'Check your email', html`<p class="ok" role="status">If that address has an account, a reset link is on its way.</p>`);
+    return render(
+      c,
+      'Check your email',
+      html`<p class="ok" role="status">If that address has an account, a reset link is on its way.</p>
+        <p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`,
+      200,
+      false,
+      { icon: icons.mail }
+    );
   });
 
   // Better Auth's link (/api/auth/reset-password/<token>) checks the token and redirects here with ?token= or ?error=.
@@ -546,13 +576,17 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         ? html`${alert(error)}
             <form method="post" action="/reset-password">
               <input type="hidden" name="token" value="${token}">
-              <label for="password">New password (8 characters or more)</label>
+              <label for="password">New password <span class="aw-hint">(8 characters or more)</span></label>
               <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
               <button>Change password</button>
             </form>
-            <p>Changing your password signs you out everywhere.</p>`
-        : html`${alert(error ?? 'This reset link is invalid or expired.')}<p><a href="/forgot-password">Get a new link</a></p>`,
-      status
+            <p class="aw-foot-link">Changing your password signs you out everywhere.</p>`
+        : html`${alert(error ?? 'This reset link is invalid or expired.')}
+            <a class="aw-button" href="/forgot-password">Get a new link</a>
+            <p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`,
+      status,
+      false,
+      token ? { icon: icons.shield, subtitle: 'Enter a new password for your account.' } : { icon: icons.shield }
     );
   app.get('/reset-password', (c) => {
     const error = c.req.query('error');
@@ -567,7 +601,10 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       'Password changed',
       html`<p class="ok" role="status">Your password is changed and every session is signed out.
         If your email isn't verified yet, open the verification link again and enter the new password.</p>
-        <p><a href="/sign-in">Sign in</a></p>`
+        <a class="aw-button" href="/sign-in">Sign in</a>`,
+      200,
+      false,
+      { icon: icons.check }
     );
   });
 
@@ -586,11 +623,21 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
           <button>Verify email</button>
         </form>
         ${help
-          ? html`<p><a href="/forgot-password">Forgot password?</a> Resetting it replaces the password and signs out every
+          ? html`<p class="aw-note"><a href="/forgot-password">Forgot password?</a> Resetting it replaces the password and signs out every
               session; then open this link again with the new password.</p>`
           : ''}`,
-      status
+      status,
+      false,
+      {
+        icon: icons.shield,
+        subtitle: 'To confirm this address is yours, enter the password you chose when you created your account.',
+      }
     );
+  /** A verification failure the form can't fix: the message and a way back to sign-in. */
+  const verifyFailed = (c: Context, message: string, status: ContentfulStatusCode) =>
+    render(c, 'Verify your email', html`${alert(message)}<a class="aw-button secondary" href="/sign-in">Go to sign in</a>`, status, false, {
+      icon: icons.shield,
+    });
   app.get('/api/auth/verify-email', (c) => verifyPage(c));
   app.post('/api/auth/verify-email', async (c) => {
     const tooMany = (retryAfter: number | null) => verifyPage(c, `Too many attempts. Try again in ${retryAfter} seconds.`, 429, true);
@@ -600,10 +647,10 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     if (!byIp.allowed) return tooMany(byIp.retryAfter);
     const user = await verificationUser(c.req.query('token') ?? '');
     if (user === 'expired') {
-      return render(c, 'Verify your email', alert("This verification link has expired. Use 'Email me a link' on the sign-in page: it verifies your email too."), 400);
+      return verifyFailed(c, "This verification link has expired. Use 'Email me a link' on the sign-in page: it verifies your email too.", 400);
     }
     if (user === undefined) {
-      return render(c, 'Verify your email', alert("This verification link is broken. Use 'Email me a link' on the sign-in page: it verifies your email too."), 400);
+      return verifyFailed(c, "This verification link is broken. Use 'Email me a link' on the sign-in page: it verifies your email too.", 400);
     }
     const password = (await form(c))('password');
     if (password === '') return verifyPage(c, 'Enter your password.', 400);
@@ -613,7 +660,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const stored = (credential.get(user.userId) as { password: string | null } | undefined)?.password;
     if (!stored) {
       // None exist in M1 (a magic link can't create an account); fail closed rather than verify without a password.
-      return render(c, 'Verify your email', alert("This account has no password, so this link can't verify it. Use 'Email me a link' on the sign-in page instead."), 409);
+      return verifyFailed(c, "This account has no password, so this link can't verify it. Use 'Email me a link' on the sign-in page instead.", 409);
     }
     let matches: boolean;
     try {
@@ -621,7 +668,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       matches = password.length <= 128 && (await passwordMatches(stored, password));
     } catch (err) {
       log('error', 'verify-email: could not check the password', { userId: user.userId, error: err instanceof Error ? err.message : 'unknown error' });
-      return render(c, 'Verify your email', alert("We couldn't check your password, so nothing was changed. Tell whoever runs this sign-in service."), 500);
+      return verifyFailed(c, "We couldn't check your password, so nothing was changed. Tell whoever runs this sign-in service.", 500);
     }
     if (!matches) return verifyPage(c, "That isn't the password this account was created with.", 401, true);
     let changed: boolean;
@@ -634,7 +681,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     if (!changed) {
       return verifyPage(c, 'The password for this account changed while you were verifying. Enter the current password.', 409, true);
     }
-    return render(c, 'Email verified', html`<p class="ok" role="status">Your email is verified.</p><p><a href="/sign-in">Sign in</a></p>`);
+    return render(
+      c,
+      'Email verified',
+      html`<p class="ok" role="status">Your email is verified.</p><a class="aw-button" href="/sign-in">Sign in</a>`,
+      200,
+      false,
+      { icon: icons.check }
+    );
   });
 
   // ── Magic link: GET asks, POST signs in (Risk 7; also stops mail scanners from using up the link) ──
@@ -646,14 +700,22 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       const back = URL.parse(c.req.query('callbackURL') ?? '/', config.baseUrl);
       const query = back?.pathname === OAUTH_RESUME_PAGE ? back.search.slice(1) : '';
       const retry = query && (await verifyOAuthQueryParams(query, secret)) ? `/sign-in?${query}` : '/sign-in';
-      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<p><a href="${retry}">Get a new link</a></p>`, 400);
+      return render(c, 'Sign in', html`${alert('This sign-in link is invalid, used or expired.')}<a class="aw-button" href="${retry}">Get a new link</a>`, 400, false, {
+        icon: icons.mail,
+      });
     }
     return render(
       c,
       'Sign in',
-      html`<p>Sign in as <strong>${row.email}</strong>?</p>
+      html`<div class="aw-account aw-account-ask">
+          <span class="aw-avatar" aria-hidden="true">${row.email.charAt(0).toUpperCase()}</span>
+          <p>Sign in as <strong>${row.email}</strong>?</p>
+        </div>
         <form method="post"><button>Continue</button></form>
-        <p>If you didn't ask for this link, close this page.</p>`
+        <p class="aw-foot-link">If you didn't ask for this link, close this page.</p>`,
+      200,
+      false,
+      { icon: icons.mail, subtitle: 'Confirm this sign-in request.' }
     );
   });
   app.post('/api/auth/magic-link/verify', async (c) => {
@@ -662,7 +724,9 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     // BASE_URL; without a callbackURL it answers 200 with JSON.
     if (r.location) return c.redirect(r.location, 303);
     if (r.status === 200) return c.redirect('/', 303);
-    return render(c, 'Sign in', alert(errorText('/magic-link/verify', r)), 400);
+    return render(c, 'Sign in', html`${alert(errorText('/magic-link/verify', r))}<p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`, 400, false, {
+      icon: icons.mail,
+    });
   });
 
   // ── OAuth consent (the provider's consentPage) ──
@@ -672,12 +736,17 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const found = id ? (membership.get(session.user.id, id) as { name: string; role: string } | undefined) : undefined;
     return found && id ? { id, ...found } : undefined;
   };
+  /** A consent request that can't go on: the message and a way back. */
+  const consentError = (c: Context, message: string, status: ContentfulStatusCode) =>
+    render(c, 'Allow access?', html`${alert(message)}<p class="aw-foot-link"><a href="/">Back to your account</a></p>`, status, false, {
+      icon: icons.shield,
+    });
   const consentPage = async (c: Context, query: string, error?: string, status: ContentfulStatusCode = 200) => {
     const params = new URLSearchParams(query);
     const clientId = params.get('client_id');
-    if (!query || !clientId) return render(c, 'Allow access?', alert('This page needs a request from an app. Start again from the app.'), 400);
+    if (!query || !clientId) return consentError(c, 'This page needs a request from an app. Start again from the app.', 400);
     const r = await ba(c, 'GET', `/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`);
-    if (r.status !== 200) return render(c, 'Allow access?', alert(errorText('/oauth2/public-client', r)), r.status === 401 ? 401 : 400);
+    if (r.status !== 200) return consentError(c, errorText('/oauth2/public-client', r), r.status === 401 ? 401 : 400);
     const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
     // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
     // checks its signature, so what's listed here is what's being allowed.
@@ -688,15 +757,15 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     if (scopes.includes('organization')) {
       const picked = orgPick(await currentSession(c));
       org = picked
-        ? html`<p>For the organization <strong>${picked.name}</strong>, where you are ${picked.role}.</p>`
-        : html`<p>No organization: the app won't see one.</p>`;
+        ? html`<p class="aw-note">For the organization <strong>${picked.name}</strong>, where you are ${picked.role}.</p>`
+        : html`<p class="aw-note">No organization: the app won't see one.</p>`;
       orgField = html`<input type="hidden" name="org_id" value="${picked?.id ?? ''}">`;
     }
     return render(
       c,
       'Allow access?',
-      html`${alert(error)}<p>${appLabel(clientId, (r.data as { client_name?: string }).client_name)} wants to:</p>
-        <ul>
+      html`${alert(error)}<p class="aw-consent-lead">${appLabel(clientId, (r.data as { client_name?: string }).client_name)} wants to:</p>
+        <ul class="aw-perm-list">
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}
         </ul>
@@ -704,10 +773,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         <form method="post" action="/consent">
           <input type="hidden" name="oauth_query" value="${query}">
           ${orgField}
-          <button name="accept" value="yes">Allow</button>
-          <button name="accept" value="no" class="secondary">Deny</button>
+          <div class="aw-actions">
+            <button name="accept" value="yes">Allow</button>
+            <button name="accept" value="no" class="secondary">Deny</button>
+          </div>
         </form>`,
-      status
+      status,
+      false,
+      { icon: icons.shield, subtitle: 'Check what the app is asking for before you allow it.' }
     );
   };
   app.get('/consent', (c) => consentPage(c, oauthQuery(c)));
@@ -725,7 +798,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const consent = () => ba(c, 'POST', '/oauth2/consent', { accept, oauth_query: query });
     const r = scopes.includes('organization') ? await withConsentOrg(f('org_id'), consent) : await consent();
     const next = (r.data as { url?: string } | null)?.url;
-    if (r.status !== 200 || !next) return render(c, 'Allow access?', alert(errorText('/oauth2/consent', r)), 400);
+    if (r.status !== 200 || !next) return consentError(c, errorText('/oauth2/consent', r), 400);
     return c.redirect(next, 303);
   });
 
@@ -737,26 +810,44 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Choose an organization',
-      html`${alert(error)}<p>The app asks which organization you're signing in for. It will see that organization and your role in it.</p>
+      html`${alert(error)}
         ${orgs.length > 0
           ? html`<form method="post" action="${SELECT_ORG_PAGE}">
-              <input type="hidden" name="oauth_query" value="${query}">
-              ${orgs.map((o) => html`<label><input type="radio" name="org_id" value="${o.id}" required>${o.name} (${o.role})</label>`)}
-              <button>Continue</button>
-            </form>`
-          : html`<p>You aren't a member of any organization.</p>`}
+                <input type="hidden" name="oauth_query" value="${query}">
+                ${orgs.map(
+                  (o) =>
+                    html`<label class="aw-radio-card"><input type="radio" name="org_id" value="${o.id}" required><span class="aw-radio-name">${o.name}</span><span class="aw-role-badge">${o.role}</span></label>`
+                )}
+                <button>Continue</button>
+              </form>
+              <div class="divider">or</div>`
+          : html`<p class="aw-note">You aren't a member of any organization.</p>`}
         <form method="post" action="${SELECT_ORG_PAGE}">
           <input type="hidden" name="oauth_query" value="${query}">
           <input type="hidden" name="org_id" value="">
           <button class="secondary">Continue without an organization</button>
         </form>`,
-      status
+      status,
+      false,
+      {
+        icon: icons.building,
+        subtitle: "The app asks which organization you're signing in for. It will see that organization and your role in it.",
+      }
     );
   };
   app.get(SELECT_ORG_PAGE, async (c) => {
     const query = oauthQuery(c);
     const session = await currentSession(c);
-    if (!query || !session) return render(c, 'Choose an organization', alert('This page needs a request from an app. Start again from the app.'), 400);
+    if (!query || !session) {
+      return render(
+        c,
+        'Choose an organization',
+        html`${alert('This page needs a request from an app. Start again from the app.')}<p class="aw-foot-link"><a href="/">Back to your account</a></p>`,
+        400,
+        false,
+        { icon: icons.building }
+      );
+    }
     return orgPage(c, query, session.user.id);
   });
   app.post(SELECT_ORG_PAGE, async (c) => {
@@ -775,16 +866,27 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
 
   // ── Accepting an organization invitation (the emailed link; src/orgs.ts) ──
   const invitationError = (c: Context, path: string, r: { status: number; data: unknown }) =>
-    render(c, 'Join an organization', alert(errorText(path, r)), r.status === 403 ? 403 : 400);
+    render(
+      c,
+      'Join an organization',
+      html`${alert(errorText(path, r))}<p class="aw-foot-link"><a href="/">Back to your account</a></p>`,
+      r.status === 403 ? 403 : 400,
+      false,
+      { icon: icons.building }
+    );
   app.get(ACCEPT_INVITATION_PAGE, async (c) => {
     const id = c.req.query('id') ?? '';
     if (!(await currentSession(c))) {
       return render(
         c,
         'Join an organization',
-        html`<p>Sign in with the email address the invitation was sent to, or create an account with it and verify the
-            address. Then open the link in the email again.</p>
-          <p><a href="/sign-in">Sign in</a> or <a href="/sign-up">create an account</a></p>`
+        html`<div class="aw-stack aw-btn-links"><a href="/sign-in">Sign in</a><a href="/sign-up">create an account</a></div>`,
+        200,
+        false,
+        {
+          icon: icons.building,
+          subtitle: 'Sign in with the email address the invitation was sent to, or create an account with it and verify the address. Then open the link in the email again.',
+        }
       );
     }
     const r = await ba(c, 'GET', `/organization/get-invitation?id=${encodeURIComponent(id)}`);
@@ -793,17 +895,22 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Join an organization',
-      html`<p><strong>${invitation.inviterEmail}</strong> invited you to join <strong>${invitation.organizationName}</strong> as ${invitation.role}.</p>
+      html`<p class="aw-note"><strong>${invitation.inviterEmail}</strong> invited you to join <strong>${invitation.organizationName}</strong> as ${invitation.role}.</p>
         <form method="post" action="${ACCEPT_INVITATION_PAGE}">
           <input type="hidden" name="id" value="${id}">
           <button>Accept</button>
-        </form>`
+        </form>`,
+      200,
+      false,
+      { icon: icons.building }
     );
   });
   app.post(ACCEPT_INVITATION_PAGE, async (c) => {
     const r = await ba(c, 'POST', '/organization/accept-invitation', { invitationId: (await form(c))('id') });
     if (r.status !== 200) return invitationError(c, '/organization/accept-invitation', r);
-    return render(c, 'Join an organization', html`<p class="ok" role="status">You're now a member of the organization.</p><p><a href="/">Continue</a></p>`);
+    return render(c, 'Join an organization', html`<p class="ok" role="status">You're now a member of the organization.</p><a class="aw-button" href="/">Continue</a>`, 200, false, {
+      icon: icons.check,
+    });
   });
 
   // ── Back to the app after a sign-in that couldn't carry its request in the body (magic link) ──
@@ -814,7 +921,14 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const query = oauthQuery(c);
     if (c.req.query('error')) return c.redirect(`/sign-in?${new URL(c.req.url).search.slice(1)}`, 303); // a failed sign-in
     if (!query || !(await verifyOAuthQueryParams(query, secret))) {
-      return render(c, 'Sign in', alert('This sign-in request expired or was changed. Start again from the app.'), 400);
+      return render(
+        c,
+        'Sign in',
+        html`${alert('This sign-in request expired or was changed. Start again from the app.')}<p class="aw-foot-link"><a href="/sign-in">Back to sign in</a></p>`,
+        400,
+        false,
+        { icon: icons.shield }
+      );
     }
     const session = await currentSession(c);
     if (!session) return c.redirect(`/sign-in?${query}`, 303);
@@ -831,7 +945,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── 2FA challenge (after any first factor on a 2FA account; src/signin.ts) ──
-  const twoFactorPage = (c: Context, query: string, error?: string, status: ContentfulStatusCode = 200) =>
+  const twoFactorPage = (c: Context, query: string, error?: string, status: ContentfulStatusCode = 200, backup = false) =>
     render(
       c,
       'Two-factor authentication',
@@ -839,18 +953,25 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         <form method="post" action="${TWO_FACTOR_PAGE}">
           <input type="hidden" name="oauth_query" value="${query}">
           <label for="code">Code from your authenticator app</label>
-          <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+          <input id="code" class="aw-otp" name="code" inputmode="numeric" autocomplete="one-time-code" required>
           <button>Continue</button>
         </form>
-        <hr>
-        <form method="post" action="${TWO_FACTOR_PAGE}">
-          <input type="hidden" name="oauth_query" value="${query}">
-          <input type="hidden" name="method" value="backup">
-          <label for="backup">Or use a backup code (each works once)</label>
-          <input id="backup" name="code" autocomplete="off" required>
-          <button class="secondary">Use backup code</button>
-        </form>`,
-      status
+        <div class="divider">or</div>
+        <details class="aw-disclosure"${backup ? html` open` : ''}>
+          <summary><span>Use a backup code</span>${icons.chevron}</summary>
+          <div class="aw-disclosure-body">
+            <form method="post" action="${TWO_FACTOR_PAGE}">
+              <input type="hidden" name="oauth_query" value="${query}">
+              <input type="hidden" name="method" value="backup">
+              <label for="backup">Backup code <span class="aw-hint">(each works once)</span></label>
+              <input id="backup" name="code" autocomplete="off" required>
+              <button class="secondary">Use backup code</button>
+            </form>
+          </div>
+        </details>`,
+      status,
+      false,
+      { icon: icons.shield, subtitle: 'Enter the 6-digit code from your authenticator app.' }
     );
   app.get(TWO_FACTOR_PAGE, (c) => twoFactorPage(c, oauthQuery(c)));
   app.post(TWO_FACTOR_PAGE, async (c) => {
@@ -858,7 +979,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     const query = f('oauth_query');
     const path = f('method') === 'backup' ? '/two-factor/verify-backup-code' : '/two-factor/verify-totp';
     const r = await ba(c, 'POST', path, { code: f('code'), ...(query ? { oauth_query: query } : {}) });
-    if (r.status !== 200) return twoFactorPage(c, query, errorText(path, r), r.status === 429 ? 429 : 400);
+    if (r.status !== 200) return twoFactorPage(c, query, errorText(path, r), r.status === 429 ? 429 : 400, f('method') === 'backup');
     // With oauth_query the provider continues the app's request and answers with where to go next.
     const next = (r.data as { url?: string } | null)?.url;
     if (query && !next) throw new Error('2FA during an OAuth request returned no redirect');
@@ -867,33 +988,50 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
 
   // ── Turning on TOTP: enable (secret + backup codes, shown once), then confirm a code ──
   const signedOut = (c: Context) => c.redirect('/sign-in', 303);
-  const confirmForm = html`<p>Turning it on signs out your other sessions, revokes apps' refresh tokens and removes
+  const confirmForm = html`<p class="aw-note">Turning it on signs out your other sessions, revokes apps' refresh tokens and removes
       your passkeys (add them again afterwards).</p>
     <form method="post" action="/two-factor/setup/confirm">
-    <label for="code">Then enter the code it shows</label>
-    <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
-    <button>Turn on</button>
-  </form>`;
+      <label for="code">Then enter the code it shows</label>
+      <input id="code" class="aw-otp" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+      <button>Turn on</button>
+    </form>`;
+  const backHome = html`<p class="aw-foot-link"><a href="/">Back to your account</a></p>`;
   app.get('/two-factor/setup', async (c) => {
     const session = await currentSession(c);
     if (!session) return signedOut(c);
-    if (session.user.twoFactorEnabled) return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on.</p>`);
+    if (session.user.twoFactorEnabled) {
+      return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on.</p>${backHome}`, 200, false, {
+        icon: icons.check,
+      });
+    }
     return render(
       c,
       'Two-factor authentication',
-      html`<p>Each sign-in will also ask for a code from an authenticator app.</p>
-        <form method="post" action="/two-factor/setup">
-          <label for="password">Your password (leave empty if your account has none)</label>
+      html`<form method="post" action="/two-factor/setup">
+          <label for="password">Your password <span class="aw-hint">(leave empty if your account has none)</span></label>
           <input id="password" name="password" type="password" autocomplete="current-password">
           <button>Set up</button>
-        </form>`
+        </form>
+        ${backHome}`,
+      200,
+      false,
+      { icon: icons.shield, subtitle: 'Each sign-in will also ask for a code from an authenticator app.' }
     );
   });
   app.post('/two-factor/setup', async (c) => {
     const password = (await form(c))('password');
     const r = await ba(c, 'POST', '/two-factor/enable', password ? { password } : {});
     if (r.status === 401) return signedOut(c);
-    if (r.status !== 200) return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/enable', r))}<p><a href="/two-factor/setup">Try again</a></p>`, 400);
+    if (r.status !== 200) {
+      return render(
+        c,
+        'Two-factor authentication',
+        html`${alert(errorText('/two-factor/enable', r))}<a class="aw-button secondary" href="/two-factor/setup">Try again</a>`,
+        400,
+        false,
+        { icon: icons.shield }
+      );
+    }
     const { totpURI, backupCodes } = r.data as { totpURI: string; backupCodes: string[] };
     let qr: Html | string = '';
     try {
@@ -905,19 +1043,38 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Two-factor authentication',
-      html`${qr ? html`<p>Scan this with your authenticator app:</p>${qr}<p>or enter this key:</p>` : html`<p>Add this account to your authenticator app with this key:</p>`}
-        <p><code>${new URL(totpURI).searchParams.get('secret')}</code></p>
-        <p>or, on this device, open <a href="${totpURI}">this link</a>: <code>${totpURI}</code></p>
-        <p>Backup codes, each works once if you lose the app. Save them now: they won't be shown again.</p>
-        <ul>${backupCodes.map((code) => html`<li><code>${code}</code></li>`)}</ul>
-        ${confirmForm}`
+      html`${qr ? html`<p>Scan this with your authenticator app:</p><div class="aw-qr-box">${qr}</div><p>Or enter this key:</p>` : html`<p>Add this account to your authenticator app with this key:</p>`}
+        <div class="aw-secret-box"><code>${new URL(totpURI).searchParams.get('secret')}</code></div>
+        <details class="aw-disclosure">
+          <summary><span>Or use the full setup link</span>${icons.chevron}</summary>
+          <div class="aw-disclosure-body">
+            <p style="margin-top:0">On this device, open <a href="${totpURI}">this link</a>:</p>
+            <code>${totpURI}</code>
+          </div>
+        </details>
+        <p class="aw-note">Backup codes, each works once if you lose the app. <strong>Save them now: they won't be shown again.</strong></p>
+        <ul class="aw-code-grid">${backupCodes.map((code) => html`<li><code>${code}</code></li>`)}</ul>
+        ${confirmForm}`,
+      200,
+      false,
+      { icon: icons.shield, subtitle: 'Scan or type the key, save your backup codes, then confirm a code.' }
     );
   });
   app.post('/two-factor/setup/confirm', async (c) => {
     const r = await ba(c, 'POST', '/two-factor/verify-totp', { code: (await form(c))('code') });
-    if (r.status !== 200) return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/verify-totp', r))}${confirmForm}`, 400);
-    return render(c, 'Two-factor authentication', html`<p class="ok" role="status">Two-factor authentication is on. Your other sessions were signed out, apps'
-        refresh tokens revoked and passkeys removed. <a href="/passkeys">Add a passkey</a></p>`);
+    if (r.status !== 200) {
+      return render(c, 'Two-factor authentication', html`${alert(errorText('/two-factor/verify-totp', r))}${confirmForm}`, 400, false, { icon: icons.shield });
+    }
+    return render(
+      c,
+      'Two-factor authentication',
+      html`<p class="ok" role="status">Two-factor authentication is on. Your other sessions were signed out, apps'
+          refresh tokens revoked and passkeys removed. <a href="/passkeys">Add a passkey</a></p>
+        <a class="aw-button" href="/">Back to your account</a>`,
+      200,
+      false,
+      { icon: icons.check }
+    );
   });
 
   // ── Adding a passkey (the browser half is /passkey.js). On a 2FA account, a fresh code comes first. ──
@@ -927,8 +1084,11 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     render(
       c,
       'Passkeys',
-      html`<p>To add a passkey, sign in again first: your sign-in is more than a day old.</p>
-        <form method="post" action="/sign-out"><button>Sign out</button></form>`
+      html`<form method="post" action="/sign-out"><button>Sign out</button></form>
+        ${backHome}`,
+      200,
+      false,
+      { icon: icons.passkey, subtitle: 'To add a passkey, sign in again first: your sign-in is more than a day old.' }
     );
   const passkeysPage = (c: Context, needsCode: boolean, error?: string, status: ContentfulStatusCode = 200) =>
     render(
@@ -937,15 +1097,19 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       needsCode
         ? html`${alert(error)}
             <form method="post" action="/passkeys">
-              <label for="code">To add a passkey, enter a code from your authenticator app</label>
-              <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+              <label for="code">Code from your authenticator app</label>
+              <input id="code" class="aw-otp" name="code" inputmode="numeric" autocomplete="one-time-code" required>
               <button>Continue</button>
-            </form>`
-        : html`<p>A passkey signs you in with this device's lock (fingerprint, face or PIN) instead of a password.</p>
-            <button type="button" data-passkey="add" data-status="passkey-status">Add a passkey</button>
-            <p id="passkey-status" role="status"></p>`,
+            </form>
+            ${backHome}`
+        : html`<button type="button" data-passkey="add" data-status="passkey-status">${icons.passkey}<span>Add a passkey</span></button>
+            <p id="passkey-status" role="status"></p>
+            ${backHome}`,
       status,
-      !needsCode
+      !needsCode,
+      needsCode
+        ? { icon: icons.shield, subtitle: 'Confirm your identity before adding a passkey.' }
+        : { icon: icons.passkey, subtitle: "A passkey signs you in with this device's lock (fingerprint, face or PIN) instead of a password." }
     );
   app.get('/passkeys', async (c) => {
     const session = await currentSession(c);

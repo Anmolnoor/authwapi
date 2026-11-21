@@ -19,20 +19,35 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'AuthWAPI',
-      description: 'Self-hosted auth server in one container: sign-up, sign-in, magic links and an OAuth 2.1 / OpenID Connect provider, with all its data in one folder.',
+      description: 'Self-hosted auth server in one container: sign-in, passkeys, 2FA, OAuth 2.1 / OpenID Connect, SAML SSO, and MCP auth, with all its data in one folder.',
+      favicon: '/favicon.svg',
+      head: [
+        { tag: 'meta', attrs: { name: 'theme-color', content: '#09090b', media: '(prefers-color-scheme: dark)' } },
+        { tag: 'meta', attrs: { name: 'theme-color', content: '#fafafa', media: '(prefers-color-scheme: light)' } },
+      ],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/Anmolnoor/authwapi' }],
       editLink: { baseUrl: 'https://github.com/Anmolnoor/authwapi/edit/main/site/' },
-      customCss: ['./src/styles/custom.css'],
+      customCss: [
+        '@fontsource-variable/inter',
+        '@fontsource-variable/jetbrains-mono',
+        './src/styles/tokens.css',
+        './src/styles/custom.css',
+      ],
+      components: {
+        Header: './src/components/starlight/Header.astro',
+        SiteTitle: './src/components/starlight/SiteTitle.astro',
+        ThemeSelect: './src/components/starlight/ThemeSelect.astro',
+      },
       plugins: [
         starlightOpenAPI([{ base: 'api', schema: './public/openapi.json', sidebar: { label: 'API reference' } }]),
         starlightLlmsTxt({
           projectName: 'AuthWAPI',
           description:
-            'AuthWAPI is a self-hosted auth server that runs as one Docker container with all its data in one folder. It gives apps email + password sign-up with verification, magic links, password reset, sessions, hosted sign-in pages and an OAuth 2.1 / OpenID Connect provider. It is built on Better Auth, Hono and SQLite.',
+            'AuthWAPI is a self-hosted auth server that runs as one Docker container with all its data in one folder. It gives apps email + password sign-up with verification, magic links, Google/GitHub sign-in, TOTP 2FA, passkeys, organizations, OIDC & SAML SSO, hosted sign-in pages, an OAuth 2.1 / OpenID Connect provider, and MCP authorization. It is built on Better Auth, Hono and SQLite.',
           details: [
             'Facts an agent needs before acting:',
             '',
-            '- Status: early (M1, plus M2 sign-in methods). The admin MCP server and export/import work. Do not put real users on it.',
+            '- Status: early pre-1.0 (M1–M6 built: core auth, social sign-in, 2FA/passkeys, orgs, OIDC/SAML SSO, OAuth for MCP servers, admin MCP server, and export/import). Do not put real users on it yet.',
             '- Start it (no published image yet): `git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi && docker build -t authwapi .` then `docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi`. Health: `GET http://localhost:4000/health` returns `{"status":"ok"}`.',
             '- Every request except `GET /health` needs a Host header equal to BASE_URL\'s host (default `localhost:4000`) or a name in ALLOWED_HOSTS, else 421 `unknown_host`. An Origin header, if sent, must be BASE_URL\'s origin (or an ALLOWED_HOSTS name), else 403 `untrusted_origin`. A POST to a Better Auth route that sends any cookie (such as the session cookie) must send that Origin, else 403 `MISSING_OR_NULL_ORIGIN` and nothing happens.',
             '- Without Resend configured, emails (verification, reset, magic links) are written as JSON files to `<data folder>/outbox/`. They contain credentials, as do session cookies, sign-in responses and the client secret the CLI prints: never print or log them.',
@@ -45,7 +60,7 @@ export default defineConfig({
           optionalLinks: [
             { label: 'Source code', url: 'https://github.com/Anmolnoor/authwapi', description: 'the server, its tests and README.md' },
           ],
-          promote: ['index', 'docs/quick-start', 'docs/for-ai-agents', 'docs/integrate-an-app', 'docs/http-api'],
+          promote: ['docs/quick-start', 'docs/for-ai-agents', 'docs/integrate-an-app', 'docs/protect-your-mcp-server', 'docs/http-api'],
         }),
       ],
       sidebar: [

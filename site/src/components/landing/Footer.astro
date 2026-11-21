@@ -1,0 +1,131 @@
+---
+import BrandMark from '../BrandMark.astro';
+---
+
+<footer class="aw-footer">
+  <div class="aw-footer-inner">
+    <div class="aw-footer-brand">
+      <a href="/" class="aw-brand">
+        <BrandMark size={22} />
+        <span translate="no">AuthWAPI</span>
+      </a>
+      <p>
+        Self-hosted authentication in one container with all state in one portable folder. Early
+        pre-1.0 software — do not put real users on it yet.
+      </p>
+    </div>
+
+    <div class="aw-footer-cols">
+      <div class="aw-col">
+        <h4>Start</h4>
+        <a href="/docs/quick-start/">Quick start</a>
+        <a href="/docs/for-ai-agents/">For AI agents</a>
+        <a href="/docs/status/">Status &amp; roadmap</a>
+      </div>
+
+      <div class="aw-col">
+        <h4>Guides</h4>
+        <a href="/docs/integrate-an-app/">Integrate an app</a>
+        <a href="/docs/protect-your-mcp-server/">Protect your MCP server</a>
+        <a href="/docs/sso/">Organization SSO</a>
+        <a href="/docs/configuration/">Configuration</a>
+      </div>
+
+      <div class="aw-col">
+        <h4>Resources</h4>
+        <a href="/api/">API Reference</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="/openapi.json">OpenAPI 3.1</a>
+        <a
+          href="https://github.com/Anmolnoor/authwapi"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          GitHub ↗
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .aw-footer {
+    border-top: 1px solid var(--aw-border);
+    background: var(--aw-bg-elevated);
+    padding: 3rem 0;
+  }
+
+  .aw-footer-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.25rem;
+  }
+
+  .aw-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--aw-fg);
+    font-weight: 700;
+    font-size: 0.98rem;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.65rem;
+  }
+
+  .aw-footer-brand p {
+    margin: 0;
+    max-width: 38ch;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--aw-fg-dim);
+  }
+
+  .aw-footer-cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .aw-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--aw-fg);
+    font-weight: 700;
+  }
+
+  .aw-col a {
+    font-size: 0.85rem;
+    color: var(--aw-fg-muted);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .aw-col a:hover {
+    color: var(--aw-fg);
+  }
+
+  @media (min-width: 768px) {
+    .aw-footer-inner {
+      grid-template-columns: 1.2fr 1.6fr;
+      align-items: start;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .aw-footer-cols {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>
