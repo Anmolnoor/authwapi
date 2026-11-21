@@ -1,0 +1,275 @@
+---
+---
+
+<section class="aw-section" aria-labelledby="workflow-heading">
+  <div class="aw-container">
+    <div class="aw-workflow-box" data-wf-switcher>
+      <div class="aw-wf-head">
+        <div>
+          <h2 id="workflow-heading">Two ways to get started</h2>
+          <p class="aw-wf-sub">Built from the ground up for both developers and autonomous AI agents.</p>
+        </div>
+
+        <div class="aw-wf-tabs" role="tablist" aria-label="Onboarding path">
+          <button
+            type="button"
+            role="tab"
+            id="wf-tab-human"
+            aria-selected="true"
+            aria-controls="wf-panel-human"
+            class="aw-wf-tab active"
+            data-wf="human"
+          >
+            For Developers
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="wf-tab-agent"
+            aria-selected="false"
+            aria-controls="wf-panel-agent"
+            class="aw-wf-tab"
+            data-wf="agent"
+          >
+            For AI Agents
+          </button>
+        </div>
+      </div>
+
+      <!-- Human flow -->
+      <div id="wf-panel-human" role="tabpanel" aria-labelledby="wf-tab-human" data-wf-panel="human">
+        <div class="aw-steps">
+          <div class="aw-step">
+            <div class="aw-step-num">01 / START</div>
+            <h3>Run one container</h3>
+            <pre><code>docker run -d --name authwapi \
+  -p 127.0.0.1:4000:4000 \
+  -v "$PWD/data:/data" authwapi</code></pre>
+          </div>
+          <div class="aw-step">
+            <div class="aw-step-num">02 / VERIFY</div>
+            <h3>Sign up &amp; inspect outbox</h3>
+            <pre><code>open http://localhost:4000/sign-up
+cat data/outbox/*.json</code></pre>
+          </div>
+          <div class="aw-step">
+            <div class="aw-step-num">03 / CONNECT</div>
+            <h3>Register an OAuth client</h3>
+            <pre><code>docker exec -u 1000 authwapi \
+  node src/cli.ts clients create \
+  --redirect http://localhost:3000/cb</code></pre>
+          </div>
+        </div>
+        <div class="aw-wf-foot">
+          <span>No email server needed locally — verification &amp; magic links write to <code>outbox/</code>.</span>
+          <a href="/docs/quick-start/">Read Quick start →</a>
+        </div>
+      </div>
+
+      <!-- AI Agent flow -->
+      <div id="wf-panel-agent" role="tabpanel" aria-labelledby="wf-tab-agent" data-wf-panel="agent" hidden>
+        <div class="aw-steps">
+          <div class="aw-step">
+            <div class="aw-step-num">01 / DISCOVER</div>
+            <h3>Read machine-ready docs</h3>
+            <pre><code>GET /llms.txt
+GET /llms-full.txt
+GET /openapi.json</code></pre>
+          </div>
+          <div class="aw-step">
+            <div class="aw-step-num">02 / BOOTSTRAP</div>
+            <h3>Mint a scoped MCP key</h3>
+            <pre><code># Read 0600 one-time key into var
+# POST /mcp → mint_agent_key
+&#123; "scope": "write", "label": "bot" &#125;</code></pre>
+          </div>
+          <div class="aw-step">
+            <div class="aw-step-num">03 / ADMINISTER</div>
+            <h3>Provision &amp; audit via MCP</h3>
+            <pre><code>create_user · manage orgs
+resource link &lt;client&gt; &lt;mcp_url&gt;
+read_audit_log</code></pre>
+          </div>
+        </div>
+        <div class="aw-wf-foot">
+          <span>Works from the host or container-to-container over a Docker network with <code>ALLOWED_HOSTS</code>.</span>
+          <a href="/docs/for-ai-agents/">Read AI agent runbook →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .aw-section {
+    padding: 2.5rem 0 0;
+  }
+
+  .aw-container {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .aw-workflow-box {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-lg);
+    padding: 1.5rem;
+  }
+
+  .aw-wf-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--aw-fg);
+  }
+
+  .aw-wf-sub {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-wf-tabs {
+    display: inline-flex;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--aw-code-bg);
+    border: 1px solid var(--aw-border);
+    gap: 4px;
+  }
+
+  .aw-wf-tab {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--aw-fg-muted);
+    font-size: 0.84rem;
+    font-weight: 550;
+    padding: 0.45rem 0.95rem;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .aw-wf-tab:hover {
+    color: var(--aw-fg);
+  }
+
+  .aw-wf-tab.active {
+    background: var(--aw-accent);
+    color: #ffffff;
+  }
+
+  .aw-steps {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .aw-step {
+    background: var(--aw-code-bg);
+    border: 1px solid var(--aw-border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+
+  .aw-step-num {
+    font-family: var(--aw-font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--aw-accent-hi);
+    margin-bottom: 0.35rem;
+  }
+
+  h3 {
+    margin: 0 0 0.55rem;
+    font-size: 0.95rem;
+    font-weight: 650;
+    color: var(--aw-fg);
+  }
+
+  pre {
+    margin: 0;
+    overflow-x: auto;
+    font-family: var(--aw-font-mono);
+    font-size: 0.77rem;
+    line-height: 1.58;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-wf-foot {
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--aw-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.84rem;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-wf-foot code {
+    font-family: var(--aw-font-mono);
+    font-size: 0.82em;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--aw-bg-subtle);
+    border: 1px solid var(--aw-border);
+    color: var(--aw-fg);
+  }
+
+  .aw-wf-foot a {
+    color: var(--aw-accent-hi);
+    font-weight: 550;
+    text-decoration: none;
+  }
+
+  .aw-wf-foot a:hover {
+    text-decoration: underline;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  @media (min-width: 820px) {
+    .aw-steps {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>('[data-wf-switcher]');
+  if (root) {
+    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-wf]'));
+    const panels = Array.from(root.querySelectorAll<HTMLElement>('[data-wf-panel]'));
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const key = tab.dataset.wf;
+        tabs.forEach((t) => {
+          const active = t.dataset.wf === key;
+          t.classList.toggle('active', active);
+          t.setAttribute('aria-selected', String(active));
+        });
+        panels.forEach((p) => {
+          p.hidden = p.dataset.wfPanel !== key;
+        });
+      });
+    });
+  }
+</script>

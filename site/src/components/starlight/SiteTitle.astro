@@ -1,0 +1,41 @@
+---
+import BrandMark from '../BrandMark.astro';
+
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="aw-site-title">
+  <BrandMark size={24} />
+  <span class="aw-wordmark" translate="no">{siteTitle}</span>
+  <span class="aw-badge">pre-1.0</span>
+</a>
+
+<style>
+  .aw-site-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    text-decoration: none;
+    color: var(--aw-fg);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: -0.025em;
+    white-space: nowrap;
+  }
+
+  .aw-site-title:hover {
+    color: var(--aw-fg);
+  }
+
+  .aw-badge {
+    font-family: var(--aw-font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    background: var(--aw-accent-soft);
+    color: var(--aw-accent-hi);
+    border: 1px solid var(--aw-accent-border);
+    line-height: 1.3;
+  }
+</style>

@@ -1,0 +1,216 @@
+---
+const paths = [
+  {
+    title: 'Run it locally',
+    description: 'Build the container, create an account, and find the verification email in the local outbox.',
+    href: '/docs/quick-start/',
+    tag: 'Quick start',
+  },
+  {
+    title: 'Sign users in to your app',
+    description: 'Register an OAuth 2.1 client, run authorization code + PKCE, and verify JWT access tokens.',
+    href: '/docs/integrate-an-app/',
+    tag: 'OAuth / OIDC',
+  },
+  {
+    title: 'Protect your MCP server',
+    description: 'Use AuthWAPI as the OAuth authorization server for your own MCP servers with Client ID Metadata.',
+    href: '/docs/protect-your-mcp-server/',
+    tag: 'MCP Auth',
+  },
+  {
+    title: 'Point an agent at it',
+    description: 'Zero-human runbook: bootstrap /mcp, mint scoped keys, create users, and read the audit log.',
+    href: '/docs/for-ai-agents/',
+    tag: 'AI Agents',
+  },
+];
+---
+
+<section class="aw-section" aria-labelledby="paths-heading">
+  <div class="aw-container">
+    <div class="aw-sec-head">
+      <h2 id="paths-heading">Pick your path</h2>
+      <a href="/api/" class="aw-sec-link">Explore HTTP API reference →</a>
+    </div>
+
+    <div class="aw-path-grid">
+      {paths.map((item) => (
+        <a href={item.href} class="aw-path-card">
+          <div class="aw-path-top">
+            <span class="aw-path-tag">{item.tag}</span>
+            <span class="aw-path-arrow" aria-hidden="true">→</span>
+          </div>
+          <h3>{item.title}</h3>
+          <p>{item.description}</p>
+        </a>
+      ))}
+    </div>
+
+    <div class="aw-agent-bar">
+      <div class="aw-agent-copy">
+        <strong>Machine-readable docs</strong>
+        <span>— give any coding or operations agent direct access to AuthWAPI's specs.</span>
+      </div>
+      <div class="aw-agent-links">
+        <a href="/llms.txt" class="aw-agent-pill">/llms.txt</a>
+        <a href="/llms-full.txt" class="aw-agent-pill">/llms-full.txt</a>
+        <a href="/openapi.json" class="aw-agent-pill">/openapi.json</a>
+        <a href="/api/" class="aw-agent-pill">/api/</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .aw-section {
+    padding: 3.5rem 0 4rem;
+  }
+
+  .aw-container {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .aw-sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: clamp(1.4rem, 2.4vw, 1.8rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--aw-fg);
+  }
+
+  .aw-sec-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--aw-accent-hi);
+    text-decoration: none;
+  }
+
+  .aw-sec-link:hover {
+    text-decoration: underline;
+  }
+
+  .aw-path-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .aw-path-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.3rem;
+    border-radius: var(--aw-radius-lg);
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    text-decoration: none;
+    transition: border-color 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
+  }
+
+  .aw-path-card:hover {
+    border-color: var(--aw-accent-border);
+    transform: translateY(-2px);
+  }
+
+  .aw-path-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .aw-path-tag {
+    font-family: var(--aw-font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--aw-accent-hi);
+  }
+
+  .aw-path-arrow {
+    color: var(--aw-fg-dim);
+    transition: transform 0.18s ease, color 0.18s ease;
+  }
+
+  .aw-path-card:hover .aw-path-arrow {
+    color: var(--aw-accent-hi);
+    transform: translateX(3px);
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 1.02rem;
+    font-weight: 650;
+    color: var(--aw-fg);
+    letter-spacing: -0.015em;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-agent-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-accent-soft);
+    border: 1px solid var(--aw-accent-border);
+  }
+
+  .aw-agent-copy {
+    font-size: 0.9rem;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-agent-copy strong {
+    color: var(--aw-fg);
+  }
+
+  .aw-agent-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .aw-agent-pill {
+    font-family: var(--aw-font-mono);
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.34rem 0.72rem;
+    border-radius: 7px;
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border-strong);
+    color: var(--aw-fg);
+    text-decoration: none;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .aw-agent-pill:hover {
+    border-color: var(--aw-accent);
+    color: var(--aw-accent-hi);
+  }
+
+  @media (min-width: 720px) {
+    .aw-path-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

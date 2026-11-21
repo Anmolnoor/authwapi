@@ -1,11 +1,212 @@
-/* Brand accent: the hosted pages' blue (#1f4fd1). */
+/* AuthWAPI Starlight & OpenAPI theme — unified with landing page tokens */
 :root {
-  --sl-color-accent-low: #0d1f52;
-  --sl-color-accent: #3d6cf0;
-  --sl-color-accent-high: #c7d5fc;
+  --sl-font: var(--aw-font-sans);
+  --sl-font-mono: var(--aw-font-mono);
+
+  /* Obsidian dark palette */
+  --sl-color-white: #f4f4f5;
+  --sl-color-gray-1: #e4e4e7;
+  --sl-color-gray-2: #a1a1aa;
+  --sl-color-gray-3: #71717a;
+  --sl-color-gray-4: #3f3f46;
+  --sl-color-gray-5: #27272a;
+  --sl-color-gray-6: #14151a;
+  --sl-color-black: #09090b;
+
+  --sl-color-bg: var(--aw-bg);
+  --sl-color-bg-nav: var(--aw-nav-bg);
+  --sl-color-bg-sidebar: #0c0d11;
+  --sl-color-bg-inline-code: rgba(255, 255, 255, 0.06);
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.08);
+  --sl-color-hairline: rgba(255, 255, 255, 0.09);
+  --sl-color-hairline-shade: rgba(255, 255, 255, 0.08);
+
+  /* Cobalt accent */
+  --sl-color-accent-low: #102047;
+  --sl-color-accent: #3b82f6;
+  --sl-color-accent-high: #93c5fd;
+
+  --sl-nav-height: 3.75rem;
 }
+
 :root[data-theme='light'] {
-  --sl-color-accent-low: #dbe4fd;
+  --sl-color-white: #09090b;
+  --sl-color-gray-1: #18181b;
+  --sl-color-gray-2: #3f3f46;
+  --sl-color-gray-3: #52525b;
+  --sl-color-gray-4: #a1a1aa;
+  --sl-color-gray-5: #e4e4e7;
+  --sl-color-gray-6: #f4f4f6;
+  --sl-color-gray-7: #fafafa;
+  --sl-color-black: #ffffff;
+
+  --sl-color-bg: #fafafa;
+  --sl-color-bg-nav: rgba(250, 250, 250, 0.88);
+  --sl-color-bg-sidebar: #ffffff;
+  --sl-color-bg-inline-code: rgba(9, 9, 11, 0.055);
+  --sl-color-hairline-light: #e4e4e7;
+  --sl-color-hairline: #e4e4e7;
+  --sl-color-hairline-shade: #e4e4e7;
+
+  --sl-color-accent-low: #dbeafe;
   --sl-color-accent: #1f4fd1;
-  --sl-color-accent-high: #0d1f52;
+  --sl-color-accent-high: #1e3a8a;
+}
+
+/* Crisp glassmorphic sticky docs header */
+header.header {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+/* Typography refinement */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+h1#_top {
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+.sl-markdown-content h2 {
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--sl-color-hairline-light);
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+  line-height: 1.72;
+}
+
+/* Inline code pill */
+.sl-markdown-content :not(pre) > code {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 5px;
+  padding: 0.14em 0.38em;
+  font-size: 0.86em;
+}
+
+/* Refined sidebar active item (subtle cobalt tint + left indicator instead of solid block) */
+nav.sidebar .top-level > li + li {
+  margin-top: 0.75rem;
+}
+
+nav.sidebar .large {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--aw-fg-dim);
+  font-weight: 700;
+}
+
+nav.sidebar a {
+  border-radius: 6px;
+  font-size: 0.875rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+nav.sidebar a:hover {
+  background: rgba(128, 128, 140, 0.08);
+}
+
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover,
+nav.sidebar a[aria-current='page']:focus {
+  background: var(--aw-accent-soft);
+  color: var(--aw-accent-hi);
+  font-weight: 600;
+  border-inline-start: 2px solid var(--aw-accent);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+/* Right TOC refinement */
+starlight-toc a[aria-current='true'] {
+  color: var(--aw-accent-hi);
+  font-weight: 600;
+}
+
+/* Search input polish */
+site-search button[data-open-modal] {
+  background: var(--aw-bg-elevated);
+  border: 1px solid var(--aw-border);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+site-search button[data-open-modal]:hover {
+  border-color: var(--aw-border-strong);
+  background: var(--aw-bg-subtle);
+}
+
+/* Expressive Code blocks polish */
+.expressive-code .frame {
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.expressive-code .frame pre {
+  border-color: var(--aw-border) !important;
+  background: var(--aw-code-bg) !important;
+}
+
+.expressive-code .frame .header {
+  border-color: var(--aw-border) !important;
+  background: var(--aw-bg-subtle) !important;
+}
+
+/* Callouts / Asides */
+.starlight-aside {
+  border-radius: 10px;
+  border: 1px solid var(--sl-color-hairline);
+  border-inline-start-width: 3px;
+}
+
+/* Tables */
+.sl-markdown-content table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sl-markdown-content th {
+  background: var(--aw-bg-subtle);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--aw-fg-muted);
+}
+
+.sl-markdown-content td,
+.sl-markdown-content th {
+  border-bottom: 1px solid var(--sl-color-hairline);
+  padding: 0.65rem 0.9rem;
+}
+
+.sl-markdown-content tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Pagination cards */
+.pagination-links a {
+  border-radius: 10px;
+  border-color: var(--aw-border);
+  background: var(--aw-bg-elevated);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.pagination-links a:hover {
+  border-color: var(--aw-accent-border);
+  transform: translateY(-1px);
+}
+
+/* Starlight OpenAPI cards & badges */
+.sl-markdown-content .openapi-operation-url,
+.sl-markdown-content details {
+  border-radius: 10px;
+  border-color: var(--aw-border);
 }

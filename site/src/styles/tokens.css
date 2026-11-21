@@ -1,0 +1,83 @@
+/* AuthWAPI shared design tokens — Obsidian Dark & Alabaster Light */
+:root {
+  --aw-font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --aw-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Dark theme defaults (Obsidian + Cobalt) */
+  --aw-bg: #09090b;
+  --aw-bg-elevated: #111216;
+  --aw-bg-subtle: #161820;
+  --aw-code-bg: #0c0d12;
+  --aw-nav-bg: rgba(9, 9, 11, 0.82);
+
+  --aw-border: rgba(255, 255, 255, 0.085);
+  --aw-border-strong: rgba(255, 255, 255, 0.16);
+  --aw-grid-line: rgba(255, 255, 255, 0.04);
+
+  --aw-fg: #f4f4f5;
+  --aw-fg-muted: #a1a1aa;
+  --aw-fg-dim: #71717a;
+
+  --aw-accent: #3b82f6;
+  --aw-accent-hover: #2563eb;
+  --aw-accent-hi: #60a5fa;
+  --aw-accent-soft: rgba(59, 130, 246, 0.13);
+  --aw-accent-border: rgba(59, 130, 246, 0.34);
+  --aw-accent-glow: rgba(59, 130, 246, 0.16);
+
+  --aw-green: #10b981;
+  --aw-green-soft: rgba(16, 185, 129, 0.12);
+  --aw-green-border: rgba(16, 185, 129, 0.28);
+
+  --aw-amber: #f59e0b;
+  --aw-amber-soft: rgba(245, 158, 11, 0.12);
+  --aw-amber-border: rgba(245, 158, 11, 0.28);
+
+  --aw-purple: #a78bfa;
+  --aw-red: #f87171;
+
+  --aw-radius-sm: 6px;
+  --aw-radius-md: 10px;
+  --aw-radius-lg: 14px;
+
+  --aw-shadow-card: 0 12px 32px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --aw-shadow-cta: 0 4px 20px rgba(59, 130, 246, 0.32);
+}
+
+:root[data-theme='light'] {
+  /* Light theme (Alabaster + Hosted-page Cobalt #1f4fd1) */
+  --aw-bg: #fafafa;
+  --aw-bg-elevated: #ffffff;
+  --aw-bg-subtle: #f4f4f6;
+  --aw-code-bg: #f4f5f8;
+  --aw-nav-bg: rgba(250, 250, 250, 0.86);
+
+  --aw-border: #e4e4e7;
+  --aw-border-strong: #d4d4d8;
+  --aw-grid-line: rgba(9, 9, 11, 0.045);
+
+  --aw-fg: #09090b;
+  --aw-fg-muted: #52525b;
+  --aw-fg-dim: #71717a;
+
+  --aw-accent: #1f4fd1;
+  --aw-accent-hover: #1a42b3;
+  --aw-accent-hi: #1d4ed8;
+  --aw-accent-soft: rgba(31, 79, 209, 0.085);
+  --aw-accent-border: rgba(31, 79, 209, 0.28);
+  --aw-accent-glow: rgba(31, 79, 209, 0.08);
+
+  --aw-green: #059669;
+  --aw-green-soft: rgba(5, 150, 105, 0.1);
+  --aw-green-border: rgba(5, 150, 105, 0.25);
+
+  --aw-amber: #b45309;
+  --aw-amber-soft: rgba(245, 158, 11, 0.12);
+  --aw-amber-border: rgba(217, 119, 6, 0.28);
+
+  --aw-purple: #6d28d9;
+  --aw-red: #dc2626;
+
+  --aw-shadow-card: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --aw-shadow-cta: 0 4px 16px rgba(31, 79, 209, 0.22);
+}

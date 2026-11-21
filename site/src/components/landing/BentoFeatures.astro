@@ -1,0 +1,405 @@
+---
+---
+
+<section class="aw-section" aria-labelledby="features-heading">
+  <div class="aw-container">
+    <div class="aw-sec-head">
+      <div>
+        <h2 id="features-heading">Everything included, nothing bolted on</h2>
+        <p class="aw-sec-desc">Complete M1–M6 auth capabilities packaged into a single container.</p>
+      </div>
+      <a href="/docs/status/" class="aw-sec-link">Full capability list →</a>
+    </div>
+
+    <div class="aw-bento">
+      <!-- Wide 1: Sign-in, 2FA & Passkeys + Mini Hosted UI Preview -->
+      <article class="aw-card span-4">
+        <div class="aw-auth-split">
+          <div class="aw-card-copy">
+            <div class="aw-card-top">
+              <h3>Sign-in, 2FA &amp; Passkeys</h3>
+              <span class="aw-tag">Zero-JS UI</span>
+            </div>
+            <p>
+              Email + password verification, one-use magic links, Google &amp; GitHub OAuth, TOTP
+              two-factor authentication with backup codes, and WebAuthn passkeys — all on
+              server-rendered hosted pages.
+            </p>
+            <a href="/docs/hosted-pages/" class="aw-inline-link">Hosted pages →</a>
+          </div>
+
+          <div class="aw-mini-login" aria-hidden="true">
+            <div class="aw-mini-head">
+              <span class="aw-mini-dot"></span>
+              <span>Sign in to Acme</span>
+            </div>
+            <div class="aw-mini-field">ada@example.com</div>
+            <div class="aw-mini-btn">Continue with Passkey</div>
+            <div class="aw-mini-divider"><span>or</span></div>
+            <div class="aw-mini-oauth">
+              <span>GitHub</span>
+              <span>Google</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Compact 2: One portable folder -->
+      <article class="aw-card span-2">
+        <div class="aw-card-top">
+          <h3>One portable folder</h3>
+        </div>
+        <p>
+          SQLite, signing keys, local outbox, JSON logs, and online <code>export</code>/<code
+            >import</code
+          > backups all live in <code>/data</code>. Stop the container, copy the folder, done.
+        </p>
+        <div class="aw-chips">
+          <span class="aw-chip">authwapi.db</span>
+          <span class="aw-chip">outbox/</span>
+          <span class="aw-chip">backups/</span>
+        </div>
+      </article>
+
+      <!-- Compact 3: OAuth 2.1 & Org SSO -->
+      <article class="aw-card span-2">
+        <div class="aw-card-top">
+          <h3>OAuth 2.1 &amp; Org SSO</h3>
+        </div>
+        <p>
+          Authorization code + PKCE, ID tokens, JWT access tokens, JWKS, refresh-token rotation,
+          organizations with roles, and per-org OIDC &amp; SAML 2.0 SSO.
+        </p>
+        <div class="aw-chips">
+          <span class="aw-chip">OIDC</span>
+          <span class="aw-chip">SAML 2.0</span>
+          <span class="aw-chip">JWKS</span>
+        </div>
+      </article>
+
+      <!-- Wide 4: First-Class AI Agents & MCP -->
+      <article class="aw-card span-4">
+        <div class="aw-card-top">
+          <h3>Built for AI agents &amp; MCP servers</h3>
+          <span class="aw-tag">/mcp + /llms.txt</span>
+        </div>
+        <p>
+          Bootstrap the Admin MCP server with a one-time key, mint scoped revocable agent keys,
+          manage users &amp; orgs, read the audit log, and act as the OAuth authorization server for
+          your own MCP servers via Client ID Metadata Documents.
+        </p>
+        <div class="aw-chips">
+          <span class="aw-chip">mint_agent_key</span>
+          <span class="aw-chip">resource link</span>
+          <a href="/llms.txt" class="aw-chip aw-chip-link">/llms.txt</a>
+          <a href="/openapi.json" class="aw-chip aw-chip-link">/openapi.json</a>
+        </div>
+      </article>
+
+      <!-- Half 5: Safe by Default -->
+      <article class="aw-card span-3">
+        <div class="aw-card-top">
+          <h3>Safe by default</h3>
+          <span class="aw-tag">127.0.0.1</span>
+        </div>
+        <p>
+          Publishes on loopback only in every example, refuses unknown <code>Host</code> and
+          <code>Origin</code> headers, rate-limits auth endpoints, runs non-root on Docker &amp;
+          rootless Podman, and never logs tokens or verification links.
+        </p>
+      </article>
+
+      <!-- Half 6: Tested by Agents -->
+      <article class="aw-card span-3">
+        <div class="aw-card-top">
+          <h3>Tested end-to-end by agents</h3>
+          <span class="aw-tag">CI verified</span>
+        </div>
+        <p>
+          Fresh AI agents start the container, bootstrap <code>/mcp</code>, create users, and wire
+          up OAuth clients from these docs alone — both on host and container-to-container.
+        </p>
+        <a
+          href="https://github.com/Anmolnoor/authwapi/tree/main/.solofounder/agent-tests"
+          class="aw-inline-link"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          View agent test runs ↗
+        </a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .aw-section {
+    padding: 4rem 0 0;
+  }
+
+  .aw-container {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .aw-sec-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  h2 {
+    font-size: clamp(1.45rem, 2.5vw, 1.9rem);
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    color: var(--aw-fg);
+    margin: 0 0 0.3rem;
+  }
+
+  .aw-sec-desc {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-sec-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--aw-accent-hi);
+    text-decoration: none;
+  }
+
+  .aw-sec-link:hover {
+    text-decoration: underline;
+  }
+
+  .aw-bento {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .aw-card {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-lg);
+    padding: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    transition: border-color 0.18s ease, transform 0.18s ease;
+  }
+
+  .aw-card:hover {
+    border-color: var(--aw-border-strong);
+  }
+
+  .aw-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: var(--aw-fg);
+  }
+
+  .aw-tag {
+    font-family: var(--aw-font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--aw-accent-hi);
+    background: var(--aw-accent-soft);
+    border: 1px solid var(--aw-accent-border);
+    padding: 0.16rem 0.5rem;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  .aw-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-card code {
+    font-family: var(--aw-font-mono);
+    font-size: 0.82em;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--aw-bg-subtle);
+    border: 1px solid var(--aw-border);
+    color: var(--aw-fg);
+  }
+
+  .aw-inline-link {
+    margin-top: auto;
+    padding-top: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--aw-accent-hi);
+    text-decoration: none;
+  }
+
+  .aw-inline-link:hover {
+    text-decoration: underline;
+  }
+
+  .aw-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: auto;
+    padding-top: 0.35rem;
+  }
+
+  .aw-chip {
+    font-family: var(--aw-font-mono);
+    font-size: 0.74rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 6px;
+    background: var(--aw-code-bg);
+    border: 1px solid var(--aw-border);
+    color: var(--aw-fg-muted);
+    text-decoration: none;
+  }
+
+  .aw-chip-link {
+    color: var(--aw-fg);
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .aw-chip-link:hover {
+    border-color: var(--aw-accent-border);
+    color: var(--aw-accent-hi);
+  }
+
+  /* Mini Sign-in UI Preview */
+  .aw-auth-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    align-items: center;
+    height: 100%;
+  }
+
+  .aw-card-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    height: 100%;
+  }
+
+  .aw-mini-login {
+    background: var(--aw-code-bg);
+    border: 1px solid var(--aw-border);
+    border-radius: 10px;
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .aw-mini-head {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--aw-fg);
+  }
+
+  .aw-mini-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    background: var(--aw-accent);
+  }
+
+  .aw-mini-field {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    border-radius: 6px;
+    padding: 0.42rem 0.6rem;
+    font-family: var(--aw-font-mono);
+    font-size: 0.74rem;
+    color: var(--aw-fg-dim);
+  }
+
+  .aw-mini-btn {
+    background: var(--aw-accent);
+    color: #fff;
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.46rem;
+    border-radius: 6px;
+  }
+
+  .aw-mini-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--aw-fg-dim);
+  }
+
+  .aw-mini-divider::before,
+  .aw-mini-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--aw-border);
+  }
+
+  .aw-mini-oauth {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+  }
+
+  .aw-mini-oauth span {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    border-radius: 6px;
+    padding: 0.34rem;
+    text-align: center;
+    font-size: 0.74rem;
+    color: var(--aw-fg-muted);
+    font-weight: 500;
+  }
+
+  @media (min-width: 720px) {
+    .aw-auth-split {
+      grid-template-columns: 1.25fr 0.85fr;
+    }
+  }
+
+  @media (min-width: 860px) {
+    .aw-bento {
+      grid-template-columns: repeat(6, 1fr);
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-3 {
+      grid-column: span 3;
+    }
+
+    .span-2 {
+      grid-column: span 2;
+    }
+  }
+</style>

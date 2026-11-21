@@ -1,0 +1,568 @@
+---
+const primitives = [
+  'Better Auth',
+  'Hono',
+  'SQLite',
+  'OAuth 2.1 + PKCE',
+  'OpenID Connect',
+  'SAML 2.0',
+  'Passkeys',
+  'MCP Auth',
+];
+
+const copySnippets = {
+  docker: [
+    'git clone https://github.com/Anmolnoor/authwapi.git && cd authwapi',
+    'docker build -t authwapi .',
+    'docker run -d --name authwapi -p 127.0.0.1:4000:4000 -v "$PWD/authwapi-data:/data" authwapi',
+    'curl http://localhost:4000/health',
+  ].join('\n'),
+  folder: [
+    './authwapi-data/',
+    '├── authwapi.db          # SQLite state + migrations',
+    '├── instance.key         # 0600 signing & encryption',
+    '├── bootstrap-admin-key  # one-time MCP key (24h)',
+    '├── outbox/              # local JSON emails (no SMTP)',
+    '└── backups/             # auto pre-upgrade snapshots',
+  ].join('\n'),
+  mcp: [
+    '// POST http://localhost:4000/mcp',
+    '{ "tool": "mint_agent_key", "scope": "write", "label": "ci-agent" }',
+    '{ "tool": "create_user", "email": "ada@example.com", "emailVerified": true }',
+  ].join('\n'),
+};
+---
+
+<section class="aw-hero-wrap">
+  <div class="aw-hero-inner">
+    <div class="aw-hero-grid">
+      <!-- Left Column -->
+      <div class="aw-hero-copy">
+        <a href="/docs/status/" class="aw-status-pill">
+          <span class="aw-status-dot" aria-hidden="true"></span>
+          <span>Pre-1.0 · M1–M6 built · Don't use with real users yet</span>
+          <span aria-hidden="true">→</span>
+        </a>
+
+        <h1>
+          Self-hosted auth in <span class="aw-accent">one container.</span>
+        </h1>
+
+        <p class="aw-lead">
+          Sign-in, passkeys, 2FA, OAuth 2.1 / OIDC, SAML SSO, and MCP authorization — backed by
+          SQLite in a single folder you can move anywhere.
+        </p>
+
+        <div class="aw-cta-row">
+          <a href="/docs/quick-start/" class="aw-btn-primary">
+            <span>Quick start</span>
+            <span aria-hidden="true">→</span>
+          </a>
+          <a href="/docs/for-ai-agents/" class="aw-btn-secondary">For AI agents</a>
+          <a
+            href="https://github.com/Anmolnoor/authwapi"
+            class="aw-btn-ghost"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Right Column: Interactive 3-Tab Showcase -->
+      <div class="aw-terminal-card" data-hero-tabs>
+        <div class="aw-term-bar">
+          <div class="aw-tab-list" role="tablist" aria-label="AuthWAPI examples">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-docker"
+              id="tab-docker"
+              class="aw-tab active"
+              data-tab="docker"
+            >
+              docker run
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-folder"
+              id="tab-folder"
+              class="aw-tab"
+              data-tab="folder"
+            >
+              /data
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-mcp"
+              id="tab-mcp"
+              class="aw-tab"
+              data-tab="mcp"
+            >
+              Admin MCP
+            </button>
+          </div>
+
+          <button
+            type="button"
+            class="aw-copy-btn"
+            data-copy-active
+            data-snippet-docker={copySnippets.docker}
+            data-snippet-folder={copySnippets.folder}
+            data-snippet-mcp={copySnippets.mcp}
+          >
+            Copy
+          </button>
+        </div>
+
+        <div class="aw-term-panels">
+          <pre
+            id="panel-docker"
+            role="tabpanel"
+            aria-labelledby="tab-docker"
+            class="aw-term-pre"
+            data-panel="docker"
+          ><code><span class="tok-dim">$</span> <span class="tok-cmd">git clone</span> https://github.com/Anmolnoor/authwapi.git &amp;&amp; <span class="tok-cmd">cd</span> authwapi
+<span class="tok-dim">$</span> <span class="tok-cmd">docker build</span> -t authwapi .
+<span class="tok-dim">$</span> <span class="tok-cmd">docker run</span> -d --name authwapi \
+    -p <span class="tok-str">127.0.0.1:4000:4000</span> -v <span class="tok-str">"$PWD/authwapi-data:/data"</span> authwapi
+<span class="tok-dim">$</span> <span class="tok-cmd">curl</span> http://localhost:4000/health
+<span class="tok-str">&#123;"status":"ok"&#125;</span></code></pre>
+
+          <pre
+            id="panel-folder"
+            role="tabpanel"
+            aria-labelledby="tab-folder"
+            class="aw-term-pre"
+            data-panel="folder"
+            hidden
+          ><code><span class="tok-cmd">./authwapi-data/</span>
+├── <span class="tok-str">authwapi.db</span>         <span class="tok-dim"># SQLite state + migrations</span>
+├── <span class="tok-key">instance.key</span>        <span class="tok-dim"># 0600 signing &amp; encryption</span>
+├── <span class="tok-key">bootstrap-admin-key</span> <span class="tok-dim"># 1-time MCP key (24h)</span>
+├── <span class="tok-cmd">outbox/</span>             <span class="tok-dim"># local JSON emails (no SMTP)</span>
+└── <span class="tok-cmd">backups/</span>            <span class="tok-dim"># auto pre-upgrade snapshots</span></code></pre>
+
+          <pre
+            id="panel-mcp"
+            role="tabpanel"
+            aria-labelledby="tab-mcp"
+            class="aw-term-pre"
+            data-panel="mcp"
+            hidden
+          ><code><span class="tok-dim">// POST http://localhost:4000/mcp</span>
+&#123; <span class="tok-key">"tool"</span>: <span class="tok-str">"mint_agent_key"</span>,
+  <span class="tok-key">"scope"</span>: <span class="tok-str">"write"</span>, <span class="tok-key">"label"</span>: <span class="tok-str">"ci-agent"</span> &#125;
+
+<span class="tok-dim">// → Scoped, revocable key + audit log entry</span>
+&#123; <span class="tok-key">"tool"</span>: <span class="tok-str">"create_user"</span>, <span class="tok-key">"emailVerified"</span>: <span class="tok-cmd">true</span> &#125;</code></pre>
+        </div>
+
+        <div class="aw-term-foot">
+          <span class="aw-ok-pill">
+            <span class="aw-ok-dot" aria-hidden="true"></span>
+            200 OK · 127.0.0.1:4000
+          </span>
+          <span class="aw-term-meta">0 external DBs · rootless ready</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Primitives Strip -->
+    <div class="aw-primitives">
+      <span class="aw-prim-label">Built on</span>
+      <ul class="aw-prim-list">
+        {primitives.map((name) => (
+          <li class="aw-prim-pill">{name}</li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .aw-hero-wrap {
+    position: relative;
+    overflow: hidden;
+    background-image:
+      radial-gradient(820px 380px at 74% -6%, var(--aw-accent-glow), transparent 70%),
+      linear-gradient(to right, var(--aw-grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--aw-grid-line) 1px, transparent 1px);
+    background-size: 100% 100%, 36px 36px, 36px 36px;
+    border-bottom: 1px solid var(--aw-border);
+  }
+
+  .aw-hero-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 4rem 1.25rem 2.75rem;
+  }
+
+  .aw-hero-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.25rem;
+    align-items: center;
+  }
+
+  .aw-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.34rem 0.8rem;
+    border-radius: 999px;
+    background: var(--aw-amber-soft);
+    border: 1px solid var(--aw-amber-border);
+    color: var(--aw-amber);
+    font-size: 0.78rem;
+    font-weight: 500;
+    text-decoration: none;
+    margin-bottom: 1.25rem;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .aw-status-pill:hover {
+    transform: translateY(-1px);
+  }
+
+  .aw-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--aw-amber);
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-size: clamp(2.15rem, 4.4vw, 3.35rem);
+    line-height: 1.06;
+    letter-spacing: -0.038em;
+    font-weight: 750;
+    color: var(--aw-fg);
+    margin: 0 0 1.05rem;
+  }
+
+  .aw-accent {
+    color: var(--aw-accent-hi);
+  }
+
+  .aw-lead {
+    font-size: 1.05rem;
+    line-height: 1.62;
+    color: var(--aw-fg-muted);
+    max-width: 52ch;
+    margin: 0 0 1.65rem;
+  }
+
+  .aw-cta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .aw-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.72rem 1.25rem;
+    border-radius: 9px;
+    background: var(--aw-accent);
+    color: #ffffff;
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: var(--aw-shadow-cta);
+    transition: background-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .aw-btn-primary:hover {
+    background: var(--aw-accent-hover);
+    transform: translateY(-1px);
+  }
+
+  .aw-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.72rem 1.15rem;
+    border-radius: 9px;
+    background: var(--aw-bg-elevated);
+    color: var(--aw-fg);
+    font-size: 0.92rem;
+    font-weight: 550;
+    text-decoration: none;
+    border: 1px solid var(--aw-border-strong);
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .aw-btn-secondary:hover {
+    background: var(--aw-bg-subtle);
+    border-color: var(--aw-accent-border);
+  }
+
+  .aw-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.72rem 0.75rem;
+    color: var(--aw-fg-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .aw-btn-ghost:hover {
+    color: var(--aw-fg);
+  }
+
+  /* Interactive Terminal Showcase */
+  .aw-terminal-card {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border-strong);
+    border-radius: var(--aw-radius-lg);
+    overflow: hidden;
+    box-shadow: var(--aw-shadow-card);
+  }
+
+  .aw-term-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--aw-bg-subtle);
+    border-bottom: 1px solid var(--aw-border);
+  }
+
+  .aw-tab-list {
+    display: inline-flex;
+    gap: 0.25rem;
+  }
+
+  .aw-tab {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--aw-fg-dim);
+    font-family: var(--aw-font-mono);
+    font-size: 0.76rem;
+    font-weight: 500;
+    padding: 0.32rem 0.65rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .aw-tab:hover {
+    color: var(--aw-fg);
+  }
+
+  .aw-tab.active {
+    background: var(--aw-bg-elevated);
+    color: var(--aw-fg);
+    border-color: var(--aw-border-strong);
+  }
+
+  .aw-copy-btn {
+    appearance: none;
+    font-family: var(--aw-font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--aw-fg-muted);
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    padding: 0.28rem 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .aw-copy-btn:hover {
+    color: var(--aw-fg);
+    border-color: var(--aw-border-strong);
+  }
+
+  .aw-copy-btn.copied {
+    color: var(--aw-green);
+    border-color: var(--aw-green-border);
+    background: var(--aw-green-soft);
+  }
+
+  .aw-term-panels {
+    background: var(--aw-code-bg);
+    min-height: 174px;
+    display: flex;
+    align-items: center;
+  }
+
+  .aw-term-pre {
+    width: 100%;
+    margin: 0;
+    padding: 1.05rem 1.15rem;
+    overflow-x: auto;
+    font-family: var(--aw-font-mono);
+    font-size: 0.79rem;
+    line-height: 1.68;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-term-pre[hidden] {
+    display: none;
+  }
+
+  .tok-cmd { color: var(--aw-accent-hi); }
+  .tok-str { color: var(--aw-green); }
+  .tok-dim { color: var(--aw-fg-dim); }
+  .tok-key { color: var(--aw-purple); }
+
+  .aw-term-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    background: var(--aw-bg-elevated);
+    border-top: 1px solid var(--aw-border);
+  }
+
+  .aw-ok-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    font-family: var(--aw-font-mono);
+    font-size: 0.73rem;
+    font-weight: 500;
+    color: var(--aw-green);
+    background: var(--aw-green-soft);
+    border: 1px solid var(--aw-green-border);
+    padding: 0.18rem 0.6rem;
+    border-radius: 999px;
+  }
+
+  .aw-ok-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--aw-green);
+  }
+
+  .aw-term-meta {
+    font-family: var(--aw-font-mono);
+    font-size: 0.73rem;
+    color: var(--aw-fg-dim);
+  }
+
+  /* Primitives Strip */
+  .aw-primitives {
+    margin-top: 2.75rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .aw-prim-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--aw-fg-dim);
+  }
+
+  .aw-prim-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .aw-prim-pill {
+    font-family: var(--aw-font-mono);
+    font-size: 0.75rem;
+    color: var(--aw-fg-muted);
+    background: var(--aw-bg-subtle);
+    border: 1px solid var(--aw-border);
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+  }
+
+  @media (min-width: 920px) {
+    .aw-hero-inner {
+      padding: 4.75rem 1.25rem 3rem;
+    }
+
+    .aw-hero-grid {
+      grid-template-columns: 1.02fr 1fr;
+      gap: 2.75rem;
+    }
+  }
+</style>
+
+<script>
+  const container = document.querySelector<HTMLElement>('[data-hero-tabs]');
+  if (container) {
+    const tabs = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const panels = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]'));
+    const copyBtn = container.querySelector<HTMLButtonElement>('[data-copy-active]');
+    let activeKey: 'docker' | 'folder' | 'mcp' = 'docker';
+
+    const selectTab = (key: 'docker' | 'folder' | 'mcp') => {
+      activeKey = key;
+      tabs.forEach((tab) => {
+        const isSelected = tab.dataset.tab === key;
+        tab.classList.toggle('active', isSelected);
+        tab.setAttribute('aria-selected', String(isSelected));
+      });
+      panels.forEach((panel) => {
+        panel.hidden = panel.dataset.panel !== key;
+      });
+    };
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const key = tab.dataset.tab as 'docker' | 'folder' | 'mcp' | undefined;
+        if (key) selectTab(key);
+      });
+    });
+
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        const map = {
+          docker: copyBtn.dataset.snippetDocker || '',
+          folder: copyBtn.dataset.snippetFolder || '',
+          mcp: copyBtn.dataset.snippetMcp || '',
+        };
+        try {
+          await navigator.clipboard.writeText(map[activeKey]);
+          copyBtn.textContent = 'Copied';
+          copyBtn.classList.add('copied');
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy';
+            copyBtn.classList.remove('copied');
+          }, 1600);
+        } catch {
+          copyBtn.textContent = 'Copy failed';
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy';
+          }, 1600);
+        }
+      });
+    }
+  }
+</script>

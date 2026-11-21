@@ -1,0 +1,125 @@
+---
+---
+
+<aw-theme-toggle>
+  <button
+    type="button"
+    class="aw-theme-btn"
+    aria-label="Toggle color theme"
+    title="Switch light / dark theme"
+  >
+    <svg
+      class="aw-icon-sun"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.9"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="4"></circle>
+      <path d="M12 2v2"></path>
+      <path d="M12 20v2"></path>
+      <path d="m4.93 4.93 1.41 1.41"></path>
+      <path d="m17.66 17.66 1.41 1.41"></path>
+      <path d="M2 12h2"></path>
+      <path d="M20 12h2"></path>
+      <path d="m6.34 17.66-1.41 1.41"></path>
+      <path d="m19.07 4.93-1.41 1.41"></path>
+    </svg>
+    <svg
+      class="aw-icon-moon"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.9"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+    </svg>
+  </button>
+</aw-theme-toggle>
+
+<style>
+  aw-theme-toggle {
+    display: inline-flex;
+  }
+
+  .aw-theme-btn {
+    appearance: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--aw-border);
+    background: var(--aw-bg-elevated);
+    color: var(--aw-fg-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .aw-theme-btn:hover {
+    color: var(--aw-fg);
+    border-color: var(--aw-border-strong);
+    background: var(--aw-bg-subtle);
+  }
+
+  .aw-theme-btn:focus-visible {
+    outline: 2px solid var(--aw-accent);
+    outline-offset: 2px;
+  }
+
+  /* In dark mode show Sun (switch to light); in light mode show Moon (switch to dark) */
+  :global(:root[data-theme='dark']) .aw-icon-moon,
+  :global(:root:not([data-theme='light'])) .aw-icon-moon {
+    display: none;
+  }
+
+  :global(:root[data-theme='light']) .aw-icon-sun {
+    display: none;
+  }
+</style>
+
+<script>
+  const STORAGE_KEY = 'starlight-theme';
+
+  const getCurrentTheme = (): 'light' | 'dark' => {
+    const attr = document.documentElement.dataset.theme;
+    if (attr === 'light' || attr === 'dark') return attr;
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  };
+
+  const applyTheme = (next: 'light' | 'dark') => {
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* ignore storage errors */
+    }
+  };
+
+  class AwThemeToggle extends HTMLElement {
+    connectedCallback() {
+      const btn = this.querySelector('button');
+      if (!btn || btn.dataset.bound) return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', () => {
+        const next = getCurrentTheme() === 'light' ? 'dark' : 'light';
+        applyTheme(next);
+      });
+    }
+  }
+
+  if (!customElements.get('aw-theme-toggle')) {
+    customElements.define('aw-theme-toggle', AwThemeToggle);
+  }
+</script>

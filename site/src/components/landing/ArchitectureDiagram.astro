@@ -1,0 +1,126 @@
+---
+---
+
+<section class="aw-section" aria-labelledby="arch-heading">
+  <div class="aw-container">
+    <div class="aw-arch-card">
+      <div class="aw-arch-head">
+        <div>
+          <h2 id="arch-heading">Architecture at a glance</h2>
+          <p>One process, zero external databases, clean security boundaries.</p>
+        </div>
+        <span class="aw-arch-badge">Single container · SQLite WAL</span>
+      </div>
+
+      <div class="aw-svg-wrap">
+        <svg
+          viewBox="0 0 880 180"
+          width="880"
+          height="180"
+          class="aw-arch-svg"
+          role="img"
+          aria-label="Diagram showing Apps and MCP Servers connecting over OAuth 2.1/OIDC and AI Agents connecting over /mcp to a single AuthWAPI Container backed by one mounted /data folder."
+        >
+          <!-- Connectors -->
+          <path d="M 244 52 C 284 52, 290 76, 328 76" fill="none" stroke="var(--aw-accent)" stroke-width="2" stroke-dasharray="4 4" />
+          <path d="M 244 128 C 284 128, 290 104, 328 104" fill="none" stroke="var(--aw-green)" stroke-width="2" stroke-dasharray="4 4" />
+          <line x1="566" y1="90" x2="626" y2="90" stroke="var(--aw-border-strong)" stroke-width="2" />
+
+          <!-- Connection endpoints -->
+          <circle cx="328" cy="76" r="4" fill="var(--aw-accent)" />
+          <circle cx="328" cy="104" r="4" fill="var(--aw-green)" />
+          <circle cx="626" cy="90" r="4" fill="var(--aw-fg-muted)" />
+
+          <!-- Left Top: Apps & MCP Servers -->
+          <rect x="14" y="18" width="230" height="66" rx="11" fill="var(--aw-code-bg)" stroke="var(--aw-border-strong)" stroke-width="1.2" />
+          <text x="32" y="45" fill="var(--aw-fg)" font-size="14" font-weight="650" font-family="var(--aw-font-sans)">Your Apps &amp; MCP Servers</text>
+          <text x="32" y="67" fill="var(--aw-accent-hi)" font-size="11.5" font-family="var(--aw-font-mono)">OAuth 2.1 · OIDC · JWT</text>
+
+          <!-- Left Bottom: AI Agents -->
+          <rect x="14" y="96" width="230" height="66" rx="11" fill="var(--aw-code-bg)" stroke="var(--aw-border-strong)" stroke-width="1.2" />
+          <text x="32" y="123" fill="var(--aw-fg)" font-size="14" font-weight="650" font-family="var(--aw-font-sans)">AI Agents</text>
+          <text x="32" y="145" fill="var(--aw-green)" font-size="11.5" font-family="var(--aw-font-mono)">Admin /mcp · Scoped Keys</text>
+
+          <!-- Center: AuthWAPI Container -->
+          <rect x="328" y="22" width="238" height="136" rx="14" fill="var(--aw-accent-soft)" stroke="var(--aw-accent)" stroke-width="1.5" />
+          <text x="350" y="54" fill="var(--aw-fg)" font-size="16" font-weight="700" font-family="var(--aw-font-sans)">AuthWAPI Container</text>
+          <text x="350" y="77" fill="var(--aw-fg-muted)" font-size="12" font-family="var(--aw-font-mono)">Hono + Better Auth</text>
+          <text x="350" y="102" fill="var(--aw-fg-dim)" font-size="11.5" font-family="var(--aw-font-mono)">Zero-JS UI · SAML/OIDC SSO</text>
+          <text x="350" y="123" fill="var(--aw-fg-dim)" font-size="11.5" font-family="var(--aw-font-mono)">Passkeys · 2FA · Rate Limits</text>
+          <text x="350" y="144" fill="var(--aw-accent-hi)" font-size="11" font-family="var(--aw-font-mono)">127.0.0.1:4000 · non-root</text>
+
+          <!-- Right: Single /data Folder -->
+          <rect x="626" y="28" width="240" height="124" rx="12" fill="var(--aw-code-bg)" stroke="var(--aw-border-strong)" stroke-width="1.2" />
+          <text x="646" y="56" fill="var(--aw-fg)" font-size="14.5" font-weight="650" font-family="var(--aw-font-sans)">Single /data Volume</text>
+          <text x="646" y="80" fill="var(--aw-fg-muted)" font-size="11.5" font-family="var(--aw-font-mono)">authwapi.db (SQLite)</text>
+          <text x="646" y="101" fill="var(--aw-fg-muted)" font-size="11.5" font-family="var(--aw-font-mono)">outbox/ · backups/</text>
+          <text x="646" y="122" fill="var(--aw-fg-dim)" font-size="11.5" font-family="var(--aw-font-mono)">instance.key · JSON logs</text>
+          <text x="646" y="141" fill="var(--aw-green)" font-size="11" font-family="var(--aw-font-mono)">export / import safe live</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .aw-section {
+    padding: 2.5rem 0 0;
+  }
+
+  .aw-container {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .aw-arch-card {
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-lg);
+    padding: 1.5rem;
+  }
+
+  .aw-arch-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.1rem;
+  }
+
+  h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--aw-fg);
+  }
+
+  .aw-arch-head p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-arch-badge {
+    font-family: var(--aw-font-mono);
+    font-size: 0.74rem;
+    color: var(--aw-fg-muted);
+    background: var(--aw-bg-subtle);
+    border: 1px solid var(--aw-border);
+    padding: 0.28rem 0.65rem;
+    border-radius: 7px;
+  }
+
+  .aw-svg-wrap {
+    overflow-x: auto;
+  }
+
+  .aw-arch-svg {
+    display: block;
+    width: 100%;
+    min-width: 600px;
+    height: auto;
+  }
+</style>

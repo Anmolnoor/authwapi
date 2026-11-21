@@ -1,0 +1,274 @@
+---
+import BrandMark from '../BrandMark.astro';
+import ThemeToggle from '../ThemeToggle.astro';
+
+const navLinks = [
+  { label: 'Docs', href: '/docs/quick-start/' },
+  { label: 'For AI Agents', href: '/docs/for-ai-agents/' },
+  { label: 'API Reference', href: '/api/' },
+  { label: 'Status', href: '/docs/status/' },
+];
+---
+
+<header class="aw-navbar">
+  <div class="aw-nav-inner">
+    <div class="aw-nav-left">
+      <a href="/" class="aw-brand">
+        <BrandMark size={24} />
+        <span class="aw-wordmark" translate="no">AuthWAPI</span>
+        <span class="aw-badge">pre-1.0</span>
+      </a>
+      <nav class="aw-nav-links" aria-label="Primary">
+        {navLinks.map((item) => (
+          <a href={item.href} class="aw-nav-link">{item.label}</a>
+        ))}
+      </nav>
+    </div>
+
+    <div class="aw-nav-right">
+      <a
+        href="/docs/quick-start/"
+        class="aw-search-jump"
+        aria-label="Browse documentation"
+        title="Open docs"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
+        <span>Docs search</span>
+        <kbd>⌘K</kbd>
+      </a>
+
+      <a
+        href="https://github.com/Anmolnoor/authwapi"
+        class="aw-icon-link"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="AuthWAPI on GitHub"
+        title="GitHub"
+      >
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.72-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.86.09-.67.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.84c.85 0 1.71.12 2.51.35 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.95-2.34 4.82-4.57 5.07.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.27 10.27 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" />
+        </svg>
+      </a>
+
+      <ThemeToggle />
+
+      <button
+        type="button"
+        class="aw-menu-btn"
+        aria-label="Toggle navigation menu"
+        aria-expanded="false"
+        aria-controls="aw-mobile-nav"
+        data-menu-toggle
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h16"></path>
+          <path d="M4 12h16"></path>
+          <path d="M4 17h16"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <nav id="aw-mobile-nav" class="aw-mobile-nav" aria-label="Mobile" hidden>
+    {navLinks.map((item) => (
+      <a href={item.href} class="aw-mobile-link">{item.label}</a>
+    ))}
+    <a
+      href="https://github.com/Anmolnoor/authwapi"
+      class="aw-mobile-link"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      GitHub ↗
+    </a>
+  </nav>
+</header>
+
+<style>
+  .aw-navbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--aw-nav-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--aw-border);
+  }
+
+  .aw-nav-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .aw-nav-left {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    min-width: 0;
+  }
+
+  .aw-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    text-decoration: none;
+    color: var(--aw-fg);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: -0.025em;
+  }
+
+  .aw-badge {
+    font-family: var(--aw-font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.12rem 0.48rem;
+    border-radius: 999px;
+    background: var(--aw-accent-soft);
+    color: var(--aw-accent-hi);
+    border: 1px solid var(--aw-accent-border);
+    line-height: 1.3;
+  }
+
+  .aw-nav-links {
+    display: none;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .aw-nav-link {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--aw-fg-muted);
+    text-decoration: none;
+    padding: 0.4rem 0.7rem;
+    border-radius: 7px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .aw-nav-link:hover {
+    color: var(--aw-fg);
+    background: rgba(128, 128, 140, 0.08);
+  }
+
+  .aw-nav-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .aw-search-jump {
+    display: none;
+    align-items: center;
+    gap: 0.55rem;
+    height: 34px;
+    padding: 0 0.65rem;
+    border-radius: 8px;
+    background: var(--aw-bg-elevated);
+    border: 1px solid var(--aw-border);
+    color: var(--aw-fg-dim);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .aw-search-jump:hover {
+    color: var(--aw-fg);
+    border-color: var(--aw-border-strong);
+  }
+
+  .aw-search-jump kbd {
+    font-family: var(--aw-font-mono);
+    font-size: 0.7rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: var(--aw-bg-subtle);
+    border: 1px solid var(--aw-border);
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-icon-link,
+  .aw-menu-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--aw-border);
+    background: var(--aw-bg-elevated);
+    color: var(--aw-fg-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .aw-icon-link:hover,
+  .aw-menu-btn:hover {
+    color: var(--aw-fg);
+    border-color: var(--aw-border-strong);
+    background: var(--aw-bg-subtle);
+  }
+
+  .aw-mobile-nav {
+    border-top: 1px solid var(--aw-border);
+    background: var(--aw-bg-elevated);
+    padding: 0.75rem 1.25rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .aw-mobile-nav[hidden] {
+    display: none;
+  }
+
+  .aw-mobile-link {
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    color: var(--aw-fg-muted);
+    text-decoration: none;
+    font-size: 0.92rem;
+    font-weight: 500;
+  }
+
+  .aw-mobile-link:hover {
+    background: var(--aw-bg-subtle);
+    color: var(--aw-fg);
+  }
+
+  @media (min-width: 768px) {
+    .aw-nav-links {
+      display: inline-flex;
+    }
+
+    .aw-search-jump {
+      display: inline-flex;
+    }
+
+    .aw-menu-btn {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('[data-menu-toggle]');
+  const mobileNav = document.getElementById('aw-mobile-nav');
+  if (toggle && mobileNav) {
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      mobileNav.hidden = expanded;
+    });
+  }
+</script>
