@@ -8,7 +8,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 FROM node:26-slim
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
+COPY package.json LICENSE ./
 COPY src ./src
 COPY migrations ./migrations
 COPY docker/entrypoint.sh /usr/local/bin/authwapi-entrypoint

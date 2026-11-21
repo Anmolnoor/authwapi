@@ -11,6 +11,8 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { errors, jwtVerify } from 'jose';
 import { createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { generate } from 'lean-qr';
+import { toSvgPath } from 'lean-qr/extras/svg';
 import type { AuthCall } from './app.ts';
 import { memoryRateLimit, SESSION_FRESH_AGE_SECONDS } from './auth.ts';
 import type { Config } from './config.ts';
@@ -30,6 +32,78 @@ export interface PageDeps {
   secret: string;
 }
 
+/** Who an app is: an MCP client (its client_id is its metadata URL) by host, since its name is self-asserted. */
+const appLabel = (clientId: string, name: string | undefined) => {
+  const host = URL.canParse(clientId) ? new URL(clientId).host : undefined;
+  return host ? html`<strong>${host}</strong> (calls itself "${name ?? clientId}")` : html`<strong>${name ?? clientId}</strong>`;
+};
+
+/** The totpURI as a QR code: dark modules on white with a 4-module quiet zone, so it scans in dark mode too. */
+const qrCode = (uri: string) => {
+  const code = generate(uri);
+  const side = code.size + 8;
+  return html`<svg class="qr" role="img" aria-label="QR code for your authenticator app" viewBox="-4 -4 ${side} ${side}" shape-rendering="crispEdges"><rect x="-4" y="-4" width="${side}" height="${side}" fill="#fff"/><path d="${toSvgPath(code)}" fill="#000"/></svg>`;
+};
+
+/** Plain words for the error codes a browser is most likely to arrive at /error with. Others get the generic text. */
+const ERROR_WORDS: Record<string, string> = {
+  invalid_redirect: "The app asked to send you back to an address it hasn't registered, so you weren't sent there. Tell the app's developer.",
+  invalid_client: "AuthWAPI doesn't know the app that sent you here. Tell the app's developer.",
+  invalid_request: "The app's request wasn't valid. Go back to the app and try again; if it keeps happening, tell the app's developer.",
+  invalid_scope: "The app asked for access AuthWAPI doesn't offer. Tell the app's developer.",
+  state_mismatch: 'This sign-in was started in another browser or took too long. Start again.',
+  state_not_found: 'This sign-in was started in another browser or took too long. Start again.',
+  please_restart_the_process: 'This sign-in was started in another browser or took too long. Start again.',
+};
+
+// RP-initiated logout (@better-auth/oauth-provider) answers browsers with its own fixed pages; restyleLogoutPage
+// re-renders them in this layout. No script runs on them, so their CSP stays strict apart from the inline style.
+const LOGOUT_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const unescapeHtml = (s: string) =>
+  s.replace(/&(lt|gt|quot|#39|amp);/g, (_, e: string) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' })[e]!);
+
+/**
+ * Better Auth's logout pages (confirm, logged out, error) in AuthWAPI's layout. The page is chosen by its
+ * data-oidc-logout-* marker and its wording is ours; only the confirm form's action and the note or error sentence come
+ * from Better Auth (as text, escaped again here). Status and every other header, the confirmation and session cookies
+ * included, are kept. HTML of any other shape is served unchanged and logged: a deliberate fallback, since refusing
+ * would break logout. test/oauth.test.ts pins the shape, so an upgrade that changes it fails CI.
+ */
+export async function restyleLogoutPage(res: Response, log: Logger): Promise<Response> {
+  if (!res.headers.get('content-type')?.startsWith('text/html')) return res;
+  const source = await res.clone().text();
+  const text = (state: string) => {
+    const m = new RegExp(`<p data-oidc-logout-state="${state}">([^<]*)</p>`).exec(source);
+    return m ? unescapeHtml(m[1]) : undefined;
+  };
+  const action = /<form method="post" data-oidc-logout-confirmation action="([^"<>]+)">/.exec(source)?.[1];
+  const loggedOut = text('logged-out');
+  const error = text('error');
+  let page: Html;
+  if (action) {
+    page = layout(
+      'Sign out?',
+      html`<form method="post" action="${unescapeHtml(action)}"><button name="action" value="confirm">Sign out</button></form>`,
+      false,
+      { icon: icons.shield, subtitle: 'Do you want to sign out of AuthWAPI in this browser?' }
+    );
+  } else if (loggedOut !== undefined) {
+    const note = loggedOut.replace(/^Logged out\.\s*/, '');
+    page = layout('Signed out', html`<p class="ok" role="status">You're signed out.</p>${note ? html`<p>${note}</p>` : ''}`, false, {
+      icon: icons.check,
+    });
+  } else if (error !== undefined) {
+    page = layout("Couldn't sign out", alert(error), false, { icon: icons.shield });
+  } else {
+    log('warn', 'logout page: Better Auth sent HTML of an unknown shape; served it unchanged');
+    return res;
+  }
+  const headers = new Headers(res.headers);
+  headers.delete('content-length');
+  headers.set('content-type', 'text/html; charset=utf-8');
+  headers.set('content-security-policy', LOGOUT_CSP);
+  return new Response(String(await page), { status: res.status, headers });
+}
 /** The browser half of passkeys (WebAuthn needs page script): served from our origin, the only one CSP allows. */
 const PASSKEY_JS = readFileSync(new URL('./passkey-client.js', import.meta.url), 'utf8');
 
@@ -111,6 +185,7 @@ const PAGE_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/consent',
+  '/error',
   '/api/auth/verify-email',
   '/api/auth/magic-link/verify',
   TWO_FACTOR_PAGE,
@@ -228,6 +303,23 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return r.status === 200 ? (r.data as SessionData) : null;
   };
 
+  // Better Auth sends browsers here for errors (onAPIError.errorURL in src/auth.ts). Only a code listed in ERROR_WORDS
+  // is shown, and error_description never: anything else is text a link put in the URL, shown on this origin.
+  app.get('/error', (c) => {
+    const code = c.req.query('error') ?? '';
+    const known = Object.hasOwn(ERROR_WORDS, code);
+    return render(
+      c,
+      'Something went wrong',
+      html`${alert(known ? ERROR_WORDS[code] : "That didn't work. Go back to the app or page you came from and start again.")}
+        ${known ? html`<p class="aw-note">Error code: <code>${code}</code></p>` : ''}
+        <a class="aw-button secondary" href="/">AuthWAPI home</a>`,
+      400,
+      false,
+      { icon: icons.shield }
+    );
+  });
+
   app.get('/passkey.js', (c) => c.body(PASSKEY_JS, 200, { 'content-type': 'text/javascript; charset=utf-8' }));
 
   app.get('/', async (c) => {
@@ -258,18 +350,31 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
   });
 
   // ── Sign in (also the OAuth loginPage) ──
-  const signInPage = (
+  const clientName = db.prepare('SELECT name FROM oauthClient WHERE clientId = ? AND NOT coalesce(disabled, 0)').pluck();
+  /**
+   * The app a validly signed OAuth request is for, named the way the consent page names it; otherwise undefined.
+   * Read here rather than through Better Auth's public-client-prelogin, which would hand any caller holding a
+   * signed request the client's contacts, URLs and logo too.
+   */
+  const appFor = async (query: string) => {
+    const clientId = new URLSearchParams(query).get('client_id');
+    if (!query || !clientId || !(await verifyOAuthQueryParams(query, secret))) return undefined;
+    const name = clientName.get(clientId) as string | null | undefined;
+    return name === undefined ? undefined : appLabel(clientId, name ?? undefined);
+  };
+  const signInPage = async (
     c: Context,
     query: string,
     error?: string,
     notice?: string,
     status: ContentfulStatusCode = 200,
     openDisclosure?: 'sso' | 'magic-link'
-  ) =>
-    render(
+  ) => {
+    const app = await appFor(query);
+    return render(
       c,
       'Sign in',
-      html`${alert(error)}${notice ? html`<p class="ok" role="status">${notice}</p>` : ''}
+      html`${app ? html`<p class="aw-note aw-app-banner">Sign in to continue to ${app}.</p>` : ''}${alert(error)}${notice ? html`<p class="ok" role="status">${notice}</p>` : ''}
         <form method="post" action="/sign-in">
           <input type="hidden" name="oauth_query" value="${query}">
           <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required>
@@ -319,6 +424,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       true,
       { subtitle: 'Welcome back. Sign in to continue.' }
     );
+  };
   app.get('/sign-in', (c) => {
     const error = c.req.query('error');
     return signInPage(c, oauthQuery(c), error && socialError(error));
@@ -641,9 +747,6 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     if (!query || !clientId) return consentError(c, 'This page needs a request from an app. Start again from the app.', 400);
     const r = await ba(c, 'GET', `/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`);
     if (r.status !== 200) return consentError(c, errorText('/oauth2/public-client', r), r.status === 401 ? 401 : 400);
-    const name = (r.data as { client_name?: string }).client_name ?? clientId;
-    // An MCP client's client_id is its metadata URL: its host is who the client is, while its name is self-asserted.
-    const host = URL.canParse(clientId) ? new URL(clientId).host : undefined;
     const scopes = (params.get('scope') ?? '').split(' ').filter(Boolean);
     // RFC 8707 resources: the APIs the app wants tokens for. Allow posts this same query back, and the provider
     // checks its signature, so what's listed here is what's being allowed.
@@ -661,7 +764,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
     return render(
       c,
       'Allow access?',
-      html`${alert(error)}<p class="aw-consent-lead">${host ? html`<strong>${host}</strong> (calls itself "${name}")` : html`<strong>${name}</strong>`} wants to:</p>
+      html`${alert(error)}<p class="aw-consent-lead">${appLabel(clientId, (r.data as { client_name?: string }).client_name)} wants to:</p>
         <ul class="aw-perm-list">
           ${scopes.map((s) => html`<li>${SCOPE_WORDS[s] ?? s}</li>`)}
           ${resources.map((r) => html`<li>Access <strong>${r}</strong> on your behalf</li>`)}
@@ -777,10 +880,13 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       return render(
         c,
         'Join an organization',
-        html`<a class="aw-button" href="/sign-in">Sign in</a>`,
+        html`<div class="aw-stack aw-btn-links"><a href="/sign-in">Sign in</a><a href="/sign-up">create an account</a></div>`,
         200,
         false,
-        { icon: icons.building, subtitle: 'Sign in with the email address the invitation was sent to, then open the link in the email again.' }
+        {
+          icon: icons.building,
+          subtitle: 'Sign in with the email address the invitation was sent to, or create an account with it and verify the address. Then open the link in the email again.',
+        }
       );
     }
     const r = await ba(c, 'GET', `/organization/get-invitation?id=${encodeURIComponent(id)}`);
@@ -927,14 +1033,24 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       );
     }
     const { totpURI, backupCodes } = r.data as { totpURI: string; backupCodes: string[] };
+    let qr: Html | string = '';
+    try {
+      qr = qrCode(totpURI);
+    } catch (err) {
+      // Too long to encode (a very long email address): the key, link and backup codes below still show.
+      log('error', 'two-factor setup: no QR code', { error: err instanceof Error ? err.message : 'unknown error' });
+    }
     return render(
       c,
       'Two-factor authentication',
-      html`<p>Add this account to your authenticator app with this key:</p>
+      html`${qr ? html`<p>Scan this with your authenticator app:</p><div class="aw-qr-box">${qr}</div><p>Or enter this key:</p>` : html`<p>Add this account to your authenticator app with this key:</p>`}
         <div class="aw-secret-box"><code>${new URL(totpURI).searchParams.get('secret')}</code></div>
         <details class="aw-disclosure">
           <summary><span>Or use the full setup link</span>${icons.chevron}</summary>
-          <div class="aw-disclosure-body"><code>${totpURI}</code></div>
+          <div class="aw-disclosure-body">
+            <p style="margin-top:0">On this device, open <a href="${totpURI}">this link</a>:</p>
+            <code>${totpURI}</code>
+          </div>
         </details>
         <p class="aw-note">Backup codes, each works once if you lose the app. <strong>Save them now: they won't be shown again.</strong></p>
         <ul class="aw-code-grid">${backupCodes.map((code) => html`<li><code>${code}</code></li>`)}</ul>

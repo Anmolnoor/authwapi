@@ -9,7 +9,7 @@ import type { DataPaths } from './data.ts';
 import type { Logger } from './log.ts';
 import { wellKnownRoutes } from './oauth.ts';
 import { asUser } from './orgs.ts';
-import { pageRoutes } from './pages.ts';
+import { pageRoutes, restyleLogoutPage } from './pages.ts';
 import { SAML_ACS_PATH } from './sso.ts';
 
 interface AuthHandler {
@@ -87,7 +87,11 @@ export function createApp({ auth, config, db, log, paths, secret }: AppDeps): Ho
     inviteMember: (inviterId, body) => asUser(inviterId, () => orgEndpoints.createInvitation({ body, headers: new Headers() })),
   };
   app.route('/', adminRoutes({ authContext: auth.$context, orgApi, authApi: auth.api, sendVerificationEmail, config, db, log, paths }));
-  app.on(['GET', 'POST'], '/api/auth/*', (c) => callAuth(c, c.req.raw));
+  const logoutPaths = new Set(['/api/auth/oauth2/end-session', '/api/auth/oauth2/end-session/confirm']);
+  app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
+    const res = await callAuth(c, c.req.raw);
+    return logoutPaths.has(c.req.path) ? restyleLogoutPage(res, log) : res;
+  });
 
   return app;
 }

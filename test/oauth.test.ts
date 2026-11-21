@@ -472,6 +472,7 @@ test('a claims request for email needs the email scope', async () => {
   for (const claims of [{ userinfo: { email: null } }, { id_token: { email_verified: { essential: true } } }]) {
     const res = await navigate({ ...base, scope: 'openid', claims: JSON.stringify(claims) }, user.cookie);
     const at = new URL(res.location ?? 'http://none/', s.base);
+    assert.equal(`${at.origin}${at.pathname}`, `${s.base}/error`, res.location!);
     assert.equal(at.searchParams.get('error'), 'invalid_request', `${res.status} ${res.location} ${res.body}`);
     assert.match(at.searchParams.get('error_description') ?? '', /email/);
   }
@@ -681,7 +682,7 @@ test('PKCE is required, and an unregistered redirect URI is refused without redi
     const res = await navigate({ ...base, redirect_uri, code_challenge: challenge, code_challenge_method: 'S256' }, user.cookie);
     assert.equal(res.status, 302);
     const at = new URL(res.location!);
-    assert.equal(`${at.origin}${at.pathname}`, `${s.base}/api/auth/error`, res.location!);
+    assert.equal(`${at.origin}${at.pathname}`, `${s.base}/error`, res.location!);
     assert.equal(at.searchParams.get('error'), 'invalid_redirect');
   }
 });
@@ -809,4 +810,74 @@ test('no session JWTs: GET /api/auth/token is gone and get-session sets no JWT h
   const session = await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } });
   assert.equal(session.status, 200);
   assert.equal(session.headers.get('set-auth-jwt'), null);
+});
+
+/** A browser form POST (a navigation, so Better Auth answers with HTML). */
+const browserPost = (url: string, cookie: string, fields: Record<string, string>) =>
+  new Promise<{ status: number; location: string | undefined; body: string; setCookies: string[] }>((resolve, reject) => {
+    const body = new URLSearchParams(fields).toString();
+    const headers = { accept: 'text/html', 'sec-fetch-mode': 'navigate', origin: s.base, 'content-type': 'application/x-www-form-urlencoded', cookie };
+    const req = request(url, { method: 'POST', headers }, (res) => {
+      let text = '';
+      res.on('data', (d) => (text += d));
+      res.on('end', () => resolve({ status: res.statusCode!, location: res.headers.location, body: text, setCookies: res.headers['set-cookie'] ?? [] }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+const LOGOUT_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const browserHeaders = (url: string, cookie = '') =>
+  new Promise<Record<string, string | string[] | undefined>>((resolve, reject) => {
+    request(url, { headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate', ...(cookie ? { cookie } : {}) } }, (res) => {
+      res.resume();
+      resolve(res.headers);
+    })
+      .on('error', reject)
+      .end();
+  });
+
+test('logout pages are AuthWAPI pages: confirm, signed out, error; cookies and status kept (QA finding 7)', async () => {
+  const user = await signedInUser();
+  const confirmUrl = `${s.base}/api/auth/oauth2/end-session/confirm`;
+
+  const page = await browserGet(`${s.base}/api/auth/oauth2/end-session`, user.cookie);
+  assert.equal(page.status, 200, page.body);
+  assert.match(page.body, /<title>Sign out\? · AuthWAPI<\/title>/);
+  assert.match(page.body, /<style>/);
+  assert.match(page.body, new RegExp(`<form method="post" action="${confirmUrl}">`));
+  assert.ok(page.cookies, 'the confirmation cookie is kept');
+  const headers = await browserHeaders(`${s.base}/api/auth/oauth2/end-session`, user.cookie);
+  assert.equal(headers['content-security-policy'], LOGOUT_CSP);
+  assert.equal(headers['cache-control'], 'no-store');
+  assert.equal(headers['content-type'], 'text/html; charset=utf-8');
+
+  const done = await browserPost(confirmUrl, `${user.cookie}; ${page.cookies}`, { action: 'confirm' });
+  assert.equal(done.status, 200, done.body);
+  assert.match(done.body, /<title>Signed out · AuthWAPI<\/title>/);
+  assert.match(done.body, /<style>/);
+  assert.ok(done.setCookies.some((c) => c.includes('session_token=;') || /session_token=[^;]*;.*Max-Age=0/i.test(c)), 'the session cookie is not cleared');
+  assert.ok((await fetch(`${s.base}/api/auth/get-session`, { headers: { cookie: user.cookie } }).then((r) => r.json())) === null, 'the session survived');
+
+  const unknown = await browserGet(`${s.base}/api/auth/oauth2/end-session?client_id=no-such-client`, '');
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.body, /<title>Couldn&#39;t sign out · AuthWAPI<\/title>/);
+  assert.match(unknown.body, /<style>[\s\S]*<p role="alert">The logout client does not exist<\/p>/);
+
+  // Apps (not a browser navigation) still get Better Auth's JSON.
+  const api = await fetch(`${s.base}/api/auth/oauth2/end-session`);
+  assert.equal(api.status, 400);
+  assert.equal(((await api.json()) as { error: string }).error, 'invalid_request');
+});
+
+test('logout with a registered post_logout_redirect_uri still redirects to the app', async () => {
+  const client = await createClient();
+  const user = await signedInUser();
+  const tokens = await codeForTokens(client, user.cookie);
+  const d = new Database(s.paths.db);
+  d.prepare('UPDATE oauthClient SET postLogoutRedirectUris = ? WHERE clientId = ?').run(JSON.stringify([`${RP}/bye`]), client.id);
+  d.close();
+  const q = new URLSearchParams({ id_token_hint: tokens.id_token!, post_logout_redirect_uri: `${RP}/bye`, state: 'st' });
+  const res = await browserGet(`${s.base}/api/auth/oauth2/end-session?${q}`, user.cookie);
+  assert.equal(res.status, 302, res.body);
+  assert.equal(res.location, `${RP}/bye?state=st`);
 });

@@ -143,7 +143,7 @@ backups=("$T/data/backups"/*.db)
 check_pass 'restart took no new backup; the same user signs in and the client authenticates with its secret'
 
 STEP='build the image with a broken migration in a temporary context'
-cp -a Dockerfile .dockerignore package.json package-lock.json src migrations docker "$T/broken/"
+cp -a Dockerfile .dockerignore LICENSE package.json package-lock.json src migrations docker "$T/broken/"
 broken=9999_upgrade_check.sql
 [[ ! -e $T/broken/migrations/$broken ]]
 cat >"$T/broken/migrations/$broken" <<'SQL'

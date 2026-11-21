@@ -115,6 +115,9 @@ export function authOptions(deps: AuthDeps): BetterAuthOptions {
     advanced: {
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
+    // Errors a browser is sent to land on the hosted /error page (src/pages.ts), not Better Auth's own page (which
+    // links its docs) or, in production, the home page.
+    onAPIError: { errorURL: `${config.baseUrl.origin}/error` },
     // Google / GitHub, each only when its client ID and secret are set (config.ts). Linking: src/signin.ts.
     socialProviders: socialProviders(config.social),
     account: { accountLinking: { trustedProviders: [] } },

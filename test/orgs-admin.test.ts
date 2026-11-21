@@ -238,7 +238,8 @@ test('invitation end to end: invite_member emails a link; the invited user signs
   // Signed out: the page asks for a sign-in first.
   const signedOut = await send(s, new Jar(), 'GET', link.pathname + link.search, { navigate: true });
   assert.equal(signedOut.status, 200);
-  assert.match(signedOut.body, /Sign in/);
+  assert.match(signedOut.body, /<a href="\/sign-in">Sign in<\/a>/);
+  assert.match(signedOut.body, /<a href="\/sign-up">create an account<\/a>/); // QA finding 5
 
   // Someone else signed in can't see or accept it.
   const carol = await user('carol@example.com');

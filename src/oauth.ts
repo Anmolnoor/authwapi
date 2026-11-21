@@ -175,7 +175,7 @@ function rejectClaimsOutsideScope(ctx: HookContext, claims: unknown, scope: stri
   const description = `claims ${missing.join(', ')} need the ${[...new Set(missing.map((n) => CLAIM_SCOPE[n]))].join(', ')} scope`;
   if (ctx.path === '/oauth2/authorize') {
     // The redirect URI isn't validated yet, so the error goes to AuthWAPI's own error page, like invalid_redirect.
-    throw ctx.redirect(`${ctx.context.baseURL}/error?${new URLSearchParams({ error: 'invalid_request', error_description: description })}`);
+    throw ctx.redirect(`${ctx.context.options.onAPIError!.errorURL!}?${new URLSearchParams({ error: 'invalid_request', error_description: description })}`);
   }
   throw new APIError('BAD_REQUEST', { error: 'invalid_request', error_description: description });
 }

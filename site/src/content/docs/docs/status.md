@@ -24,7 +24,7 @@ AuthWAPI is early. It is a rewrite as a self-hosted auth server built on [Better
 - SAML SSO per organization, under the same rules: signed assertions only (RSA-SHA256 or stronger), started from
   AuthWAPI (identity-provider-initiated sign-in is refused)
 - Hosted pages: sign-in, sign-up, reset, verification, magic link, OAuth consent, 2FA, TOTP setup, passkeys,
-  organization pick, invitations. Every
+  organization pick, invitations, errors and logout. Every
   sign-in method works during an app's sign-in
 - OAuth 2.1 / OpenID Connect provider: authorization code + PKCE, ID tokens, JWT access tokens per API, JWKS,
   introspection, userinfo, refresh-token rotation, RP-initiated logout; sign-out revokes refresh tokens for every app

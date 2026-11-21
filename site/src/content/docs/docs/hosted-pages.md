@@ -9,16 +9,25 @@ follow the system light or dark theme, can't be framed by another site, and are 
 | Page | What it is |
 | --- | --- |
 | `/` | Shows who is signed in, with a sign-out button |
-| `/sign-in` | Password sign-in, "Sign in with SSO" (your organization's identity provider), or "Email me a link" (a magic link). Also the OAuth sign-in page. |
+| `/sign-in` | Password sign-in, "Sign in with SSO" (your organization's identity provider), or "Email me a link" (a magic link). Also the OAuth sign-in page: during an app's sign-in it names the app, as the consent page does. |
 | `/sign-up` | Create an account |
 | `/forgot-password` | Ask for a reset link |
 | `/reset-password` | Choose a new password (opened from the reset email) |
 | `/consent` | An app asking for access: lists what it wants in plain words, with Allow and Deny |
 | `/select-org` | An app asked for the `organization` scope: pick which of your organizations it's for, or none |
-| `/accept-invitation` | The link in an organization invitation email: accept it while signed in with that address |
+| `/accept-invitation` | The link in an organization invitation email: accept it while signed in with that address (signed out, it links to sign-in and sign-up) |
+| `/two-factor/setup` | Turn on TOTP: a QR code for the authenticator app, the key and link to type or open instead, and backup codes |
 | `/signed-out` | After signing out |
+| `/error` | Where a browser lands after an error (a bad app request, an expired sign-in): the error code in plain words |
+| `/api/auth/oauth2/end-session` | An app signing you out (RP-initiated logout): confirm, signed out, or why it failed |
 | `/api/auth/verify-email` | The link in the verification email |
 | `/api/auth/magic-link/verify` | The link in the magic-link email |
+
+## Errors
+
+Better Auth sends a browser that hit an error to `/error?error=<code>`. The page shows the code, in plain words
+where it knows it. It never shows `error_description` or any other text from the URL: anyone can write a link to
+the page, and text shown there would look like it came from AuthWAPI.
 
 ## Verifying an email
 
