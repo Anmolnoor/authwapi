@@ -29,7 +29,7 @@ Every screenshot below is captured directly from AuthWAPI's server-rendered HTML
 
 ### Sign in and sign up
 
-<div class="aw-shot-grid">
+<div class="aw-shot-grid not-content">
   <figure class="aw-shot">
     <a href="/images/hosted-pages/sign-in-dark.png" target="_blank" rel="noopener noreferrer">
       <img src="/images/hosted-pages/sign-in-dark.png" alt="AuthWAPI sign-in page in dark mode with OAuth app banner, password, passkey, Google, GitHub, SSO, and magic-link options" loading="lazy" />
@@ -64,7 +64,7 @@ Every screenshot below is captured directly from AuthWAPI's server-rendered HTML
 
 ### Account, verification and recovery
 
-<div class="aw-shot-grid">
+<div class="aw-shot-grid not-content">
   <figure class="aw-shot">
     <a href="/images/hosted-pages/home-signed-out.png" target="_blank" rel="noopener noreferrer">
       <img src="/images/hosted-pages/home-signed-out.png" alt="AuthWAPI home page when signed out" loading="lazy" />
@@ -111,8 +111,8 @@ Every screenshot below is captured directly from AuthWAPI's server-rendered HTML
 
 ### Two-factor authentication and passkeys
 
-<div class="aw-shot-grid">
-  <figure class="aw-shot">
+<div class="aw-shot-grid not-content">
+  <figure class="aw-shot aw-shot-tall">
     <a href="/images/hosted-pages/two-factor-setup.png" target="_blank" rel="noopener noreferrer">
       <img src="/images/hosted-pages/two-factor-setup.png" alt="AuthWAPI two-factor setup page with QR code, manual secret key, backup codes, and confirmation code input" loading="lazy" />
     </a>
@@ -134,7 +134,7 @@ Every screenshot below is captured directly from AuthWAPI's server-rendered HTML
 
 ### OAuth consent, organizations and errors
 
-<div class="aw-shot-grid">
+<div class="aw-shot-grid not-content">
   <figure class="aw-shot">
     <a href="/images/hosted-pages/select-org.png" target="_blank" rel="noopener noreferrer">
       <img src="/images/hosted-pages/select-org.png" alt="AuthWAPI choose an organization page with selectable role cards" loading="lazy" />
