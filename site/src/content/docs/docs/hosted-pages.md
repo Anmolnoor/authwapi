@@ -3,8 +3,8 @@ title: Hosted pages
 description: The sign-in, sign-up, reset, verification, magic-link and consent pages AuthWAPI serves, and the safety rules behind them.
 ---
 
-AuthWAPI serves its own pages, so your app needs no login UI. They are server-rendered HTML with no JavaScript,
-follow the system light or dark theme, can't be framed by another site, and are never cached.
+AuthWAPI serves its own pages, so your app needs no login UI. They are server-rendered HTML (the only script is `/passkey.js`, on
+pages with a passkey button), follow the system light or dark theme, can't be framed by another site, and are never cached.
 
 | Page | What it is |
 | --- | --- |

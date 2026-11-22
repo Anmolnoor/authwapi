@@ -880,7 +880,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
       return render(
         c,
         'Join an organization',
-        html`<div class="aw-stack aw-btn-links"><a href="/sign-in">Sign in</a><a href="/sign-up">create an account</a></div>`,
+        html`<div class="aw-stack"><a class="aw-button" href="/sign-in">Sign in</a><a class="aw-button secondary" href="/sign-up">Create an account</a></div>`,
         200,
         false,
         {
@@ -1048,7 +1048,7 @@ export function pageRoutes({ callAuth, config, db, log, secret }: PageDeps): Hon
         <details class="aw-disclosure">
           <summary><span>Or use the full setup link</span>${icons.chevron}</summary>
           <div class="aw-disclosure-body">
-            <p style="margin-top:0">On this device, open <a href="${totpURI}">this link</a>:</p>
+            <p>On this device, open <a href="${totpURI}">this link</a>:</p>
             <code>${totpURI}</code>
           </div>
         </details>
