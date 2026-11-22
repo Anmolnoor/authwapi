@@ -38,14 +38,14 @@ export const layout = (title: string, body: Html, passkeyScript: boolean, { subt
 <title>${title} · AuthWAPI</title>
 <style>
 :root{--bg:#fafafa;--card:#fff;--line:#e4e4e7;--text:#09090b;--muted:#52525b;--accent:#1f4fd1;--accent-hover:#1a42b3;--btn-bg:#1f4fd1;--btn-hover:#1a42b3;--link:#1f4fd1;--visited:#5b21b6;
---tint:rgba(31,79,209,.08);--tint-line:rgba(31,79,209,.22);--ring:rgba(31,79,209,.2);--field:#fff;--field-line:#d4d4d8;--soft:#f4f4f5;
+--tint:rgba(31,79,209,.08);--tint-line:rgba(31,79,209,.22);--ring:rgba(31,79,209,.2);--field:#fff;--field-line:#8a8a93;--soft:#f4f4f5;
 --danger:#b42318;--danger-bg:#fef3f2;--danger-line:#fecdca;--ok:#067647;--ok-bg:#ecfdf3;--ok-line:#abefc6;
 --shadow:0 1px 2px rgba(9,9,11,.04),0 12px 32px -12px rgba(9,9,11,.12);
 --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 --texture:radial-gradient(rgba(9,9,11,.07) 1px,transparent 1px) 0 0/20px 20px}
 @media (prefers-color-scheme:dark){:root{--bg:#09090b;--card:#111216;--line:rgba(255,255,255,.09);--text:#f4f4f5;--muted:#a1a1aa;
 --accent:#3b82f6;--accent-hover:#2563eb;--btn-bg:#2563eb;--btn-hover:#1d4ed8;--link:#60a5fa;--visited:#c58af9;--tint:rgba(59,130,246,.1);--tint-line:rgba(59,130,246,.3);--ring:rgba(59,130,246,.35);
---field:#0c0d10;--field-line:rgba(255,255,255,.14);--soft:rgba(255,255,255,.04);
+--field:#0c0d10;--field-line:#686872;--soft:rgba(255,255,255,.04);
 --danger:#fda29b;--danger-bg:rgba(240,68,56,.1);--danger-line:rgba(240,68,56,.32);--ok:#75e0a7;--ok-bg:rgba(23,178,106,.1);--ok-line:rgba(23,178,106,.32);
 --shadow:inset 0 1px 0 rgba(255,255,255,.04),0 24px 48px -16px rgba(0,0,0,.7);
 --texture:radial-gradient(60rem 28rem at 50% -8rem,rgba(59,130,246,.16),transparent 70%),linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px) 0 0/32px 32px,linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px) 0 0/32px 32px}}
@@ -66,9 +66,10 @@ p{margin:.75rem 0}
 a{color:var(--link);font-weight:500;text-decoration:none}
 a:visited{color:var(--visited)}
 a:hover{text-decoration:underline;text-underline-offset:2px}
+p a{text-decoration:underline;text-underline-offset:2px}
 .aw-brand:visited,.aw-nav a:visited{color:var(--text)}
-.aw-button:visited,.aw-btn-links a:first-child:visited{color:#fff}
-.aw-button.secondary:visited,.aw-btn-links a:not(:first-child):visited{color:var(--text)}
+.aw-button:visited{color:#fff}
+.aw-button.secondary:visited{color:var(--text)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .aw-icon{width:1.125rem;height:1.125rem;flex:none}
 .aw-icon-badge{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;margin-bottom:1rem;border:1px solid var(--tint-line);border-radius:10px;background:var(--tint);color:var(--accent)}
@@ -82,17 +83,14 @@ form>label:first-of-type{margin-top:0}
 input{display:block;width:100%;height:2.625rem;margin-top:.375rem;padding:0 .75rem;font:inherit;color:var(--text);background:var(--field);border:1px solid var(--field-line);border-radius:8px;transition:border-color .15s,box-shadow .15s}
 input::placeholder{color:var(--muted)}
 input:focus{outline:2px solid transparent;border-color:var(--accent);box-shadow:0 0 0 3px var(--ring)}
+input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 input[type=radio],input[type=checkbox]{display:inline;width:auto;height:auto;margin:0 .5rem 0 0;accent-color:var(--accent)}
 button,.aw-button{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:2.625rem;margin-top:1.25rem;padding:.5rem 1rem;font:inherit;font-weight:600;color:#fff;background:var(--btn-bg);border:1px solid transparent;border-radius:8px;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(9,9,11,.12);transition:background-color .15s,border-color .15s}
 button:hover,.aw-button:hover{background:var(--btn-hover);text-decoration:none}
 button.secondary,.aw-button.secondary{color:var(--text);background:var(--card);border-color:var(--field-line);font-weight:550;box-shadow:0 1px 2px rgba(9,9,11,.05)}
 button.secondary:hover,.aw-button.secondary:hover{background:var(--soft)}
 .aw-stack{display:grid;gap:.625rem}
-.aw-stack button,.aw-stack .aw-button,.aw-btn-links a{margin-top:0}
-.aw-btn-links a{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:2.625rem;padding:.5rem 1rem;font:inherit;font-weight:600;color:#fff;background:var(--btn-bg);border:1px solid transparent;border-radius:8px;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(9,9,11,.12);transition:background-color .15s,border-color .15s}
-.aw-btn-links a:hover{background:var(--btn-hover);text-decoration:none}
-.aw-btn-links a:not(:first-child){color:var(--text);background:var(--card);border-color:var(--field-line);font-weight:550;box-shadow:0 1px 2px rgba(9,9,11,.05);text-transform:capitalize}
-.aw-btn-links a:not(:first-child):hover{background:var(--soft)}
+.aw-stack button,.aw-stack .aw-button{margin-top:0}
 .divider{display:flex;align-items:center;gap:.75rem;margin:1.5rem 0;font-size:.75rem;font-weight:550;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .divider::before,.divider::after{content:"";flex:1;border-top:1px solid var(--line)}
 [role=alert],.ok{position:relative;margin:0 0 1.25rem;padding:.75rem .875rem .75rem 1.125rem;font-size:.875rem;border:1px solid;border-radius:8px;overflow:hidden}
@@ -100,8 +98,8 @@ button.secondary:hover,.aw-button.secondary:hover{background:var(--soft)}
 [role=alert]{color:var(--danger);background:var(--danger-bg);border-color:var(--danger-line)}[role=alert]::before{background:var(--danger)}
 .ok{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line)}.ok::before{background:var(--ok)}
 .ok a{color:inherit;text-decoration:underline}
-[role=status]:empty{display:none}
 #passkey-status{margin:0;font-size:.875rem;color:var(--muted);text-align:center}
+#passkey-status:empty{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .aw-disclosure{margin-top:.625rem;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .aw-disclosure>summary{display:flex;align-items:center;gap:.625rem;padding:.75rem 1rem;font-weight:550;cursor:pointer;list-style:none;border-radius:10px}
 .aw-disclosure>summary::-webkit-details-marker{display:none}
@@ -112,6 +110,7 @@ button.secondary:hover,.aw-button.secondary:hover{background:var(--soft)}
 .aw-disclosure[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0}
 .aw-disclosure-body{padding:.25rem 1rem 1rem}
 .aw-disclosure-body button{margin-top:.875rem}
+.aw-disclosure-body>p:first-child{margin-top:0}
 .aw-foot-link{margin:1.5rem 0 0;font-size:.875rem;color:var(--muted);text-align:center}
 .aw-account{display:flex;align-items:center;gap:.75rem;padding:.875rem 1rem;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
 .aw-account p{margin:0;min-width:0;overflow-wrap:anywhere;font-size:.875rem;color:var(--muted)}

@@ -594,6 +594,27 @@ test('dark mode colors links and the focus ring; long codes wrap (QA findings 2,
   assert.match(page, /code\{[^}]*overflow-wrap:anywhere/);
 });
 
+test('the redesign keeps the accessibility basics (0.3.1 QA)', async () => {
+  await up();
+  const page = await (await get('/sign-in')).text();
+  const dark = /@media \(prefers-color-scheme:dark\)\{:root\{([\s\S]*?)\}\}/.exec(page)![1];
+  // Colors measured to pass: links 6.8:1 (light) and 7.4:1 (dark) on the card, the focus ring 5:1 in dark mode, and
+  // field borders 3.4:1 against the card in both themes (WCAG 1.4.11).
+  assert.match(page, /:root\{[^}]*--link:#1f4fd1/);
+  assert.match(dark, /--link:#60a5fa/);
+  assert.match(dark, /--accent:#3b82f6/);
+  assert.match(page, /:root\{[^}]*--field-line:#8a8a93/);
+  assert.match(dark, /--field-line:#686872/);
+  // A link in a sentence is underlined, not told apart by color alone (WCAG 1.4.1).
+  assert.match(page, /p a\{text-decoration:underline/);
+  // A focused field gets a solid outline, not only a faint ring.
+  assert.match(page, /input:focus-visible\{outline:2px solid var\(--accent\)/);
+  // The passkey live region stays in the accessibility tree, so its first message is announced.
+  assert.doesNotMatch(page, /\[role=status\]:empty\{display:none/);
+  // Button text is written as shown; nothing is capitalized by CSS.
+  assert.doesNotMatch(page, /text-transform:capitalize/);
+});
+
 test('2FA setup shows a QR code of the exact otpauth link, on white, and the link itself (QA finding 4)', async () => {
   await up();
   const cookie = await signedIn('qr@example.com');

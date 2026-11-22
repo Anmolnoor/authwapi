@@ -32,6 +32,24 @@ To go back to an older version after an upgrade, stop the container and restore 
 of the newer migrations from `migrations/`, then start the older image. Anything written since the upgrade is
 lost.
 
+## 0.3.0 → 0.3.1
+
+0.3.1 changes how the hosted pages look. It has no migrations and no API, protocol, email or dependency changes.
+Going back to 0.3.0 needs no backup: stop 0.3.1 and start 0.3.0 on the same data folder (tested).
+
+**What changes for an operator:**
+
+- **New look.** Every hosted page has new markup, class names and styles. If a reverse proxy injects CSS into the
+  pages, or a script reads them, check it again: the markup is not an API and can change in any release.
+- **Some forms start collapsed.** On `/sign-in`, SSO and the magic link are each behind a disclosure (`<details>`:
+  "Sign in with SSO", "Email me a sign-in link"). On `/two-factor`, the backup code form is behind "Use a backup
+  code". A disclosure is open when the page comes back from its own form. Browser automation that fills those fields
+  must open the disclosure first.
+- **The home page's title** is "Welcome" when signed out and "Your account" when signed in (it was "AuthWAPI").
+- **Accessibility:** links inside text are underlined, field borders and the dark-mode link and focus colors meet
+  WCAG AA contrast, a focused field has a solid outline, and the passkey status line is announced by screen
+  readers.
+
 ## 0.2.0 → 0.3.0
 
 0.3.0 is the first published image (`ghcr.io/anmolnoor/authwapi:0.3.0`). 0.2.0 was never tagged or published, so
