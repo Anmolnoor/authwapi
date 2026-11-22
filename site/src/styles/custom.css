@@ -210,3 +210,59 @@ site-search button[data-open-modal]:hover {
   border-radius: 10px;
   border-color: var(--aw-border);
 }
+
+/* Hosted-pages screenshot gallery in docs */
+.sl-markdown-content .aw-shot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.15rem;
+  margin: 1.25rem 0 2rem;
+}
+
+.sl-markdown-content .aw-shot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--aw-border);
+  background: var(--aw-bg-elevated);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.sl-markdown-content .aw-shot:hover {
+  border-color: var(--aw-accent-border);
+  transform: translateY(-2px);
+}
+
+.sl-markdown-content .aw-shot a {
+  display: block;
+  text-decoration: none;
+}
+
+.sl-markdown-content .aw-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.sl-markdown-content .aw-shot figcaption {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--aw-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--aw-fg-muted);
+  background: var(--aw-bg-subtle);
+}
+
+.sl-markdown-content .aw-shot figcaption code {
+  font-size: 0.76rem;
+  color: var(--aw-fg);
+}
