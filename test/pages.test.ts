@@ -611,6 +611,8 @@ test('the redesign keeps the accessibility basics (0.3.1 QA)', async () => {
   assert.match(page, /input:focus-visible\{outline:2px solid var\(--accent\)/);
   // The passkey live region stays in the accessibility tree, so its first message is announced.
   assert.doesNotMatch(page, /\[role=status\]:empty\{display:none/);
+  assert.match(page, /<p id="passkey-status" role="status"><\/p>/);
+  assert.match(page, /#passkey-status:empty\{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset\(50%\)\}/);
   // Button text is written as shown; nothing is capitalized by CSS.
   assert.doesNotMatch(page, /text-transform:capitalize/);
 });
