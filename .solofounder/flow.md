@@ -135,6 +135,8 @@ this section wins.
 **G1 result: override, demand not shown.** On 2026-11-20 the owner asked for M2–M6 to be built now, before
 publishing M1. Not a pass. Per the owner: M6 adds the release workflows but publishes no image or tag; quality
 beats the clock (each milestone is reviewed and merged before the next depends on it).
+On 2026-11-22 the owner overrode "publishes no image or tag": they asked for `v0.3.0` to be tagged and the image
+published. It was tagged on `edf0d1a` after the Fedora SELinux check passed, and published to GHCR.
 
 **How the work runs.** One PR per lane, merged to `main` in this order, each after sol-loop (GPT-6.2 Sol) and a
 council round: **M6a → M1-A, M1-B → M1-C → M2 → M3 → M4a → M4b → M5 → M6b.** Lanes may be coded in parallel
@@ -228,7 +230,7 @@ Each lane pins any new `@better-auth/*` package at the core's exact version and 
   rotation stays strict. Tested with two external MCP resources through discovery, code exchange and refresh: a
   token for one is rejected by the other, and a client can't get a token for a resource that exists but isn't linked to it. OAuth
   tokens are never accepted by the admin MCP.
-- **M6.** M6a above. M6b: tag-triggered multi-arch (amd64/arm64) GHCR workflow that this plan never triggers;
+- **M6.** M6a above. M6b: tag-triggered multi-arch (amd64/arm64) GHCR workflow that this plan never triggers (the owner triggered it with `v0.3.0` on 2026-11-22);
   semantic versions; `UPGRADING.md`.
 
 ### Stage 7: Learn
