@@ -212,14 +212,25 @@ site-search button[data-open-modal]:hover {
 }
 
 /* Hosted-pages screenshot gallery in docs */
-.sl-markdown-content .aw-shot-grid {
+.aw-shot-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1.15rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 1.25rem;
   margin: 1.25rem 0 2rem;
 }
 
-.sl-markdown-content .aw-shot {
+@media (min-width: 40rem) {
+  .aw-shot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .aw-shot-tall {
+    grid-row: span 2;
+  }
+}
+
+.aw-shot {
   margin: 0;
   display: flex;
   flex-direction: column;
@@ -230,17 +241,17 @@ site-search button[data-open-modal]:hover {
   transition: border-color 0.18s ease, transform 0.18s ease;
 }
 
-.sl-markdown-content .aw-shot:hover {
+.aw-shot:hover {
   border-color: var(--aw-accent-border);
   transform: translateY(-2px);
 }
 
-.sl-markdown-content .aw-shot a {
+.aw-shot a {
   display: block;
   text-decoration: none;
 }
 
-.sl-markdown-content .aw-shot img {
+.aw-shot img {
   display: block;
   width: 100%;
   height: auto;
@@ -249,7 +260,7 @@ site-search button[data-open-modal]:hover {
   border-radius: 0;
 }
 
-.sl-markdown-content .aw-shot figcaption {
+.aw-shot figcaption {
   margin: 0;
   padding: 0.7rem 0.9rem;
   border-top: 1px solid var(--aw-border);
@@ -262,7 +273,12 @@ site-search button[data-open-modal]:hover {
   background: var(--aw-bg-subtle);
 }
 
-.sl-markdown-content .aw-shot figcaption code {
+.aw-shot figcaption code {
+  font-family: var(--aw-font-mono);
   font-size: 0.76rem;
   color: var(--aw-fg);
+  background: var(--sl-color-bg-inline-code);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 5px;
+  padding: 0.14em 0.38em;
 }
