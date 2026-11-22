@@ -446,10 +446,12 @@ data under `$TMPDIR` (default `/tmp`).
 
 Versions are semantic; `version` in `package.json` is the source of truth. To release:
 
-1. Bump the version: `npm version --no-git-tag-version 0.3.0` (updates `package.json` and `package-lock.json`).
+1. Set `version` to the new version (`version=0.3.2`) and bump it: `npm version --no-git-tag-version "$version"`
+   (updates `package.json` and `package-lock.json`).
 2. Fill in the section for this version in [UPGRADING.md](UPGRADING.md).
-3. Merge to `main`, then tag `main` explicitly and push the tag:
-   `git fetch origin && git tag -a v0.3.0 origin/main -m "AuthWAPI 0.3.0" && git push origin v0.3.0`.
+3. Merge to `main` and wait for its CI to pass. In the same shell (or set `version` again), set `merge_sha` to the
+   merge commit's full SHA, then tag that commit (not `origin/main`, which a later merge could move) and push the tag:
+   `git fetch origin && git tag -a "v${version:?}" "${merge_sha:?}" -m "AuthWAPI $version" && git push origin "v$version"`.
 4. After the first publish only: in the GHCR package's settings, set its visibility to Public. A new package starts
    private, so `docker pull ghcr.io/anmolnoor/authwapi` fails for everyone else until then.
 
