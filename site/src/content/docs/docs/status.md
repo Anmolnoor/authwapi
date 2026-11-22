@@ -1,10 +1,10 @@
 ---
 title: Status and roadmap
-description: What AuthWAPI does today (M1 through M6, from sign-in methods to OIDC and SAML SSO and OAuth for MCP servers), what is left before the first release, and where the earlier version went.
+description: What AuthWAPI does today (M1 through M6, from sign-in methods to OIDC and SAML SSO and OAuth for MCP servers), the first release (0.3.0), and where the earlier version went.
 ---
 
 AuthWAPI is early. It is a rewrite as a self-hosted auth server built on [Better Auth](https://better-auth.com),
-[Hono](https://hono.dev) and SQLite, and no release has been published yet. **Don't put real users on it yet.**
+[Hono](https://hono.dev) and SQLite. 0.3.0 is its first published release. **Don't put real users on it yet.**
 
 ## Works today
 
@@ -47,8 +47,9 @@ M1 (the core server, admin MCP and export/import), M2 (Google and GitHub sign-in
 (organizations and admin), M4a (OIDC SSO), M4b (SAML SSO), M5 (OAuth for your own MCP servers) and M6 (CI on Linux
 and macOS, and a release workflow) are built. The release workflow builds a multi-arch (amd64/arm64) image for GHCR
 from a version tag, and [UPGRADING.md](https://github.com/Anmolnoor/authwapi/blob/main/UPGRADING.md) holds the
-upgrade notes. No release tag (`vX.Y.Z`) has been pushed yet, so there is no published image: build it from source
-as the quick start shows.
+upgrade notes. The first release, `v0.3.0`, is published as `ghcr.io/anmolnoor/authwapi:0.3.0` (also `0.3` and
+`latest`). `main` has changes made since then, and these docs follow `main`: the hosted pages' new look is not in
+0.3.0.
 
 ## The earlier version
 
