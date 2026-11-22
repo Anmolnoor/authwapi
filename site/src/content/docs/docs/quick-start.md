@@ -4,8 +4,8 @@ description: Build and run AuthWAPI, create an account, verify it from the outbo
 ---
 
 You need Docker (or podman) and git. These steps build the image from source, so you get what these docs describe.
-The latest release is published as `ghcr.io/anmolnoor/authwapi:0.3.0`: to use it instead, skip `docker build` and
-put `ghcr.io/anmolnoor/authwapi:0.3.0` in place of the last `authwapi` in `docker run`.
+The latest release is published as `ghcr.io/anmolnoor/authwapi:0.3.1`: to use it instead, skip `docker build` and
+put `ghcr.io/anmolnoor/authwapi:0.3.1` in place of the last `authwapi` in `docker run`.
 
 ## 1. Build and start
 
