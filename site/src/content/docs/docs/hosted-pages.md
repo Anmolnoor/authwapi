@@ -23,6 +23,144 @@ follow the system light or dark theme, can't be framed by another site, and are 
 | `/api/auth/verify-email` | The link in the verification email |
 | `/api/auth/magic-link/verify` | The link in the magic-link email |
 
+## Visual examples
+
+Every screenshot below is captured directly from AuthWAPI's server-rendered HTML (click any image to open full-size). Pages follow the browser's `prefers-color-scheme` automatically.
+
+### Sign in and sign up
+
+<div class="aw-shot-grid">
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/sign-in-dark.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/sign-in-dark.png" alt="AuthWAPI sign-in page in dark mode with OAuth app banner, password, passkey, Google, GitHub, SSO, and magic-link options" loading="lazy" />
+    </a>
+    <figcaption><code>/sign-in</code><span>Dark mode (OAuth + social)</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/sign-in-light.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/sign-in-light.png" alt="AuthWAPI sign-in page in light mode" loading="lazy" />
+    </a>
+    <figcaption><code>/sign-in</code><span>Light mode</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/sign-up-dark.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/sign-up-dark.png" alt="AuthWAPI create an account page in dark mode" loading="lazy" />
+    </a>
+    <figcaption><code>/sign-up</code><span>Dark mode</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/sign-up-light.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/sign-up-light.png" alt="AuthWAPI create an account page in light mode" loading="lazy" />
+    </a>
+    <figcaption><code>/sign-up</code><span>Light mode</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/check-email.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/check-email.png" alt="AuthWAPI check your email confirmation page after sign-up" loading="lazy" />
+    </a>
+    <figcaption><code>POST /sign-up</code><span>Check your email</span></figcaption>
+  </figure>
+</div>
+
+### Account, verification and recovery
+
+<div class="aw-shot-grid">
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/home-signed-out.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/home-signed-out.png" alt="AuthWAPI home page when signed out" loading="lazy" />
+    </a>
+    <figcaption><code>/</code><span>Signed out</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/home-signed-in.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/home-signed-in.png" alt="AuthWAPI account page when signed in with links to 2FA and passkeys" loading="lazy" />
+    </a>
+    <figcaption><code>/</code><span>Signed in</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/verify-email.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/verify-email.png" alt="AuthWAPI email verification page asking for the sign-up password" loading="lazy" />
+    </a>
+    <figcaption><code>/api/auth/verify-email</code><span>Verify email</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/magic-link.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/magic-link.png" alt="AuthWAPI magic link confirmation screen asking Sign in as ada@example.com?" loading="lazy" />
+    </a>
+    <figcaption><code>/api/auth/magic-link/verify</code><span>Magic-link confirm</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/forgot-password.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/forgot-password.png" alt="AuthWAPI forgot password page" loading="lazy" />
+    </a>
+    <figcaption><code>/forgot-password</code><span>Request reset</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/reset-password.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/reset-password.png" alt="AuthWAPI choose a new password page" loading="lazy" />
+    </a>
+    <figcaption><code>/reset-password</code><span>Choose new password</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/signed-out.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/signed-out.png" alt="AuthWAPI signed out confirmation page" loading="lazy" />
+    </a>
+    <figcaption><code>/signed-out</code><span>Signed out</span></figcaption>
+  </figure>
+</div>
+
+### Two-factor authentication and passkeys
+
+<div class="aw-shot-grid">
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/two-factor-setup.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/two-factor-setup.png" alt="AuthWAPI two-factor setup page with QR code, manual secret key, backup codes, and confirmation code input" loading="lazy" />
+    </a>
+    <figcaption><code>/two-factor/setup</code><span>QR code &amp; backup codes</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/two-factor-challenge.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/two-factor-challenge.png" alt="AuthWAPI two-factor challenge page with 6-digit code input and backup code disclosure" loading="lazy" />
+    </a>
+    <figcaption><code>/two-factor</code><span>2FA challenge</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/passkeys.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/passkeys.png" alt="AuthWAPI passkeys management page" loading="lazy" />
+    </a>
+    <figcaption><code>/passkeys</code><span>Add a passkey</span></figcaption>
+  </figure>
+</div>
+
+### OAuth consent, organizations and errors
+
+<div class="aw-shot-grid">
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/select-org.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/select-org.png" alt="AuthWAPI choose an organization page with selectable role cards" loading="lazy" />
+    </a>
+    <figcaption><code>/select-org</code><span>Organization picker</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/consent.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/consent.png" alt="AuthWAPI OAuth consent page showing scopes, API resource access, organization badge, and Allow or Deny buttons" loading="lazy" />
+    </a>
+    <figcaption><code>/consent</code><span>OAuth &amp; MCP consent</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/accept-invitation.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/accept-invitation.png" alt="AuthWAPI organization invitation acceptance page" loading="lazy" />
+    </a>
+    <figcaption><code>/accept-invitation</code><span>Org invitation</span></figcaption>
+  </figure>
+  <figure class="aw-shot">
+    <a href="/images/hosted-pages/error.png" target="_blank" rel="noopener noreferrer">
+      <img src="/images/hosted-pages/error.png" alt="AuthWAPI error page displaying a plain-language message and error code" loading="lazy" />
+    </a>
+    <figcaption><code>/error</code><span>Error page</span></figcaption>
+  </figure>
+</div>
+
 ## Errors
 
 Better Auth sends a browser that hit an error to `/error?error=<code>`. The page shows the code, in plain words
